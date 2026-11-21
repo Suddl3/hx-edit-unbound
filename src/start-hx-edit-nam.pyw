@@ -319,6 +319,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     command = focus.checked_set(value) if focus is not None and focus_on[0] else None
                     if command and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': command})
+                elif name in ('model', 'capture'):
+                    # Another model, or a capture, chosen from the pane's list for the block it shows.
+                    check = focus.checked_model if name == 'model' else focus.checked_capture
+                    command = check(value) if focus is not None and focus_on[0] else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
             if focus is not None:
                 focus.on_action = focus_action
             ir_dots = [options.get('irDots') is not False]

@@ -247,10 +247,40 @@ def catalog(resources, settings=None):
                           # what HX Edit can bypass has an "@enabled" switch of its own (an input or an output has none)
                           'bypass': any(isinstance(p, dict) and p.get('symbolicID') == '@enabled' for p in model.get('params') or [])}
     used.add('sync_note')
+    # The models a block can be changed to, as HX Edit's own picker groups them. A stereo folder lists the mono
+    # models again (a block keeps being mono or stereo), so only folders with models of their own are kept; "All"
+    # repeats the folders beside it. Inputs, outputs, splits and merges are not models of a block.
+    lists = []
+    for category in tree.get('categories') or []:
+        name = str(category.get('name') or '')
+        if name in ('None', 'Favorites', 'Connected Devices', 'Input', 'Output', 'Split', 'Merge') or name.startswith('NAM '):
+            continue
+        folders, seen = [], set()
+        for folder in category.get('subcategories') or [category]:
+            if str(folder.get('name') or '') == 'All' and len(category.get('subcategories') or []) > 1:
+                continue
+            symbols = [entry['id'] for entry in folder.get('models') or []
+                       if isinstance(entry, dict) and entry.get('id') in models and entry.get('name')
+                       and entry['id'] not in NAM_ENGINES and entry['id'] not in seen]
+            seen.update(symbols)                           # (a model listed again under Stereo is the same model)
+            if symbols:
+                folders.append({'name': str(folder.get('name') or '') if folder is not category else '', 'models': symbols})
+        if folders:
+            lists.append({'name': name, 'tint': _tint(category.get('color')), 'folders': folders})
     capture_pictures = [_url(host, '{icon}.png').replace('%7Bicon%7D', '{icon}')
                         for host in ('capturesfull', 'captures') if host in folders]
     return {'models': models, 'controls': {display: _control(controls, display) for display in sorted(used) if display},
-            'scenes': known_scenes, 'captures': {'pictures': capture_pictures}, 'nam': list(NAM_ENGINES)}
+            'scenes': known_scenes, 'captures': {'pictures': capture_pictures}, 'nam': list(NAM_ENGINES), 'lists': lists}
+
+
+def model_loads(resources):
+    """{model: DSP load} as HX Edit counts it (HelixModelDefs.bin), for checking a DSP's room before a model is changed."""
+    try:
+        definitions = _clean(msgpack.unpackb((Path(resources) / 'HelixModelDefs.bin').read_bytes()))
+    except (OSError, ValueError, msgpack.exceptions.ExtraData):
+        return {}
+    return {model['symbolicID']: float(model['load']) for model in definitions
+            if isinstance(model, dict) and model.get('symbolicID') and isinstance(model.get('load'), (int, float))}
 
 
 def frida_options(models):
@@ -337,7 +367,8 @@ class FocusView:
         return self._catalog
 
     def frida_options(self):
-        return {**frida_options(self.catalog()['models']), 'focusWriteNotify': write_notify(self.settings)}
+        return {**frida_options(self.catalog()['models']), 'focusWriteNotify': write_notify(self.settings),
+                'focusLoads': model_loads(self.resources)}
 
     def receive(self, value):
         """A message from focus_view.js. True when it was one of this pane's."""
@@ -352,6 +383,37 @@ class FocusView:
 
     def set_on(self, on):
         self.queue.put(('on', bool(on)))
+
+    def _block(self, value):
+        state = self.state if isinstance(self.state, dict) else {}
+        if not isinstance(value, dict):
+            return None
+        return next((b for b in state.get('blocks') or [] if isinstance(b, dict) and b.get('dsp') == value.get('dsp')
+                     and b.get('id') == value.get('id')), None)
+
+    def checked_model(self, value):
+        """The page's request to change a block's model, as the command for focus_view.js, or None: only a block
+        of the chain (not an input, an output, the split or the join), and only a model HX Edit's picker offers."""
+        block = self._block(value)
+        symbol = value.get('symbol') if isinstance(value, dict) else None
+        if not block or not str(block.get('id', '')).startswith('block') or not isinstance(symbol, str):
+            return None
+        offered = {s for group in self.catalog()['lists'] for folder in group['folders'] for s in folder['models']}
+        if symbol not in offered or symbol == block.get('model'):
+            return None
+        return {'action': 'model', 'dsp': block['dsp'], 'id': block['id'], 'symbol': symbol}
+
+    def checked_capture(self, value):
+        """The page's request to put a capture on a block, or None: a capture that is on the Floor (by its slot), on a
+        block of the chain. A NAM block changes capture; another block becomes a NAM block with that capture."""
+        block = self._block(value)
+        slot = value.get('slot') if isinstance(value, dict) else None
+        state = self.state if isinstance(self.state, dict) else {}
+        on_floor = {c.get('slot') for c in state.get('captures') or [] if isinstance(c, dict)}
+        if (not block or not str(block.get('id', '')).startswith('block') or isinstance(slot, bool) or not isinstance(slot, int)
+                or not 1 <= slot <= 127 or slot not in on_floor):
+            return None
+        return {'action': 'capture', 'dsp': block['dsp'], 'id': block['id'], 'slot': slot}
 
     def checked_set(self, value):
         """The page's request to set a value, as the command for focus_view.js, or None when it is not one of the
@@ -369,6 +431,8 @@ class FocusView:
         command = {'action': 'set', 'dsp': block['dsp'], 'id': block['id'], 'key': key, 'phase': value['phase']}
         if key == '@enabled':
             return {**command, 'value': bool(new)} if model.get('bypass') and isinstance(new, bool) else None
+        if key == 'Index' and block.get('model') in NAM_ENGINES:
+            return None                                                          # a capture is chosen from the list
         for p in model['params']:
             sync = p.get('sync') or {}
             if key == sync.get('switch'):

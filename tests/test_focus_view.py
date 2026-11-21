@@ -63,11 +63,17 @@ def resources(folder):
     (res / 'icons_models' / 'icon-inputs_%18.png').write_bytes(b'strip')
     tree = {'categories': [
         {'name': 'Delay', 'id': 5, 'color': '0x00CC00', 'subcategories': [
-            {'name': 'Mono', 'models': [{'id': 'HD2_DelayTest', 'name': 'Test Delay', 'image': 'FX_Delay.png', 'params': DELAY_ORDER}]}]},
+            {'name': 'All', 'models': [{'id': 'HD2_DelayTest', 'name': 'Test Delay', 'image': 'FX_Delay.png', 'params': DELAY_ORDER}]},
+            {'name': 'Mono', 'models': [{'id': 'HD2_DelayTest', 'name': 'Test Delay', 'image': 'FX_Delay.png', 'params': DELAY_ORDER},
+                                        {'id': 'HD2_DelayOther', 'name': 'Other Delay', 'image': 'FX_Delay.png', 'params': []}]},
+            {'name': 'Stereo', 'models': [{'id': 'HD2_DelayTest', 'use_subcategory': 4}, {'id': 'HD2_DelayOther', 'name': 'Other Delay'},
+                                          {'id': 'HD2_DelayWide', 'name': 'Wide Delay', 'image': 'FX_Delay.png', 'params': []}]}]},
         {'name': 'Input', 'id': 18, 'color': '0x989898', 'models': [{'id': 'HD2_In', 'name': 'Input', 'image': 'icon-inputs_%18.png', 'params': []}]},
         {'name': 'NAM Amp', 'id': 24, 'color': '0xB070E0', 'subcategories': [
             {'name': 'All', 'models': [{'id': 'HD2_AmpNAMLite', 'name': 'NAM A2 Lite  ', 'image': 'X.png', 'params': [{'Index': 'Model'}]}]}]}]}
-    definitions = [DELAY, NAM, {'symbolicID': 'HD2_In', 'name': 'Input', 'params': []}]
+    definitions = [DELAY, NAM, {'symbolicID': 'HD2_In', 'name': 'Input', 'params': []},
+                   {'symbolicID': 'HD2_DelayOther', 'name': 'Other Delay', 'load': 30.0, 'params': []},
+                   {'symbolicID': 'HD2_DelayWide', 'name': 'Wide Delay', 'load': 4.5, 'params': []}]
     (res / 'HelixModelDefs.bin').write_bytes(msgpack.packb(nul(definitions), use_single_float=True))
     (res / 'HX_ModelCatalog.bin').write_bytes(msgpack.packb(nul(tree), use_single_float=True))
     (res / 'HelixControls.json').write_text(json.dumps(CONTROLS), encoding='utf-8')
@@ -123,6 +129,15 @@ class CatalogTests(unittest.TestCase):
         nam = focus_view.catalog(self.res, {})['models']['HD2_AmpNAMLite']
         self.assertEqual((nam['name'], nam['category'], nam['key'], nam['scene']), ('NAM A2 Lite', 'NAM', 'amp', 'stage'))
         self.assertEqual(nam['tint'], [0xB0, 0x70, 0xE0])
+
+    def test_the_lists_a_model_is_chosen_from_are_hx_edits_own_without_repeats(self):
+        lists = focus_view.catalog(self.res, {})['lists']
+        self.assertEqual([group['name'] for group in lists], ['Delay'])           # no Input, no NAM category: those are not models to pick
+        self.assertEqual(lists[0]['tint'], [0, 204, 0])
+        # "All" repeats the folders beside it; a model listed again under Stereo is the same model.
+        self.assertEqual(lists[0]['folders'], [{'name': 'Mono', 'models': ['HD2_DelayTest', 'HD2_DelayOther']},
+                                               {'name': 'Stereo', 'models': ['HD2_DelayWide']}])
+        self.assertEqual(focus_view.model_loads(self.res), {'HD2_DelayOther': 30.0, 'HD2_DelayWide': 4.5})
 
     def test_the_stock_input_strip_is_never_a_picture(self):
         self.assertEqual(focus_view.catalog(self.res, {})['models']['HD2_In']['pictures'], [])
@@ -253,6 +268,28 @@ class PaneDriverTests(unittest.TestCase):
                         self.view.checked_set('Mix'), self.view.checked_set(None)):
             self.assertIsNone(refused)
 
+    def test_a_model_or_a_capture_chosen_in_the_page_is_checked_against_what_there_is(self):
+        self.view.receive({'type': 'focusState', 'state': {'blocks': [
+            {'dsp': 0, 'id': 'block2', 'model': 'HD2_DelayTest'}, {'dsp': 1, 'id': 'block0', 'model': 'HD2_AmpNAMLite', 'slot': 18},
+            {'dsp': 0, 'id': 'inputA', 'model': 'HD2_In'}], 'selected': None, 'values': {},
+            'captures': [{'slot': 18, 'name': 'Jcm800', 'icon': 'brit_gold_head'}, {'slot': 24, 'name': 'Acoustic Guitar', 'icon': ''}]}})
+        self.assertTrue(self.wait(lambda: self.view.state))
+        model = lambda symbol, dsp=0, block='block2': self.view.checked_model({'dsp': dsp, 'id': block, 'symbol': symbol})
+        self.assertEqual(model('HD2_DelayOther'), {'action': 'model', 'dsp': 0, 'id': 'block2', 'symbol': 'HD2_DelayOther'})
+        self.assertEqual(model('HD2_DelayWide', 1, 'block0')['symbol'], 'HD2_DelayWide')      # a NAM block can become a stock one
+        for refused in (model('HD2_DelayTest'),                       # the model it already is
+                        model('HD2_AmpNAMLite'), model('HD2_In'), model('HD2_Nope'), model(7),
+                        model('HD2_DelayOther', 0, 'inputA'), model('HD2_DelayOther', 0, 'block9'), self.view.checked_model(None)):
+            self.assertIsNone(refused)
+        capture = lambda slot, dsp=1, block='block0': self.view.checked_capture({'dsp': dsp, 'id': block, 'slot': slot})
+        self.assertEqual(capture(24), {'action': 'capture', 'dsp': 1, 'id': 'block0', 'slot': 24})
+        self.assertEqual(capture(18, 0, 'block2')['slot'], 18)        # another block becomes a NAM block with that capture
+        for refused in (capture(3), capture(128), capture(0), capture('24'), capture(True), capture(24, 0, 'inputA'),
+                        self.view.checked_capture('24')):
+            self.assertIsNone(refused)
+        # A capture slot is never set as a plain value.
+        self.assertIsNone(self.view.checked_set({'dsp': 1, 'id': 'block0', 'key': 'Index', 'value': 24, 'phase': 'single'}))
+
     def test_the_pages_editor_button_and_a_pane_that_fails_reach_the_launcher(self):
         self.view.set_on(True)
         self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 41, 'w': 1920, 'h': 913}})
@@ -265,8 +302,12 @@ class PaneDriverTests(unittest.TestCase):
 
 def run_js(files, expression):
     source = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in files)
-    result = subprocess.run([NODE, '-e', source + f'\nprocess.stdout.write(JSON.stringify({expression}));'],
-                            capture_output=True, text=True, timeout=30)
+    # (from a file: with a long expression the script is more than a Windows command line may hold)
+    import tempfile
+    with tempfile.TemporaryDirectory() as folder:
+        script = Path(folder, 'run.cjs')
+        script.write_text(source + f'\nprocess.stdout.write(JSON.stringify({expression}));', encoding='utf-8')
+        result = subprocess.run([NODE, str(script)], capture_output=True, text=True, timeout=30)
     if result.returncode:
         raise AssertionError(result.stderr)
     return json.loads(result.stdout)
@@ -341,6 +382,14 @@ class ScriptTests(unittest.TestCase):
         # Full: a waiting change makes room for an end; with only begins, singles and ends waiting, the newest is refused.
         self.assertEqual(run_js(['focus_view.js'], run % json.dumps(full)), ['a:begin:1', 'c:single:3', 'd:single:4', 'e:end:5'])
 
+    def test_a_model_is_refused_where_the_dsp_has_no_room(self):
+        room = lambda view, now, then: run_js(['focus_view.js'], f'focusRoom({json.dumps(view)}, {{A: 5, B: 30, C: 20}}, {json.dumps(now)}, {json.dumps(then)}, 1)')
+        self.assertEqual(room({'used': 54, 'budget': 75}, 'A', 'B'), 'DSP 2 has no room for that model (79 of 75).')
+        self.assertIsNone(room({'used': 54, 'budget': 75}, 'A', 'C'))               # 69 of 75
+        self.assertIsNone(room({'used': 54, 'budget': 75}, 'B', 'B'))
+        self.assertIsNone(room(None, 'A', 'B'))                                     # no figure from the Floor: HX Edit decides
+        self.assertIsNone(room({'used': 54, 'budget': 75}, 'A', 'Unknown'))
+
     def test_a_value_is_written_with_the_flags_hx_edits_own_sliders_use(self):
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         self.assertIn('WRITE_FLAGS = Object.freeze({single: 0x80000000, begin: 0x80000001, move: 0x80000003, end: 0x80000002,', binding)
@@ -356,7 +405,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.setValue(target, dsp, id, key, value, 'refresh')", script)
-        self.assertEqual(script.count('finish('), 4)                       # defined once; after a single change and each way a drag ends
+        self.assertEqual(script.count('finish('), 5)                       # defined once; after a single change, each way a drag ends, a capture
 
     def test_the_pane_never_outlives_hx_edit(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
@@ -390,8 +439,13 @@ class WiringTests(unittest.TestCase):
 
     def test_the_script_writes_only_values_and_a_selection_is_a_click_on_the_chain(self):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        for other in ('setIndex', 'setModel', 'addModel', 'writeValue', '.restore(', 'Interceptor.replace', 'writePointer', 'writeU32'):
+        for other in ('addModel', 'writeValue', '.restore(', 'Interceptor.replace', 'writePointer', 'writeU32'):
             self.assertNotIn(other, script)
+        # A model or a capture from the pane's list: HX Edit's own picker calls, on a block of the chain, room checked first.
+        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 1))
+        swap = script[script.index('function swap(command)'):script.index('function finish(') if script.index('function finish(') > script.index('function swap(command)') else script.index('function endDrag(')]
+        self.assertLess(swap.index('focusRoom('), swap.index('targetBinding.setModel('))
+        self.assertIn('!chainBlock.test(block.id)', swap)
         # Every write is a value of a block the pane shows, one of its model's controls or its bypass.
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
         self.assertEqual(script.count('targetBinding.setValue('), 4)      # the write, a drag closed for the pane (twice), the refresh
@@ -402,6 +456,7 @@ class WiringTests(unittest.TestCase):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("'action': 'select'", launcher)
         self.assertIn('focus.checked_set(value)', launcher)             # a value from the page is checked before it is sent
+        self.assertIn("check = focus.checked_model if name == 'model' else focus.checked_capture", launcher)
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         peek = binding[binding.index('function peekValue'):binding.index('// Focus Mode: a value of a block written')]
         self.assertIn('parameter(', peek)
@@ -416,13 +471,15 @@ class WiringTests(unittest.TestCase):
             self.assertIn(name, module.APP_FILES)
             self.assertTrue((ROOT / name).is_file())
 
-    def test_the_page_is_local_and_asks_only_to_leave_select_a_block_or_set_a_value(self):
+    def test_the_page_is_local_and_asks_only_for_what_the_launcher_checks(self):
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
         self.assertNotIn('http://', page)
         self.assertEqual(page.count('https://'), 0)                      # no font, script or picture from the internet
         self.assertIn("ask('exit')", page)
         self.assertIn("ask('select', {dsp: b.dsp, id: b.id})", page)
         self.assertIn("ask('set', {dsp: block.dsp, id: block.id, key, value, phase})", page)
+        self.assertIn("ask('model', {dsp: block.dsp, id: block.id, symbol})", page)
+        self.assertIn("ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot})", page)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
         self.assertIn('args.Cancel = args.Uri != page', pane)            # the pane opens nothing but the page
 

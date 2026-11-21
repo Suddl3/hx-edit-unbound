@@ -8,7 +8,9 @@
 // A block picked in the pane's chain strip is selected by a click on that block in HX Edit's own
 // chain (under the pane). A knob, a switch or the bypass turned in the pane is one value of the
 // selected block, written as HX Edit's own sliders write it (target_binding setValue): a drag is a
-// begin, its changes and an end, so HX Edit undoes it in one step. Nothing else is ever written.
+// begin, its changes and an end, so HX Edit undoes it in one step. A model or a capture chosen from
+// the pane's list is set as HX Edit's own block picker sets it (target_binding setModel, setIndex),
+// after checking the DSP has room. Nothing else is ever written.
 // (The notification handler 0x218a00 is hooked by nam_view and tone_view before this script installs, so its
 // first bytes are already Frida's jump: it is guarded there, and by the launcher's check of the whole exe.)
 const focusViewGuards = Object.freeze({
@@ -109,6 +111,16 @@ function focusQueue(queue, command, limit = 32) {
   return queue;
 }
 
+// Whether a DSP has room for model `next` in place of model `now`, by the Floor's own figures (dsp_meter.js: what
+// its blocks use of what they may). null when it fits or cannot be known; else the words for the user.
+function focusRoom(view, loads, now, next, dsp) {
+  if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
+  const cost = Number(loads[next]);
+  if (!Number.isFinite(cost)) return null;
+  const after = Math.round((view.used - (Number(loads[now]) || 0) + cost) * 10) / 10;
+  return after <= view.budget ? null : `DSP ${dsp + 1} has no room for that model (${after} of ${view.budget}).`;
+}
+
 // The pane's place: the main window below HX Edit's top row (preset, undo, DSP meter), down to the
 // edit panel's bottom, across the whole window. sf/ed/main: {x, y, w, h} of the signal flow view
 // ('sfvc'), the editor view ('edvw') and the window's root view ('main'), in client coordinates.
@@ -143,6 +155,29 @@ function installFocusView(options, parts) {
   const DRAG_IDLE_MS = 4000;
   // HX Edit's own sliders are shown what the pane has set (target_binding "refresh"), unless turned off.
   const notify = options.focusWriteNotify !== false;
+  const loads = options.focusLoads || {};
+  const chainBlock = /^block\d{1,2}$/, modelSymbol = /^[A-Za-z0-9_]{3,64}$/;
+  function swap(command) {
+    // Another model, or a capture, for a block of the chain: refused with a word by the DSP meter when the DSP
+    // has no room (HX Edit itself would answer with an error box).
+    const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
+    if (!block || !chainBlock.test(block.id) || editor.isNull()) { send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-skipped'}); return; }
+    endDrag('a model change');
+    const isNam = namEngines.includes(block.model);
+    const next = command.action === 'capture' ? (isNam ? block.model : namEngines[0]) : command.symbol;
+    if (next !== block.model) {
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], loads, block.model, next, block.dsp);
+      if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-no-room'}); return; }
+      targetBinding.setModel(editor, block.dsp, block.id, next);
+    }
+    // A NAM block's capture at once: left on slot 1 (a plain IR) it would silence the Floor (tone_view drop-replace).
+    if (command.action === 'capture') {
+      targetBinding.setIndex(editor, block.dsp, block.id, command.slot);
+      finish(editor, block.dsp, block.id, 'Index', command.slot);
+    }
+    changed = true;
+    send({type: 'toneTrace', reason: 'focus-view', stage: 'swap', action: command.action, to: next});
+  }
   function finish(target, dsp, id, key, value) {
     // After a single change or a drag's end: the same value once more, for HX Edit's own views only.
     if (!notify) return;
@@ -202,8 +237,8 @@ function installFocusView(options, parts) {
     if (!on) return;
     while (writes.length) {
       const command = writes.shift();
-      try { write(command); }
-      catch (error) { drag = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'write-failed', key: String(command.key).slice(0, 32), error: String(error.message)}); }
+      try { if (command.action) swap(command); else write(command); }
+      catch (error) { drag = null; changed = true; send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)}); }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
     try {
@@ -295,6 +330,11 @@ function installFocusView(options, parts) {
                  (typeof value.value === 'boolean' || Number.isFinite(value.value))) {
         focusQueue(writes, {dsp: value.dsp, id: value.id, key: value.key, value: value.value, phase: value.phase});
         queued = false; ask();
+      } else if (on && [0, 1].includes(value.dsp) && typeof value.id === 'string' && chainBlock.test(value.id) && writes.length < 32 &&
+                 ((value.action === 'model' && typeof value.symbol === 'string' && modelSymbol.test(value.symbol) && !namEngines.includes(value.symbol)) ||
+                  (value.action === 'capture' && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127))) {
+        writes.push({action: value.action, dsp: value.dsp, id: value.id, symbol: value.symbol, slot: value.slot});
+        queued = false; ask();
       }
       commands();
     });
@@ -304,5 +344,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusPaneBounds, focusQueue, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusPaneBounds, focusQueue, focusRoom, installFocusView };
 }
