@@ -117,6 +117,7 @@
             background: rgb(8 8 10 / .88); backdrop-filter: blur(22px) saturate(1.2); box-shadow: 1px 0 0 rgb(255 255 255 / .1), 30px 0 80px rgb(0 0 0 / .6);
             transform: translateX(-104%); transition: transform .28s cubic-bezier(.2, .8, .2, 1); }
   .picker.open { transform: none; }
+  .scene.picking .title { visibility: hidden; }             /* the list covers the title: a long name must not peek out beside it */
   .picker header { display: flex; align-items: baseline; justify-content: space-between; padding: 20px 22px 10px 26px; }
   .picker h2 { margin: 0; font-size: 22px; font-weight: 600; font-stretch: 87%; }
   .picker header button { font-size: 14px; color: var(--dim); }
@@ -433,10 +434,16 @@ function current() {
 }
 
 // ---- the chain strip ----------------------------------------------------------------------------
+let shownChain = '';
 function drawChain() {
+  const now = current(), groups = ordered();
+  // Only when the chain itself has changed (not with every value): its pictures are not loaded again for a knob turn.
+  const key = JSON.stringify([groups.map(group => group.map(b => [b.dsp, b.id, b.model, b.enabled, b.path, b.slot ?? 0, (capture(b) || {}).icon || ''])),
+                              now ? [now.dsp, now.id] : null]);
+  if (key === shownChain) return;
+  shownChain = key;
   const chain = $('chain'); chain.textContent = '';
-  const now = current();
-  ordered().forEach((group, index) => {
+  groups.forEach((group, index) => {
     if (index) { const mark = document.createElement('span'); mark.className = 'mark'; mark.textContent = 'DSP 2'; chain.append(mark); }
     const run = document.createElement('div'); run.className = 'run';
     for (const b of group) {
@@ -447,7 +454,7 @@ function drawChain() {
       item.style.setProperty('--c', m.tint.join(' '));
       item.title = m.name + (taken ? ', ' + taken.name : '') + (b.enabled ? '' : ' (bypassed)');
       item.innerHTML = '<span class="pic"><img alt=""></span><span class="nm"></span>';
-      const img = item.querySelector('img'), urls = pictures(b).slice();
+      const img = item.querySelector('img'), urls = pictures(b).slice().reverse();   // the small picture is plenty here
       img.onerror = () => { if (urls.length) img.src = urls.shift(); else img.style.visibility = 'hidden'; };
       if (urls.length) img.src = urls.shift(); else img.style.visibility = 'hidden';
       item.querySelector('.nm').textContent = taken ? taken.name : m.name;
@@ -661,13 +668,13 @@ function openPicker(kind) {
   $('pickerSearch').hidden = kind === 'capture';
   $('pickerKinds').hidden = kind === 'capture';
   fillPicker();
-  const picker = $('picker'); picker.classList.add('open'); picker.inert = false;
+  const picker = $('picker'); picker.classList.add('open'); picker.inert = false; scene.classList.add('picking');
   if (kind !== 'capture') setTimeout(() => $('pickerSearch').focus(), 60);
 }
 function closePicker() {
   if (!picking) return;
   picking = null;
-  const picker = $('picker'); picker.classList.remove('open'); picker.inert = true;
+  const picker = $('picker'); picker.classList.remove('open'); picker.inert = true; scene.classList.remove('picking');
 }
 function row(name, urls, note, isCurrent, choose) {
   const el = document.createElement('button');
@@ -750,7 +757,7 @@ function render() {
 }
 function receive(message) {
   if (!message || typeof message !== 'object') return;
-  if (message.type === 'catalog') { catalog = message.catalog; shownKey = ''; shownPicture = ''; }
+  if (message.type === 'catalog') { catalog = message.catalog; shownKey = ''; shownPicture = ''; shownChain = ''; }
   else if (message.type === 'state') state = message.state;
   else if (message.type === 'shown') { visible = message.shown === true; if (visible) place(); else closePicker(); return; }
   else return;
@@ -764,7 +771,7 @@ $('modelButton').onclick = () => picking === 'model' ? closePicker() : openPicke
 $('captureButton').onclick = () => picking === 'capture' ? closePicker() : openPicker('capture');
 $('pickerClose').onclick = closePicker;
 $('pickerSearch').oninput = () => { fillPicker(); $('pickerRows').scrollTop = 0; };
-scene.addEventListener('pointerdown', e => { if (picking && !e.target.closest('.picker, .title')) closePicker(); });
+scene.addEventListener('pointerdown', e => { if (picking && !e.target.closest('.picker')) closePicker(); });
 $('floorToggle').onclick = e => {
   const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
   e.currentTarget.setAttribute('aria-pressed', on); $('floor').classList.toggle('away', !on);
