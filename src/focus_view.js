@@ -148,7 +148,7 @@ function installFocusView(options, parts) {
   // changed, and every two seconds in any case.
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
-  let known = null, knownAt = 0, changed = true, wanted = null;
+  let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [];
   // Value writes from the pane, and the drag HX Edit has been told has begun (ended by us if the pane never does).
   const writes = [];
   let drag = null;
@@ -253,7 +253,9 @@ function installFocusView(options, parts) {
       const full = !state;
       if (full) { state = focusSnapshot(peek, cursor, parameters, namEngines); knownAt = began; changed = false; }
       known = state.blocks;
-      state.captures = state.blocks.some(block => block.slot !== undefined) ? captures() : [];
+      // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
+      if (full) onFloor = captures();
+      state.captures = onFloor;
       if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: full ? 'read' : 'read-values', ms: Date.now() - began, blocks: state.blocks.length, selected: !!state.selected}); }
       publish(state);
       if (wanted) select(wanted);
@@ -292,7 +294,7 @@ function installFocusView(options, parts) {
     }
     on = value === true;
     if (timer) { clearInterval(timer); timer = null; }
-    lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null;
+    lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = [];
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }
     send({type: 'toneTrace', reason: 'focus-view', stage: on ? 'on' : 'off'});
   }

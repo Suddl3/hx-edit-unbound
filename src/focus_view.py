@@ -24,6 +24,7 @@ from urllib.parse import quote
 
 import msgpack
 
+import capture_icons
 import floor_store
 
 ROOT = Path(__file__).resolve().parent
@@ -358,6 +359,7 @@ class FocusView:
         self.queue = Queue()
         self.closed = Event()
         self._catalog = None
+        self._pictures = {}
         self.worker = Thread(target=self._run, daemon=True)
         self.worker.start()
 
@@ -383,6 +385,25 @@ class FocusView:
 
     def set_on(self, on):
         self.queue.put(('on', bool(on)))
+
+    def with_pictures(self, state):
+        """The state with a picture for every capture: its own when it has one of the pack's, else the one the library
+        picks from its name and gear (capture_icons.pick), as the NAM tab and the chain do."""
+        captures = state.get('captures') if isinstance(state, dict) else None
+        if not isinstance(captures, list):
+            return state
+        known = set(capture_icons.known_icons())
+        for capture in captures:
+            if not isinstance(capture, dict) or capture.get('icon') in known:
+                continue
+            key = (str(capture.get('name') or ''), str(capture.get('gear') or ''))
+            if key not in self._pictures:
+                try:
+                    self._pictures[key] = capture_icons.pick(key[0], key[1] or None)
+                except (OSError, ValueError, KeyError, IndexError):
+                    self._pictures[key] = ''
+            capture['icon'] = self._pictures[key]
+        return state
 
     def _block(self, value):
         state = self.state if isinstance(self.state, dict) else {}
@@ -522,7 +543,7 @@ class FocusView:
                     self._act('failed', self.failed)
             self._place()
         elif kind == 'state':
-            self.state = value
+            self.state = self.with_pictures(value)
             self._show_state()
         elif kind == 'pane':
             event = value.get('type')

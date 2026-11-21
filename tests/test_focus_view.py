@@ -290,6 +290,20 @@ class PaneDriverTests(unittest.TestCase):
         # A capture slot is never set as a plain value.
         self.assertIsNone(self.view.checked_set({'dsp': 1, 'id': 'block0', 'key': 'Index', 'value': 24, 'phase': 'single'}))
 
+    def test_every_capture_has_a_picture_as_the_library_gives_it_one(self):
+        import capture_icons
+        state = self.view.with_pictures({'blocks': [], 'captures': [
+            {'slot': 18, 'name': 'Jcm800', 'icon': '', 'gear': 'amp-cab'},
+            {'slot': 24, 'name': 'Acoustic Guitar', 'icon': 'acoustic_guitar', 'gear': ''},
+            {'slot': 9, 'name': 'Tube Screamer Gain=4', 'icon': 'u_0123456789abcdef', 'gear': 'pedal'}]})
+        jcm, guitar, pedal = state['captures']
+        self.assertEqual(jcm['icon'], capture_icons.pick('Jcm800', 'amp-cab'))       # none recorded: picked from its name
+        self.assertIn(jcm['icon'], capture_icons.known_icons())
+        self.assertEqual(guitar['icon'], 'acoustic_guitar')                          # its own picture is kept
+        self.assertEqual(pedal['icon'], capture_icons.pick('Tube Screamer Gain=4', 'pedal'))   # an uploaded one: the pack's stand-in
+        self.assertEqual(self.view.with_pictures({'blocks': []}), {'blocks': []})
+        self.assertIsNone(self.view.with_pictures(None))
+
     def test_the_pages_editor_button_and_a_pane_that_fails_reach_the_launcher(self):
         self.view.set_on(True)
         self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 41, 'w': 1920, 'h': 913}})
@@ -450,6 +464,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
         self.assertEqual(script.count('targetBinding.setValue('), 4)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
+        self.assertIn('if (full) onFloor = captures();', script)        # the captures are listed whatever the preset holds
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]
         self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain

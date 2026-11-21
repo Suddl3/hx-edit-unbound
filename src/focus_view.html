@@ -752,7 +752,7 @@ function receive(message) {
   if (!message || typeof message !== 'object') return;
   if (message.type === 'catalog') { catalog = message.catalog; shownKey = ''; shownPicture = ''; }
   else if (message.type === 'state') state = message.state;
-  else if (message.type === 'shown') { visible = message.shown === true; if (visible) place(); return; }
+  else if (message.type === 'shown') { visible = message.shown === true; if (visible) place(); else closePicker(); return; }
   else return;
   render();
 }
