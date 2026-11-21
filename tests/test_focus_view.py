@@ -713,14 +713,16 @@ class ScriptTests(unittest.TestCase):
         # the same dot on what is not at its default elsewhere: a block of the preset, the preset's own background, a block's two choices, a tab
         for piece in (".cats > button.changed span:first-child::after, .blocks button.changed b::after, .parts button.changed b::after {",
                       "(from.from !== 'default' ? ' changed' : '')", "el('button', whole ? 'changed' : '')",
-                      # each dot beside what it speaks for: a picture of its own has its dot before the words that say so
-                      "el('small', pictured ? 'pictured' : '', (pictured ? 'Own picture, ' : '') + (kindOf(item) || 'Block'))",
-                      ".blocks small.pictured::before",
-                      # the tag beside a block's background speaks for the background alone; its own picture is said under the name
+                      # under the name, the kind alone
+                      "el('small', '', kindOf(item) || 'Block')",
+                      # the tag beside a block's background speaks for the background alone
                       "el('span', 'tag ' + from.from, from.from === 'own' ? 'Its own' : from.from === 'preset' ? 'Preset' : 'Default')",
                       "tag.title = 'Its background: '"):
             self.assertIn(piece, page)
         self.assertNotIn('.scope button.changed', page)                               # not on the tabs (the owner: a dot too many)
+        # a picture of its own is not said in words in the preset's list (the owner: confusing); the picture itself shows it
+        self.assertNotIn('Own picture', page)
+        self.assertNotIn('small.pictured', page)
         # a background of its own that is the one the block would have anyway is not "its own"
         self.assertIn("if (own && own !== under) return {name: own, from: 'own'};", page)
         # a row left open closes when its tab is left
