@@ -1591,15 +1591,22 @@ class UnboundButton : Form
                     for(int i=-1;i<=1;i++)g.DrawLine(pen,cx,cy+i*3.5f,cx+MarkSize,cy+i*3.5f);
                 if(named)DrawName(g,box,cx+MarkSize,"UNBOUND");
             }else{
-                // Options: a gear.
+                // Options: a cog (a toothed wheel with a hole), not a sun: eight square teeth on a solid ring.
                 float mx=cx+MarkSize/2f;
-                using(var pen=new Pen(Ink,1.3f){StartCap=System.Drawing.Drawing2D.LineCap.Round,EndCap=System.Drawing.Drawing2D.LineCap.Round}){
-                    g.DrawEllipse(pen,mx-2.4f,cy-2.4f,4.8f,4.8f);
-                    for(int spoke=0;spoke<8;spoke++){
-                        double angle=spoke*Math.PI/4;
-                        float dx=(float)Math.Cos(angle), dy=(float)Math.Sin(angle);
-                        g.DrawLine(pen,mx+dx*3.9f,cy+dy*3.9f,mx+dx*5.4f,cy+dy*5.4f);
+                using(var cog=new System.Drawing.Drawing2D.GraphicsPath(System.Drawing.Drawing2D.FillMode.Alternate)){
+                    const int Teeth=8; const float Outer=5.6f, Root=4.1f, Hole=1.8f;
+                    var points=new PointF[Teeth*4];
+                    double step=2*Math.PI/Teeth, half=step*0.24, slope=step*0.10;      // a tooth's half width at its tip, and its flank
+                    for(int tooth=0;tooth<Teeth;tooth++){
+                        double mid=tooth*step-Math.PI/2;
+                        double[] angles={mid-half-slope,mid-half,mid+half,mid+half+slope};
+                        float[] radii={Root,Outer,Outer,Root};
+                        for(int corner=0;corner<4;corner++)
+                            points[tooth*4+corner]=new PointF(mx+(float)Math.Cos(angles[corner])*radii[corner],cy+(float)Math.Sin(angles[corner])*radii[corner]);
                     }
+                    cog.AddPolygon(points);
+                    cog.AddEllipse(mx-Hole,cy-Hole,2*Hole,2*Hole);
+                    using(var fill=new SolidBrush(Ink))g.FillPath(fill,cog);
                 }
             }
         }
