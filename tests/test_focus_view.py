@@ -83,6 +83,8 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual((time_['kind'], size['kind'], trails['kind'], depth['kind']), ('knob', 'steps', 'switch', 'knob'))
         self.assertEqual(mix['name'], 'Blend')                                                        # the catalog's own label wins
         self.assertEqual((time_['min'], time_['max'], time_['default']), (.02, 1.8, .4))
+        self.assertTrue(size.get('whole'))                                                            # whole steps only
+        self.assertNotIn('whole', mix)
 
     def test_stereo_only_values_and_the_blocks_own_flags_are_not_controls(self):
         ids = [p['id'] for p in focus_view.parameters(DELAY, None, CONTROLS)]
@@ -109,6 +111,8 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual((delay['name'], delay['category'], delay['key'], delay['tint']), ('Test Delay', 'Delay', 'delay', [0, 204, 0]))
         self.assertEqual(delay['scene'], 'deep_sea')                                # the Floor tool's default for Delay
         self.assertEqual(delay['pictures'], ['https://models.focus.example/FX_Delay.png'])
+        self.assertTrue(delay['bypass'])                                            # it has an "@enabled" of its own
+        self.assertFalse(catalog['models']['HD2_In']['bypass'])
         self.assertEqual(catalog['controls']['time_ms_20_1800']['dspToDisplayScale'], 1000.0)   # the alias is followed
         self.assertNotIn('step', catalog['controls']['generic_knob'])               # only what the page draws with
         self.assertIn('sync_note', catalog['controls'])
@@ -226,6 +230,29 @@ class PaneDriverTests(unittest.TestCase):
         self.assertTrue(self.wait(lambda: self.lines('C')[-1] == {'visible': False, 'x': 0, 'y': 41, 'w': 1920, 'h': 913}))
         self.assertFalse(self.view.receive({'type': 'dspLoad'}))        # not one of this pane's messages
 
+    def test_a_value_set_in_the_page_is_one_control_of_the_shown_block_inside_its_range(self):
+        self.view.receive({'type': 'focusState', 'state': {'blocks': [
+            {'dsp': 0, 'id': 'block2', 'model': 'HD2_DelayTest'}, {'dsp': 1, 'id': 'block0', 'model': 'HD2_AmpNAMLite'},
+            {'dsp': 0, 'id': 'inputA', 'model': 'HD2_In'}], 'selected': None, 'values': {}}})
+        self.assertTrue(self.wait(lambda: self.view.state))
+        ask = lambda key, value, phase='single', dsp=0, block='block2': self.view.checked_set(
+            {'dsp': dsp, 'id': block, 'key': key, 'value': value, 'phase': phase})
+        self.assertEqual(ask('Mix', .25, 'move'), {'action': 'set', 'dsp': 0, 'id': 'block2', 'key': 'Mix', 'value': .25, 'phase': 'move'})
+        self.assertEqual(ask('Mix', 7)['value'], 1.0)                              # kept inside the model's range
+        self.assertAlmostEqual(ask('Time', -3)['value'], .02, places=6)
+        self.assertEqual(ask('BBD Size', 2.6)['value'], 3)                         # a list of positions: whole steps
+        self.assertIs(type(ask('BBD Size', 1.2)['value']), int)
+        self.assertEqual(ask('@trails', True)['value'], True)
+        self.assertEqual(ask('TempoSync1', True)['value'], True)                   # the control's own tempo switch
+        self.assertEqual(ask('SyncSelect1', 9)['value'], 2)                        # and its note, inside the list of notes
+        self.assertEqual(ask('@enabled', False)['value'], False)                   # bypass
+        self.assertEqual(ask('Polarity', True, dsp=1, block='block0')['value'], True)
+        for refused in (ask('@model', 'HD2_X'), ask('@position', 3), ask('Scale', .5), ask('Nope', 1), ask('Mix', 'loud'),
+                        ask('Mix', None), ask('Mix', True), ask('@trails', 1), ask('Mix', float('nan')), ask('Mix', .5, phase='now'),
+                        ask('Mix', .5, block='block9'), ask('@enabled', False, block='inputA'),   # an input has no bypass
+                        self.view.checked_set('Mix'), self.view.checked_set(None)):
+            self.assertIsNone(refused)
+
     def test_the_pages_editor_button_and_a_pane_that_fails_reach_the_launcher(self):
         self.view.set_on(True)
         self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 41, 'w': 1920, 'h': 913}})
@@ -302,6 +329,26 @@ class ScriptTests(unittest.TestCase):
             self.assertIsNone(point(nowhere))
         self.assertIsNone(run_js(['focus_view.js'], 'focusChainPoint(null, {id: "inputA"})'))
 
+    def test_of_a_drags_changes_only_the_newest_waits_and_its_begin_and_end_are_kept(self):
+        run = '''(() => { const queue = [];
+          for (const [key, phase, value] of %s) focusQueue(queue, {dsp: 0, id: "block0", key, value, phase}, 4);
+          return queue.map(c => c.key + ":" + c.phase + ":" + c.value); })()'''
+        steps = [['a', 'begin', 1], ['a', 'move', 2], ['a', 'move', 3], ['a', 'move', 4], ['a', 'end', 4]]
+        self.assertEqual(run_js(['focus_view.js'], run % json.dumps(steps)), ['a:begin:1', 'a:move:4', 'a:end:4'])
+        mixed = [['a', 'move', 1], ['b', 'move', 2], ['a', 'move', 3]]            # another value in between: both kept, in order
+        self.assertEqual(run_js(['focus_view.js'], run % json.dumps(mixed)), ['a:move:1', 'b:move:2', 'a:move:3'])
+        full = [['a', 'begin', 1], ['b', 'move', 2], ['c', 'single', 3], ['d', 'single', 4], ['e', 'end', 5], ['f', 'single', 6], ['g', 'single', 7]]
+        # Full: a waiting change makes room for an end; with only begins, singles and ends waiting, the newest is refused.
+        self.assertEqual(run_js(['focus_view.js'], run % json.dumps(full)), ['a:begin:1', 'c:single:3', 'd:single:4', 'e:end:5'])
+
+    def test_a_value_is_written_with_the_flags_hx_edits_own_sliders_use(self):
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        self.assertIn('WRITE_FLAGS = Object.freeze({single: 0x80000000, begin: 0x80000001, move: 0x80000003, end: 0x80000002})', binding)
+        write = binding[binding.index('function setValue'):binding.index('function setIndex')]
+        for check in ('fixedKeys.has(key)', 'placePattern.test(blockName)', "typeof value !== 'boolean'", 'Number.isFinite(value)'):
+            self.assertIn(check, write)
+        self.assertIn("new Set(['@model', '@position', '@path', '@type', '@stereo'])", binding)   # never through this door
+
     def test_the_pane_covers_the_signal_flow_and_the_edit_panel_across_the_window(self):
         box = run_js(['focus_view.js'], 'focusPaneBounds({x:318,y:45,w:1592,h:248}, {x:308,y:0,w:1612,h:954}, {x:0,y:0,w:1920,h:989})')
         self.assertEqual(box, {'x': 0, 'y': 39, 'w': 1920, 'h': 915})                 # HX Edit's top row and status bar stay
@@ -327,18 +374,22 @@ class WiringTests(unittest.TestCase):
                       "meter.set_chain_option('focusMode', on)", 'focus.receive(payload)', 'focus.close()'):
             self.assertIn(piece, launcher)
 
-    def test_the_script_only_reads_and_a_selection_is_a_click_on_the_chain(self):
+    def test_the_script_writes_only_values_and_a_selection_is_a_click_on_the_chain(self):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        for writer in ('setIndex', 'setModel', 'addModel', 'writeValue', '.restore(', 'Interceptor.replace', 'write'):
-            self.assertNotIn(writer, script.replace('writes', '').replace('Writes', ''))
+        for other in ('setIndex', 'setModel', 'addModel', 'writeValue', '.restore(', 'Interceptor.replace', 'writePointer', 'writeU32'):
+            self.assertNotIn(other, script)
+        # Every write is a value of a block the pane shows, one of its model's controls or its bypass.
+        self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
+        self.assertEqual(script.count('targetBinding.setValue('), 3)      # the write, and a drag closed for the pane (twice)
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]
         self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("'action': 'select'", launcher)
+        self.assertIn('focus.checked_set(value)', launcher)             # a value from the page is checked before it is sent
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
-        peek = binding[binding.index('function peekValue'):binding.index('function setIndex')]
+        peek = binding[binding.index('function peekValue'):binding.index('// Focus Mode: a value of a block written')]
         self.assertIn('parameter(', peek)
         self.assertNotIn('writeValue', peek)
 
@@ -351,12 +402,13 @@ class WiringTests(unittest.TestCase):
             self.assertIn(name, module.APP_FILES)
             self.assertTrue((ROOT / name).is_file())
 
-    def test_the_page_is_local_and_asks_only_to_leave_or_to_select_a_block(self):
+    def test_the_page_is_local_and_asks_only_to_leave_select_a_block_or_set_a_value(self):
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
         self.assertNotIn('http://', page)
         self.assertEqual(page.count('https://'), 0)                      # no font, script or picture from the internet
         self.assertIn("ask('exit')", page)
         self.assertIn("ask('select', {dsp: b.dsp, id: b.id})", page)
+        self.assertIn("ask('set', {dsp: block.dsp, id: block.id, key, value, phase})", page)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
         self.assertIn('args.Cancel = args.Uri != page', pane)            # the pane opens nothing but the page
 

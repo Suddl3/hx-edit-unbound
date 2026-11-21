@@ -216,6 +216,38 @@ function installTargetBinding(options = {}) {
       return parameter({editor, dsp, blockName}, key).value;
     } catch (_) { return undefined; }
   }
+  // Focus Mode: a value of a block written as HX Edit's own parameter view writes it (0x229c47 -> the setter
+  // 0x5178c0). The flags are the ones seen on a stock slider (listened to on the Floor editor, 2026-11-20):
+  // a single change 0x80000000; a drag = begin 0x80000001 (the value as it is), each change 0x80000003,
+  // end 0x80000002 (the last value): HX Edit keeps a whole drag as one step of its undo.
+  // The stored value's own type is kept (a float, a whole number or a switch). Never a model, a place or a name.
+  const WRITE_FLAGS = Object.freeze({single: 0x80000000, begin: 0x80000001, move: 0x80000003, end: 0x80000002});
+  const fixedKeys = new Set(['@model', '@position', '@path', '@type', '@stereo']);
+  function setValue(editor, dsp, blockName, key, value, phase) {
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !placePattern.test(blockName) || !keyPattern.test(key) ||
+        fixedKeys.has(key) || !Object.hasOwn(WRITE_FLAGS, phase)) fail('unsupported value write');
+    const current = parameter({editor, dsp, blockName}, key);
+    if (current.type === 11 ? typeof value !== 'boolean' : !([4, 5, 8].includes(current.type) && Number.isFinite(value))) {
+      fail('value does not fit the stored type');
+    }
+    let block = null, name = null;
+    const variant = emptyVariant();
+    try {
+      block = string(blockName); name = string(key);
+      variant.writeU32(current.type);
+      if (current.type === 8) variant.add(8).writeFloat(value);
+      else if (current.type === 11) variant.add(8).writeU8(value ? 1 : 0);
+      else if (current.type === 4) variant.add(8).writeS32(Math.round(value));
+      else variant.add(8).writeU32(Math.max(0, Math.round(value)));
+      const result = writeValue(editor, dsp, block, name, variant, WRITE_FLAGS[phase]);
+      if (result < 0) fail(`write was rejected (${result})`);
+    } finally {
+      destroyVariant(variant);
+      if (name) destroyVariant(name);
+      if (block) destroyVariant(block);
+    }
+    return true;
+  }
   function setIndex(editor, dsp, blockName, slot) {
     // A NAM block's capture slot, written as restore() writes it (one undo step), keeping the
     // stored value's own type. Only for a supported NAM engine and a permanent slot.
@@ -281,7 +313,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, setIndex, setModel, addModel };
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, setValue, setIndex, setModel, addModel };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

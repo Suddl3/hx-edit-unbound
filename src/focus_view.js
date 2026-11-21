@@ -5,8 +5,10 @@
 // This script is the pane's eyes inside HX Edit 3.82 x86: while Focus Mode is on it reads the
 // preset's blocks and the selected block's values from the edit buffer by name (target_binding
 // peekValue: HX Edit's own getter, the one its parameter views use) and sends what changed.
-// It reads only; nothing here writes to the preset or the device. A block picked in the pane's
-// chain strip is selected by a click on that block in HX Edit's own chain (under the pane).
+// A block picked in the pane's chain strip is selected by a click on that block in HX Edit's own
+// chain (under the pane). A knob, a switch or the bypass turned in the pane is one value of the
+// selected block, written as HX Edit's own sliders write it (target_binding setValue): a drag is a
+// begin, its changes and an end, so HX Edit undoes it in one step. Nothing else is ever written.
 // (The notification handler 0x218a00 is hooked by nam_view and tone_view before this script installs, so its
 // first bytes are already Frida's jump: it is guarded there, and by the launcher's check of the whole exe.)
 const focusViewGuards = Object.freeze({
@@ -90,6 +92,23 @@ function focusChainPoint(box, block) {
   return {x: Math.round(box.x + (column + .5) * box.w / 10), y: Math.round(box.y + (row + .8) * box.h / 2)};
 }
 
+// Requests from the pane wait here until HX Edit's UI thread takes them. Of a drag's many changes to one
+// value only the newest waits; a begin or an end is never dropped. Pure: tests run it.
+function focusQueue(queue, command, limit = 32) {
+  const same = item => item.dsp === command.dsp && item.id === command.id && item.key === command.key;
+  if (command.phase === 'move') {
+    const last = queue[queue.length - 1];
+    if (last && last.phase === 'move' && same(last)) { queue[queue.length - 1] = command; return queue; }
+  }
+  if (queue.length >= limit) {
+    const drop = queue.findIndex(item => item.phase === 'move');
+    if (drop < 0) return queue;                                          // full of begins and ends: the new one is refused
+    queue.splice(drop, 1);
+  }
+  queue.push(command);
+  return queue;
+}
+
 // The pane's place: the main window below HX Edit's top row (preset, undo, DSP meter), down to the
 // edit panel's bottom, across the whole window. sf/ed/main: {x, y, w, h} of the signal flow view
 // ('sfvc'), the editor view ('edvw') and the window's root view ('main'), in client coordinates.
@@ -116,8 +135,12 @@ function installFocusView(options, parts) {
   // Values are read four times a second; the blocks themselves when HX Edit says something other than a value
   // changed, and every two seconds in any case.
   const POLL_MS = 250, FULL_MS = 2000;
-  let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6;
+  let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
   let known = null, knownAt = 0, changed = true, wanted = null;
+  // Value writes from the pane, and the drag HX Edit has been told has begun (ended by us if the pane never does).
+  const writes = [];
+  let drag = null;
+  const DRAG_IDLE_MS = 4000;
 
   function box(widget) {
     const geometry = widget.add(0x54).readPointer();
@@ -144,9 +167,37 @@ function installFocusView(options, parts) {
     try { return namView.installedCaptures().map(capture => ({slot: capture.slot, name: capture.name, icon: capture.icon, gear: capture.gear})); }
     catch (_) { return []; }
   }
+  function endDrag(why) {
+    if (!drag) return;
+    const open = drag; drag = null;
+    try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end'); }
+    catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'drag-end-failed', why, error: String(error.message)}); }
+  }
+  function write(command) {
+    // One value of one block the pane shows, never anything else. A drag left open is closed first.
+    const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
+    const allowed = block && (command.key === '@enabled' || (parameters[block.model] || []).includes(command.key));
+    if (!allowed || editor.isNull()) { send({type: 'toneTrace', reason: 'focus-view', stage: 'write-skipped', key: String(command.key).slice(0, 32)}); return; }
+    const same = drag && drag.dsp === command.dsp && drag.id === command.id && drag.key === command.key;
+    if (drag && !same) endDrag('another value');
+    let phase = command.phase;
+    if (phase === 'move' && !drag) phase = 'begin';                     // a change with no begin: begin with it
+    if (phase === 'end' && !drag) phase = 'single';
+    if (phase === 'begin' && same) phase = 'move';
+    targetBinding.setValue(editor, command.dsp, command.id, command.key, command.value, phase);
+    if (phase === 'begin' || phase === 'move') drag = {editor, dsp: command.dsp, id: command.id, key: command.key, value: command.value, at: Date.now()};
+    else drag = null;
+    if (writeReports > 0) { writeReports--; send({type: 'toneTrace', reason: 'focus-view', stage: 'write', key: command.key, phase}); }
+  }
   function refresh(window) {
     queued = false;
     if (!on) return;
+    while (writes.length) {
+      const command = writes.shift();
+      try { write(command); }
+      catch (error) { drag = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'write-failed', key: String(command.key).slice(0, 32), error: String(error.message)}); }
+    }
+    if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
     try {
       const bounds = paneBounds();
       const place = JSON.stringify(bounds);
@@ -189,6 +240,13 @@ function installFocusView(options, parts) {
     queuedAt = Date.now();
   }
   function set(value) {
+    if (on && value !== true && drag) {
+      // Turned off in the middle of a drag: HX Edit is told the drag has ended, on its own thread.
+      const open = drag; drag = null; writes.length = 0;
+      namView.queueSidebarAction(() => {
+        try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end'); } catch (_) { /* the block is gone */ }
+      });
+    }
     on = value === true;
     if (timer) { clearInterval(timer); timer = null; }
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null;
@@ -224,6 +282,11 @@ function installFocusView(options, parts) {
       if (on && value.action === 'select' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16) {
         wanted = {dsp: value.dsp, id: value.id};
         queued = false; ask();
+      } else if (on && value.action === 'set' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16 &&
+                 typeof value.key === 'string' && value.key.length < 49 && ['single', 'begin', 'move', 'end'].includes(value.phase) &&
+                 (typeof value.value === 'boolean' || Number.isFinite(value.value))) {
+        focusQueue(writes, {dsp: value.dsp, id: value.id, key: value.key, value: value.value, phase: value.phase});
+        queued = false; ask();
       }
       commands();
     });
@@ -233,5 +296,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusPaneBounds, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusPaneBounds, focusQueue, installFocusView };
 }

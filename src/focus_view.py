@@ -98,6 +98,8 @@ def parameters(model, order, controls):
         kind = 'switch' if p.get('valueType') == 2 or (positions and len(positions) == 2) else 'steps' if positions else 'knob'
         item = {'id': key, 'name': label or p.get('name') or key, 'min': p.get('min'), 'max': p.get('max'),
                 'default': p.get('default'), 'display': p.get('displayType', ''), 'kind': kind}
+        if p.get('valueType') == 0:
+            item['whole'] = True                         # whole numbers only (a slot, a number of semitones)
         if sync and sync[0] in known and sync[1] in known:
             item['sync'] = {'switch': sync[0], 'note': sync[1], 'min': known[sync[1]].get('min', 1)}
         result.append(item)
@@ -241,7 +243,9 @@ def catalog(resources, settings=None):
         used.update(p['display'] for p in params)
         models[symbol] = {'name': str(entry.get('name') or model.get('name') or symbol).strip(), 'category': label, 'key': key,
                           'tint': list(NAM_TINT) if nam else _tint(category.get('color')) if category else list(NEUTRAL),
-                          'pictures': pictures, 'scene': scene_for(key), 'params': params}
+                          'pictures': pictures, 'scene': scene_for(key), 'params': params,
+                          # what HX Edit can bypass has an "@enabled" switch of its own (an input or an output has none)
+                          'bypass': any(isinstance(p, dict) and p.get('symbolicID') == '@enabled' for p in model.get('params') or [])}
     used.add('sync_note')
     capture_pictures = [_url(host, '{icon}.png').replace('%7Bicon%7D', '{icon}')
                         for host in ('capturesfull', 'captures') if host in folders]
@@ -342,6 +346,45 @@ class FocusView:
 
     def set_on(self, on):
         self.queue.put(('on', bool(on)))
+
+    def checked_set(self, value):
+        """The page's request to set a value, as the command for focus_view.js, or None when it is not one of the
+        selected kind: a control of that block's model (kept inside its range), its tempo switch or note, or its
+        bypass. {dsp, id, key, value, phase}."""
+        state = self.state if isinstance(self.state, dict) else {}
+        if not isinstance(value, dict) or value.get('phase') not in ('single', 'begin', 'move', 'end'):
+            return None
+        block = next((b for b in state.get('blocks') or [] if isinstance(b, dict) and b.get('dsp') == value.get('dsp')
+                      and b.get('id') == value.get('id')), None)
+        model = self.catalog()['models'].get(block.get('model')) if block else None
+        key, new = value.get('key'), value.get('value')
+        if not model or not isinstance(key, str) or isinstance(new, str) or new is None:
+            return None
+        command = {'action': 'set', 'dsp': block['dsp'], 'id': block['id'], 'key': key, 'phase': value['phase']}
+        if key == '@enabled':
+            return {**command, 'value': bool(new)} if model.get('bypass') and isinstance(new, bool) else None
+        for p in model['params']:
+            sync = p.get('sync') or {}
+            if key == sync.get('switch'):
+                return {**command, 'value': bool(new)} if isinstance(new, bool) else None
+            if key == sync.get('note'):
+                notes = self.catalog()['controls'].get('sync_note', {}).get('format') or []
+                low = sync.get('min', 1)
+                if isinstance(new, bool) or not isinstance(new, (int, float)) or not notes:
+                    return None
+                return {**command, 'value': int(min(max(round(new), low), low + len(notes) - 1))}
+            if key != p['id']:
+                continue
+            low, high = p.get('min'), p.get('max')
+            if isinstance(low, bool) or isinstance(high, bool):                  # a switch
+                return {**command, 'value': bool(new)} if isinstance(new, bool) else None
+            if isinstance(new, bool) or not isinstance(new, (int, float)) or new != new:
+                return None
+            if not isinstance(low, (int, float)) or not isinstance(high, (int, float)):
+                return None
+            new = min(max(new, low), high)
+            return {**command, 'value': int(round(new)) if p.get('whole') else float(new)}
+        return None
 
     def close(self):
         self.closed.set()

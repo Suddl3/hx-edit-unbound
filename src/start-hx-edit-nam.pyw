@@ -313,6 +313,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # A block clicked in the pane's chain strip: HX Edit selects it, and the pane follows.
                     if focus_on[0] and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': {'action': 'select', 'dsp': value['dsp'], 'id': value['id'][:16]}})
+                elif name == 'set':
+                    # A knob, a switch or the bypass turned in the pane: one value of the block it shows, inside the
+                    # model's own range (focus_view.checked_set), written as HX Edit's own sliders write it.
+                    command = focus.checked_set(value) if focus is not None and focus_on[0] else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
             if focus is not None:
                 focus.on_action = focus_action
             ir_dots = [options.get('irDots') is not False]

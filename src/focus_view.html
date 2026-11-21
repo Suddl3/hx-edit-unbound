@@ -9,7 +9,9 @@
   large in its scene, with its own controls, from two messages:
     {type: "catalog", catalog}  once: every model's name, picture, colour, scene and controls (HX Edit's own files)
     {type: "state", state}      whenever something changes: the preset's blocks, the selected one and its values
-  It asks for things with {name, value} messages ("exit": back to the normal editor).
+  It asks for things with {name, value} messages: "exit" (back to the normal editor), "select" (a block of the
+  chain strip) and "set" (a value of the selected block: {dsp, id, key, value, phase}; a drag is "begin",
+  "move"..., "end", so that HX Edit keeps it as one step of its undo; anything else is "single").
   The layout keeps to what the Floor's own Focus View draws: title on top, the gear standing in its
   category's scene, the parameters below on black, each with its value above its name.
 -->
@@ -132,12 +134,14 @@
                   background: linear-gradient(90deg, rgb(var(--tint)) 0, rgb(var(--tint) / .5) 30%, rgb(var(--tint) / 0) 58%); transition: opacity .3s; }
   .app.off .deck::before { opacity: .35; }
   .bypass { position: absolute; left: 44px; top: 50%; translate: 0 -50%; display: grid; justify-items: center; gap: 13px; }
-  .stomp { width: 78px; height: 78px; border-radius: 50%; position: relative; background: #050505; cursor: default;
+  .stomp { width: 78px; height: 78px; border-radius: 50%; position: relative; background: #050505; display: block;
            box-shadow: 0 0 0 2px #17181a, 0 0 0 7px rgb(var(--tint)), 0 0 30px 7px rgb(var(--tint) / .5), inset 0 0 0 5px #000;
            transition: box-shadow .25s; }
   .stomp::after { content: ''; position: absolute; inset: 15%; border-radius: 50%;
                   background: radial-gradient(circle at 50% 26%, #f4f5f6 0, #b9bbc0 20%, #74767c 52%, #2b2c30 100%);
-                  box-shadow: 0 6px 10px rgb(0 0 0 / .8), inset 0 -3px 5px rgb(0 0 0 / .5); }
+                  box-shadow: 0 6px 10px rgb(0 0 0 / .8), inset 0 -3px 5px rgb(0 0 0 / .5); transition: transform .08s; }
+  .stomp:active::after { transform: translateY(2px) scale(.975); }
+  .stomp:focus-visible { outline-offset: 12px; border-radius: 50%; }
   .stomp[aria-pressed=false] { box-shadow: 0 0 0 2px #17181a, 0 0 0 7px rgb(var(--tint) / .2), 0 0 0 0 rgb(var(--tint) / 0), inset 0 0 0 5px #000; }
   .bypass span { font-size: 14.5px; color: var(--dim); }
   .stomp[aria-pressed=true] + span { color: var(--ink); }
@@ -153,9 +157,14 @@
   .app.off .ctl .val { color: var(--dim); }
   .sync { position: absolute; top: -9px; right: -2px; height: 19px; padding: 0 9px; border-radius: 10px; font-size: 12px; line-height: 19px;
           color: var(--dim); background: #0b0b0d; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .18); }
+  .sync:hover { color: var(--ink); }
+  .sync.on:hover { color: #000; }
   .sync.on { color: #000; background: var(--lit); box-shadow: none; }
 
-  .dial { position: relative; width: var(--k); height: var(--k); border-radius: 50%; }
+  .dial { position: relative; width: var(--k); height: var(--k); border-radius: 50%; cursor: ns-resize; touch-action: none; }
+  .dial:focus-visible { outline-offset: 12px; border-radius: 50%; }
+  .ctl.live .val { color: #fff; }
+  .ctl.live .hand { transition: none; }
   .ring { position: absolute; inset: -10px; width: calc(100% + 20px); height: calc(100% + 20px); overflow: visible; fill: none; stroke-linecap: round; }
   .ring .track { stroke: rgb(255 255 255 / .1); stroke-width: 3; }
   .ring .fill { stroke: rgb(var(--tint)); stroke-width: 3.4; filter: drop-shadow(0 0 4px rgb(var(--tint) / .8)); transition: stroke .25s; }
@@ -173,6 +182,7 @@
                  background: #f6f3ec; box-shadow: 0 0 8px rgb(255 255 255 / .4); }
 
   .lever { position: relative; width: var(--k); height: var(--k); display: block; }
+  .lever:focus-visible { border-radius: 50%; }
   .lever .nut { position: absolute; left: 50%; top: 56%; width: 46%; aspect-ratio: 1; translate: -50% -50%; border-radius: 50%;
                 background: conic-gradient(from 30deg, #94969c, #393a3f, #abadb3, #2d2e32, #94969c);
                 box-shadow: 0 8px 14px rgb(0 0 0 / .8), inset 0 0 0 calc(var(--k) * .075) #121315, inset 0 0 0 calc(var(--k) * .09) #3a3b40; }
@@ -206,7 +216,6 @@
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg>
         Editor
       </button>
-      <span class="note" id="note">Shows the block. Turn its knobs in the editor or on the Floor.</span>
     </div>
     <nav class="chain" id="chain" aria-label="Signal chain"></nav>
     <div class="bar-right">
@@ -239,7 +248,7 @@
   </main>
 
   <section class="deck" id="deck" aria-label="Block controls">
-    <div class="bypass"><div class="stomp" id="stomp" role="img" aria-pressed="true"></div><span id="stompText">On</span></div>
+    <div class="bypass" id="bypass"><button class="stomp" id="stomp" aria-pressed="true" title="Bypass"></button><span id="stompText">On</span></div>
     <div class="controls" id="controls"></div>
   </section>
 </div>
@@ -289,6 +298,20 @@ function turn(p, v) {                                                           
   const t = wide(p) && v > 0 ? Math.log(v / p.min) / Math.log(p.max / p.min) : (v - p.min) / (p.max - p.min);
   return Math.min(1, Math.max(0, t));
 }
+
+// ---- turning things: what the hand sets shows at once, and goes to HX Edit ----------------------------
+// A drag is one "begin", its "move"s and one "end": HX Edit keeps that as a single step of its undo.
+const held = new Map();                                   // value name -> {value, until}: shown until HX Edit has caught up
+function valueOf(key) {
+  const mine = held.get(key);
+  if (mine && (mine.until === 0 || Date.now() < mine.until)) return mine.value;
+  return state.values[key];
+}
+function setValue(block, key, value, phase) {
+  held.set(key, {value, until: phase === 'begin' || phase === 'move' ? 0 : Date.now() + 600});
+  ask('set', {dsp: block.dsp, id: block.id, key, value, phase});
+}
+const clamp = x => Math.min(1, Math.max(0, x));
 
 // ---- pictures: the gear is cut to its own outline, so it can stand on the scene's floor -------------
 const cut = new Map();                                    // url -> Promise<{canvas, w, h} | null>
@@ -441,30 +464,106 @@ function controlsOf(block) {
   // On a NAM block the capture is the line under the title, not a control.
   return model(block).params.filter(p => !(isNam(block) && p.id === 'Index'));
 }
-function synced(p) { return !!(p.sync && state.values[p.sync.switch] === true); }
+function synced(p) { return !!(p.sync && valueOf(p.sync.switch) === true); }
+const notes = () => (catalog.controls.sync_note || {}).format || [];
 function text(p) {
   if (synced(p)) {
-    const names = (catalog.controls.sync_note || {}).format || [], note = state.values[p.sync.note];
-    return typeof note === 'number' ? names[Math.round(note) - (p.sync.min || 0)] || '' : '';
+    const note = valueOf(p.sync.note);
+    return typeof note === 'number' ? notes()[Math.round(note) - (p.sync.min || 0)] || '' : '';
   }
-  return shown(p, state.values[p.id]);
+  return shown(p, valueOf(p.id));
+}
+// What a dial turns right now: its own value, or the note when it follows the tempo. Whole steps for a list
+// of positions, a note or a whole-number value.
+function turning(p) {
+  if (synced(p)) return {key: p.sync.note, min: p.sync.min, max: p.sync.min + notes().length - 1, whole: true};
+  return {key: p.id, min: p.min, max: p.max, whole: p.kind === 'steps' || p.whole === true};
+}
+function position(p) {
+  const t = turning(p), v = valueOf(t.key);
+  if (typeof v !== 'number') return 0;
+  return t.whole ? clamp((v - t.min) / Math.max(1, t.max - t.min)) : turn(p, v);
+}
+function valueAt(p, x) {
+  const t = turning(p); x = clamp(x);
+  if (t.whole) return t.min + Math.round(x * (t.max - t.min));
+  return wide(p) ? p.min * Math.pow(p.max / p.min, x) : p.min + x * (p.max - p.min);
+}
+function wire(el, p, block) {
+  // The page's own controls change the block as HX Edit's sliders do.
+  const redraw = () => { fill(el, p); drawFloor(block); };
+  const lever = el.querySelector('.lever'), dial = el.querySelector('.dial'), sync = el.querySelector('.sync');
+  if (sync) sync.onclick = () => { setValue(block, p.sync.switch, !synced(p), 'single'); redraw(); };
+  if (lever) {
+    lever.onclick = () => {
+      const now = valueOf(p.id);
+      setValue(block, p.id, typeof now === 'number' ? (now === p.max ? p.min : p.max) : now !== true, 'single');
+      redraw();
+    };
+    return;
+  }
+  let from = null, last = null, waiting = false, nudging = null;
+  const push = (value, phase) => { last = value; setValue(block, turning(p).key, value, phase); redraw(); };
+  dial.onpointerdown = e => {
+    if (e.button !== 0) return;
+    try { dial.setPointerCapture(e.pointerId); } catch (_) { /* a pointer that is already gone */ }
+    from = {y: e.clientY, x: position(p)}; el.classList.add('live');
+    push(valueAt(p, from.x), 'begin');
+  };
+  dial.onpointermove = e => {
+    if (!from) return;
+    const value = valueAt(p, from.x + (from.y - e.clientY) / (e.shiftKey ? 900 : 190));
+    if (value === last) return;
+    last = value; held.set(turning(p).key, {value, until: 0}); redraw();
+    if (waiting) return;                                  // one message a frame is plenty
+    waiting = true;
+    requestAnimationFrame(() => { waiting = false; if (from) setValue(block, turning(p).key, last, 'move'); });
+  };
+  dial.onpointerup = dial.onpointercancel = () => {
+    if (!from) return;
+    from = null; el.classList.remove('live');
+    push(last, 'end');
+  };
+  // The wheel and the arrow keys: a run of small steps is one drag for HX Edit's undo.
+  const nudge = (direction, fine) => {
+    const t = turning(p), step = t.whole ? 1 / Math.max(1, t.max - t.min) : fine ? .002 : .01;
+    const value = valueAt(p, position(p) + direction * step);
+    if (nudging === null) push(valueAt(p, position(p)), 'begin'); else clearTimeout(nudging);
+    push(value, 'move');
+    nudging = setTimeout(() => { nudging = null; push(last, 'end'); }, 350);
+  };
+  dial.onwheel = e => { e.preventDefault(); if (!from) nudge(e.deltaY < 0 ? 1 : -1, e.shiftKey); };
+  dial.onkeydown = e => {
+    if (['ArrowUp', 'ArrowRight'].includes(e.key)) nudge(1, e.shiftKey);
+    else if (['ArrowDown', 'ArrowLeft'].includes(e.key)) nudge(-1, e.shiftKey);
+    else return;
+    e.preventDefault();
+  };
+  dial.ondblclick = () => { if (!synced(p) && typeof p.default === 'number') push(p.default, 'single'); };
 }
 function control(p) {
   const el = document.createElement('div'); el.className = 'ctl'; el.dataset.id = p.id;
-  if (p.kind === 'switch') el.innerHTML = '<div class="lever"><span class="led"></span><span class="nut"></span><span class="bat"></span></div><div class="val"></div><div class="nm"></div>';
-  else el.innerHTML = '<div class="dial"><svg class="ring" viewBox="0 0 100 100"></svg><span class="skirt"></span><span class="cap"></span><span class="hand"></span></div><div class="val"></div><div class="nm"></div>';
-  if (p.sync) el.insertAdjacentHTML('beforeend', '<span class="sync" title="Follows the tempo when lit">Sync</span>');
+  if (p.kind === 'switch') el.innerHTML = '<button class="lever" role="switch"><span class="led"></span><span class="nut"></span><span class="bat"></span></button><div class="val"></div><div class="nm"></div>';
+  else el.innerHTML = '<div class="dial" role="slider" tabindex="0"><svg class="ring" viewBox="0 0 100 100"></svg><span class="skirt"></span><span class="cap"></span><span class="hand"></span></div><div class="val"></div><div class="nm"></div>';
+  if (p.sync) el.insertAdjacentHTML('beforeend', '<button class="sync" title="Follow the tempo">Sync</button>');
   el.querySelector('.nm').textContent = p.name;
+  (el.querySelector('.dial') || el.querySelector('.lever')).setAttribute('aria-label', p.name);
   return el;
 }
 function fill(el, p) {
-  const value = state.values[p.id];
+  const value = valueOf(p.id);
   el.querySelector('.val').textContent = text(p);
-  if (p.kind === 'switch') { el.querySelector('.lever').classList.toggle('down', value !== true && value !== 1); return; }
-  const names = synced(p) ? (catalog.controls.sync_note || {}).format : p.kind === 'steps' ? positions(p) : null;
+  if (p.kind === 'switch') {
+    const up = value === true || (typeof value === 'number' && value === p.max);
+    el.querySelector('.lever').classList.toggle('down', !up);
+    el.querySelector('.lever').setAttribute('aria-checked', up);
+    return;
+  }
+  const names = synced(p) ? notes() : p.kind === 'steps' ? positions(p) : null;
   const n = names ? names.length : 0;
-  const t = synced(p) ? ((state.values[p.sync.note] ?? p.sync.min) - p.sync.min) / Math.max(1, n - 1) : turn(p, value);
+  const t = position(p);
   el.querySelector('.dial').style.setProperty('--a', (-135 + 270 * t) + 'deg');
+  el.querySelector('.dial').setAttribute('aria-valuetext', text(p));
   const ring = el.querySelector('.ring'), key = n && n <= 12 ? 'dots' + n + ':' + Math.round(t * (n - 1)) : 'arc' + t.toFixed(4);
   if (ring.dataset.key !== key) {
     ring.dataset.key = key;
@@ -480,12 +579,15 @@ function fill(el, p) {
 function drawDeck(block) {
   const list = controlsOf(block), box = $('controls'), key = block.dsp + '|' + block.id + '|' + block.model;
   if (key !== shownKey) {                                      // another block: its own set of controls
-    shownKey = key;
+    shownKey = key; held.clear();
     box.className = 'controls' + (list.length > 11 ? ' s' : list.length > 8 ? ' m' : '');
-    box.replaceChildren(...list.map(control));
+    box.replaceChildren(...list.map(p => { const el = control(p); wire(el, p, block); return el; }));
   }
   list.forEach((p, i) => fill(box.children[i], p));
+  // Bypass: only what HX Edit can bypass (not an input or an output).
+  $('bypass').hidden = model(block).bypass !== true;
   $('stomp').setAttribute('aria-pressed', block.enabled);
+  $('stomp').onclick = () => ask('set', {dsp: block.dsp, id: block.id, key: '@enabled', value: !block.enabled, phase: 'single'});
   $('stompText').textContent = block.enabled ? 'On' : 'Bypassed';
 }
 
