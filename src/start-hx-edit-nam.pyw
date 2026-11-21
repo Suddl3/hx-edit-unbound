@@ -292,8 +292,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # Focus Mode, on or off: the pane, the script that reads the blocks for it, and the menu's tick.
             # It starts off with every launch, and the page's own "Editor" button turns it off the same way.
             focus_on = [False]
+            focus_missing = [False]     # its script did not install (a byte guard): the menu item says so
             def focus_mode(on, notice=None):
-                if on and focus is None:
+                if on and (focus is None or focus_missing[0]):
                     on, notice = False, 'Focus Mode is not available in this copy.'
                 focus_on[0] = on
                 if focus is not None:
@@ -336,6 +337,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 meter.receive(payload)
             if focus:
                 focus.receive(payload)
+                if payload.get('reason') == 'focus-view' and payload.get('stage') == 'unavailable':
+                    focus_missing[0] = True
             if host:
                 host.receive(payload)
                 if payload.get('type') == 'floorInventory':

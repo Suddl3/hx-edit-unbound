@@ -282,7 +282,8 @@ class ScriptTests(unittest.TestCase):
     def test_the_script_checks_the_same_native_bytes_as_the_hooks_it_shares(self):
         guards = run_js(['focus_view.js', 'nav_banner.js'], '[focusViewGuards, navigationBannerGuards]')
         self.assertEqual(guards[0]['3b7e00'], guards[1]['3b7e00'])
-        self.assertTrue(guards[0]['218a00'].startswith('558bec'))
+        # 0x218a00 is already hooked when this script installs (its bytes are Frida's jump): never guarded here.
+        self.assertEqual(list(guards[0]), ['3b7e00'])
 
 
 class WiringTests(unittest.TestCase):
@@ -293,6 +294,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn('state.TryGetValue("focusMode"', helper)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         for piece in ("name == 'focusMode'", "'focus_view.js'", 'installFocusView(', "script.post({'type': 'focusMode'",
+                      "payload.get('reason') == 'focus-view' and payload.get('stage') == 'unavailable'",
                       "meter.set_chain_option('focusMode', on)", 'focus.receive(payload)', 'focus.close()'):
             self.assertIn(piece, launcher)
 

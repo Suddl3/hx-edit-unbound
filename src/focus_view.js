@@ -6,8 +6,9 @@
 // preset's blocks and the selected block's values from the edit buffer by name (target_binding
 // peekValue: HX Edit's own getter, the one its parameter views use) and sends what changed.
 // It reads only; nothing here writes to the preset or the device.
+// (The notification handler 0x218a00 is hooked by nam_view and tone_view before this script installs, so its
+// first bytes are already Frida's jump: it is guarded there, and by the launcher's check of the whole exe.)
 const focusViewGuards = Object.freeze({
-  '218a00': '558bec6aff68',                       // the model view's notification handler (as tone_view hooks it)
   '3b7e00': '558bec83ec08568b7508578bf9c70600',   // a widget's origin in the window (as nav_banner uses it)
 });
 
