@@ -162,6 +162,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     sidebar = None
     meter = None
     memory = None
+    focus = None
     pid = device.spawn([str(exe)], cwd=str(exe.parent))
     try:
         session = device.attach(pid)
@@ -199,11 +200,22 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                            chainLarge=nam_catalog.load_settings().get('chainLarge') is True,
                            # HX Unbound menu: "Block names under large pictures" (on unless turned off).
                            chainNames=nam_catalog.load_settings().get('chainNames') is not False)
+            # HX Unbound menu: "Focus Mode" (focus_view.py). What its script reads for each model comes from this
+            # copy's own model files; without them the editor starts as usual and the menu item says so.
+            focus_options = {}
+            try:
+                from focus_view import FocusView
+                focus = FocusView(exe.parent / 'res', settings=nam_catalog.load_settings(), trace=trace)
+                focus_options = focus.frida_options()
+            except Exception as error:
+                focus = None
+                trace({'type': 'focusView', 'event': 'unavailable', 'error': str(error)})
             # Read-only research probes: only in a copy prepared with this marker file.
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
                 ('library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
-                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js')) + '\n'
+                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js',
+                 'focus_view.js')) + '\n'
             config = dict(request=uuid4().hex, repeat=True, automatic=True, requireHostMonitor=True)
             # Validate original native bytes before namView attaches to shared
             # entry points. The callback runs only after toneView exists and the
@@ -215,7 +227,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                           "try { installWindowKeeper(); } catch (error) { send({type: 'windowKeeper', event: 'unavailable', error: String(error.message)}); }\n")
             after = (f'\nconnectNativeExportLibrary({json.dumps(config)}, namView);'
                      '\nnamView.setLibraryOpener(window => toneView.openBrowser(window, {library:true, dockPanel:navigationBanner.dockPanel()}));'
-                     '\ninstallNamSidebar(namView);')
+                     '\ninstallNamSidebar(namView);'
+                     # Focus Mode is optional: a failed byte guard leaves the editor as it was.
+                     f"\ntry {{ installFocusView({json.dumps(focus_options)}, {{targetBinding, namView, toneView}}); }}"
+                     " catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'unavailable', error: String(error.message)}); }")
         script = session.create_script(
             f"{before}{view}\n{imports}\n{tone}\n{initialize}const namView = installNamView({json.dumps(profiles)}, {sidebar_width()}, {json.dumps(ir_parameters(exe.parent / 'res'))}, {json.dumps(options)});"
             f"\nconst targetBinding = {'installTargetBinding()' if navigation else 'null'};"
@@ -265,6 +280,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.set_chain_option(name, on)
                     if not detached.is_set():
                         script.post({'type': 'chainOption', 'payload': {'name': name, 'on': on}})
+                elif name == 'focusMode':
+                    focus_mode(not focus_on[0])
                 elif name == 'chainArt':
                     on = not chain_art[0]
                     chain_art[0] = on
@@ -272,6 +289,27 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.set_chain_art(on)
                     if not detached.is_set():
                         script.post({'type': 'chainArt', 'payload': {'on': on}})
+            # Focus Mode, on or off: the pane, the script that reads the blocks for it, and the menu's tick.
+            # It starts off with every launch, and the page's own "Editor" button turns it off the same way.
+            focus_on = [False]
+            def focus_mode(on, notice=None):
+                if on and focus is None:
+                    on, notice = False, 'Focus Mode is not available in this copy.'
+                focus_on[0] = on
+                if focus is not None:
+                    focus.set_on(on)
+                meter.set_chain_option('focusMode', on)
+                if notice:
+                    meter.receive({'type': 'dspNotice', 'text': notice})
+                if not detached.is_set():
+                    script.post({'type': 'focusMode', 'payload': {'on': on}})
+            def focus_action(name, value):
+                if name == 'exit':
+                    focus_mode(False)
+                elif name == 'failed':
+                    focus_mode(False, 'Focus Mode could not start.')
+            if focus is not None:
+                focus.on_action = focus_action
             ir_dots = [options.get('irDots') is not False]
             chain_art = [options.get('chainArt') is True]
             chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False}
@@ -280,6 +318,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             meter.set_chain_art(chain_art[0])
             for name, on in chain_options.items():
                 meter.set_chain_option(name, on)
+            meter.set_chain_option('focusMode', False)
 
         def on_message(event, _data):
             if event['type'] == 'error':
@@ -295,6 +334,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 sidebar.receive(payload)
             if meter:
                 meter.receive(payload)
+            if focus:
+                focus.receive(payload)
             if host:
                 host.receive(payload)
                 if payload.get('type') == 'floorInventory':
@@ -302,6 +343,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if payload.get('type') == 'ready':
                 ready.set()
             if payload.get('type') in {'toneTrace', 'navigationBanner', 'automaticSlotStatus', 'floorInventoryPresentation',
+                                       'focusBounds',
                                        'dspMeterLayout', 'windowKeeper', 'presetUsage', 'pickerSide', 'favoritesRemoved',
                                        'libraryConnectionGuard', 'librarySlotEvidenceResult'}:
                 trace(payload)
@@ -381,6 +423,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     sidebar.close()
                 if meter:
                     meter.close()
+                if focus:
+                    focus.close()
             finally:
                 if preview:
                     preview.close_diagnostics()

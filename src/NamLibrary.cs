@@ -1402,6 +1402,9 @@ class UnboundButton : Form
     public void SetChainArt(bool on){ if(chainArt!=null)chainArt.Text=(on?"\u2713":"\u2003")+"  3D pictures in the signal chain"; }
     ToolStripMenuItem chainLarge;
     public void SetChainLarge(bool on){ if(chainLarge!=null)chainLarge.Text=(on?"\u2713":"\u2003")+"  Large pictures in the signal chain"; }
+    ToolStripMenuItem focusMode;
+    // Focus Mode: the selected block large in its scene (focus_view.py). The same item turns it off again.
+    public void SetFocusMode(bool on){ if(focusMode!=null)focusMode.Text=(on?"\u2713":"\u2003")+"  Focus Mode"; }
     ToolStripMenuItem chainNames;
     public void SetChainNames(bool on){ if(chainNames!=null)chainNames.Text=(on?"✓":" ")+"  Block names under large pictures"; }
     public UnboundButton(IntPtr parent){
@@ -1411,6 +1414,10 @@ class UnboundButton : Form
         Cursor=Cursors.Hand;
         menu.ShowImageMargin=false; menu.BackColor=Color.FromArgb(37,37,37); menu.ForeColor=Ink;
         menu.Renderer=new MenuRenderer();
+        focusMode=new ToolStripMenuItem("\u2003  Focus Mode"){ForeColor=Ink};
+        focusMode.Click+=(sender,e)=>{try{Console.Out.WriteLine("focusMode");Console.Out.Flush();}catch(Exception){}};
+        menu.Items.Add(focusMode);
+        menu.Items.Add(new ToolStripSeparator());
         var heading=new ToolStripLabel("TOOLS"){ForeColor=Color.FromArgb(150,150,150),Font=new Font("Segoe UI",7.5f)};
         menu.Items.Add(heading);
         foreach(var choice in Choices){
@@ -1757,6 +1764,7 @@ class DspMeter : Form
         if(unboundButton!=null&&state.TryGetValue("chainArt",out value)&&value is bool)unboundButton.SetChainArt((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainLarge",out value)&&value is bool)unboundButton.SetChainLarge((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainNames",out value)&&value is bool)unboundButton.SetChainNames((bool)value);
+        if(unboundButton!=null&&state.TryGetValue("focusMode",out value)&&value is bool)unboundButton.SetFocusMode((bool)value);
         if(state.ContainsKey("ghost"))ApplyGhost(state["ghost"] as Dictionary<string,object>);
         if(state.TryGetValue("notice",out value)&&value is string&&((string)value).Length>0){
             notice=(string)value;noticeUntil=Environment.TickCount+NoticeMs;}

@@ -86,7 +86,7 @@ class DspMeter:
         if self.on_choice and getattr(self.process, 'stdout', None) is not None:
             Thread(target=self._clicks, args=(self.process.stdout,), daemon=True).start()
 
-    CHOICES = ('level', 'look', 'library', 'irDots', 'chainArt', 'chainLarge', 'chainNames')
+    CHOICES = ('level', 'look', 'library', 'irDots', 'chainArt', 'chainLarge', 'chainNames', 'focusMode')
 
     def _clicks(self, output):
         # The helper writes one line per choice from the HX Unbound menu.

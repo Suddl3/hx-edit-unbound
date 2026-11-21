@@ -64,6 +64,7 @@ function installTargetBinding(options = {}) {
     if (type === 5) return { type, value: value.add(8).readU32() };
     if (type === 8) return { type, value: value.add(8).readFloat() };
     if (type === 10) return { type, value: nativeString(value.add(8).readPointer()) };
+    if (type === 11) return { type, value: value.add(8).readU8() !== 0 };   // a switch (@enabled, Polarity, …)
     fail('unsupported native parameter type');
   }
   function editorReady(editor) {
@@ -205,6 +206,16 @@ function installTargetBinding(options = {}) {
       return {model: model.value, index};
     } catch (_) { return null; }
   }
+  // Focus Mode: any value of a block, an input, an output, the split or the join, read from the edit
+  // buffer by its name in HX Edit's model definitions ("Drive", "@enabled", "@model", …). Read-only.
+  // A number, a string or a boolean; undefined when the block or the value is not there.
+  const placePattern = /^(?:block\d{1,2}|input[AB]|output[AB]|split|join)$/, keyPattern = /^@?[A-Za-z0-9_ ]{1,48}$/;
+  function peekValue(editor, dsp, blockName, key) {
+    try {
+      if (!editorReady(editor) || ![0, 1].includes(dsp) || !placePattern.test(blockName) || !keyPattern.test(key)) return undefined;
+      return parameter({editor, dsp, blockName}, key).value;
+    } catch (_) { return undefined; }
+  }
   function setIndex(editor, dsp, blockName, slot) {
     // A NAM block's capture slot, written as restore() writes it (one undo step), keeping the
     // stored value's own type. Only for a supported NAM engine and a permanent slot.
@@ -270,7 +281,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, setIndex, setModel, addModel };
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, setIndex, setModel, addModel };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

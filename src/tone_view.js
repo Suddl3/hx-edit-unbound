@@ -4587,6 +4587,17 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
   listen();
   return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook,
+           // Focus Mode: the block the editor's cursor is on, as {editor, dsp, block}. With no cursor yet,
+           // the edit buffer alone ({editor, dsp: -1, block: ''}), or null before HX Edit has shown any block.
+           cursorBlock: () => {
+             try {
+               const controller = cursorController();
+               if (!controller.isNull()) {
+                 return {editor: controller.add(0x34).readPointer(), dsp: controller.add(0x80).readS32(), block: block(controller)};
+               }
+               return iconEditor.isNull() ? null : {editor: iconEditor, dsp: -1, block: ''};
+             } catch (_) { return null; }
+           },
            setChainArt: on => { try { setChainArt(on); } catch (_) { /* presentation only */ } },
            setChainOption: (name, on) => { try { setChainOption(name, on); } catch (_) { /* presentation only */ } } };
 }
