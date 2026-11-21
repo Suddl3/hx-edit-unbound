@@ -137,6 +137,18 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(capture['urls'][-1], 'https://captures.focus.example/brit_gold_head.png')
         self.assertTrue(all(focus_view.PICTURE_ID.fullmatch(ident) for ident in catalog['pictures']))
 
+    def test_the_kinds_of_nam_capture_are_the_block_pickers(self):
+        kinds = focus_view.catalog(self.res, {})['nam_kinds']
+        self.assertEqual([kind['name'] for kind in kinds], ['NAM Amp', 'NAM Amp + cab', 'NAM Cab', 'NAM Pedal', 'NAM Other'])
+        self.assertEqual(kinds[1]['gears'], ['amp-cab', 'amp-pedal-cab'])
+        self.assertEqual(kinds[-1]['gears'], [])                                    # the last one takes the rest
+        import nam_catalog
+        self.assertEqual([kind['name'] for kind in kinds], [name for name, _ in nam_catalog.NAM_CATEGORY_GROUPS])
+        # the same rule as the block picker's own (tone_view.js captureGroup)
+        tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        self.assertIn("return gear === 'amp' || gear === 'preamp' ? 1 : gear === 'amp-cab' || gear === 'amp-pedal-cab' ? 2 :\n"
+                      "      gear === 'cab' ? 3 : gear === 'pedal' || gear === 'pedal-amp' ? 4 : 5;", tone)
+
     def test_the_nam_block_is_filed_as_the_floor_files_it_and_drawn_in_its_own_colour(self):
         nam = focus_view.catalog(self.res, {})['models']['HD2_AmpNAMLite']
         self.assertEqual((nam['name'], nam['category'], nam['key'], nam['scene']), ('NAM A2 Lite', 'NAM', 'amp', 'stage'))
@@ -662,6 +674,17 @@ class ScriptTests(unittest.TestCase):
         for piece in ("const changed = !!usable(starting) && now !== starting;", "el('button', changed ? 'changed' : '')",
                       "cell.classList.add('start');", ".scenes button.start { outline: 2px dashed #8a8a8a; outline-offset: 1px; }",
                       ".cats > button.changed span:first-child::after"):
+            self.assertIn(piece, page)
+        # the same dot on what is not at its default elsewhere: a block of the preset, the preset's own background, a block's two choices, a tab
+        for piece in (".blocks button.changed b::after, .parts button.changed b::after, .scope button.changed::after",
+                      "(own || from.from !== 'default' ? ' changed' : '')", "el('button', whole ? 'changed' : '')",
+                      "tab.classList.toggle('changed', dotted[tab.dataset.tab]);"):
+            self.assertIn(piece, page)
+        # a look change draws again only what it changes (the gear does not come in again for another kind's default)
+        self.assertIn("else if (message.type === 'look') look = message.look;", page)
+        # a NAM block says which kind of capture it plays, and the captures are listed under their kinds
+        for piece in ("$('cat').textContent = kindOf(block) || 'Block';", "const capturesByKind = () => namKinds().flatMap(kind => {",
+                      "const list = capturesByKind();"):
             self.assertIn(piece, page)
         card = (ROOT / 'library_card.html').read_text(encoding='utf-8')               # the same marks as the page it follows
         self.assertIn('#pickerBody button.scene.start { outline: 2px dashed #8a8a8a; outline-offset: 1px; }', card)

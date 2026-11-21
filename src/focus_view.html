@@ -252,13 +252,15 @@
   .pane input[type=search]::placeholder { color: var(--dim); }
   .pane input[type=search]:focus-visible { outline: 0; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .55); }
   .blocks { display: grid; gap: 2px; }
-  .blocks button { display: grid; grid-template-columns: 36px 1fr 64px 62px; gap: 11px; align-items: center; padding: 3px 8px 3px 6px; border-radius: 9px; text-align: left; }
+  .blocks button { display: grid; grid-template-columns: 36px minmax(0, 1fr) 64px 62px 8px; gap: 11px; align-items: center; padding: 3px 8px 3px 6px; border-radius: 9px; text-align: left; }
   .blocks button:hover { background: rgb(255 255 255 / .07); }
   .blocks button.cur { background: rgb(255 255 255 / .1); }
   .blocks .g { width: 36px; height: 36px; object-fit: contain; }
   .blocks .bg { width: 64px; height: 30px; object-fit: cover; object-position: 50% 27%; border-radius: 4px; }
   .blocks b { display: block; font-weight: 400; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .blocks small { color: var(--dim); font-size: 12.5px; }
+  .blocks svg { width: 8px; height: 12px; opacity: .45; }
+  .blocks button:hover svg { opacity: 1; }
   .tag { justify-self: start; font-size: 11.5px; padding: 2px 8px; border-radius: 9px; color: var(--dim); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16); white-space: nowrap; }
   .tag.own { color: #111; background: #f3f1ea; box-shadow: none; }
   .tag.preset { color: var(--ink); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .5); }
@@ -268,9 +270,10 @@
   .cats > button:hover, .cats > button[aria-expanded=true] { background: rgb(255 255 255 / .07); }
   .cats > button img { width: 64px; height: 30px; object-fit: cover; object-position: 50% 27%; border-radius: 4px; }
   .cats > button span:last-child { color: var(--dim); font-size: 13.5px; }
-  /* a default changed from its starting background gets the Floor look page's dot */
-  .cats > button.changed span:first-child::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%;
-                                                    background: #e05a5b; vertical-align: middle; }
+  /* what is not at its default gets the Floor look page's dot: a kind's default, the preset's own background, a block
+     with a look of its own, each of its two choices, and the tab that holds any of them */
+  .cats > button.changed span:first-child::after, .blocks button.changed b::after, .parts button.changed b::after, .scope button.changed::after {
+    content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #e05a5b; vertical-align: middle; }
   .cats .scenes { margin: 6px 0 12px; }
   .linkish { margin-top: 16px; font-size: 13.5px; color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
   .linkish:hover { color: var(--ink); }
@@ -572,6 +575,12 @@ function paint(target, source) {
 // ---- which block, and what it is ----------------------------------------------------------------
 const model = block => (catalog.models[block.model]) || {name: block.model, category: '', key: '', tint: [152, 152, 152], pictures: [], scene: null, params: []};
 const isNam = block => catalog.nam.includes(block.model);
+const namKinds = () => (catalog.nam_kinds && catalog.nam_kinds.length ? catalog.nam_kinds : [{name: 'NAM', gears: []}]);
+function namKind(taken) {                                    // 'NAM Amp + cab', ... for a capture; the last kind takes the rest
+  const kinds = namKinds();
+  return (kinds.find(kind => kind.gears.includes((taken && taken.gear) || '')) || kinds[kinds.length - 1]).name;
+}
+const kindOf = block => { const taken = capture(block); return taken && taken.name && 'gear' in taken ? namKind(taken) : model(block).category; };
 function capture(block) {
   if (!isNam(block) || !Number.isInteger(block.slot)) return null;
   return (state.captures || []).find(c => c.slot === block.slot) || {slot: block.slot, name: 'IR slot ' + block.slot, icon: ''};
@@ -908,9 +917,16 @@ function fillPicker() {
   }
   rows.textContent = '';
   const taken = capture(block);
-  const captureRows = () => captures.filter(c => !query || c.name.toLowerCase().includes(query)).map(c =>
-    row(c.name, catalog.captures.pictures.map(url => url.replace('{icon}', encodeURIComponent(c.icon || ''))), query ? 'NAM' : 'slot ' + c.slot,
-        !!taken && taken.slot === c.slot, () => { ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot}); closePicker(); }));
+  const captureRow = c => row(c.name, catalog.captures.pictures.map(url => url.replace('{icon}', encodeURIComponent(c.icon || ''))), query ? namKind(c) : 'slot ' + c.slot,
+        !!taken && taken.slot === c.slot, () => { ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot}); closePicker(); });
+  const captureRows = () => captures.filter(c => !query || c.name.toLowerCase().includes(query)).map(captureRow);
+  // The captures on the Floor under their kinds, as the block picker's NAM categories have them (a kind with none is left out).
+  const capturesByKind = () => namKinds().flatMap(kind => {
+    const mine = captures.filter(c => namKind(c) === kind.name);
+    if (!mine.length) return [];
+    const h = document.createElement('h3'); h.textContent = kind.name;
+    return [h, ...mine.map(captureRow)];
+  });
   const modelRow = (symbol, note) => { const m = catalog.models[symbol];
     return row(m.name, m.pictures, note, symbol === block.model, () => { ask('model', {dsp: block.dsp, id: block.id, symbol}); closePicker(); }); };
   if (query) {                                                // a search looks through every model and capture
@@ -922,7 +938,7 @@ function fillPicker() {
     rows.append(...found.slice(0, 80));
     if (!found.length) rows.innerHTML = '<p>Nothing matches that search.</p>';
   } else if (picking === 'capture' || pickedKind === 'NAM') {
-    const list = captureRows();
+    const list = capturesByKind();
     rows.append(...list);
     if (!list.length) rows.innerHTML = '<p>No capture on the Floor yet. Put one there from the NAM tab.</p>';
   } else {
@@ -977,8 +993,8 @@ function lookBlockTab(pane, block) {
   const given = givenPicture(block), shownId = given || ownPictureId(block);
   // The two things to choose, with what each is now; the one picked shows its choices below.
   const parts = el('div', 'parts');
-  const part = (name, title, picture, now) => {
-    const card = el('button'), text = el('span');
+  const part = (name, title, picture, now, changed) => {
+    const card = el('button', changed ? 'changed' : ''), text = el('span');
     card.setAttribute('aria-selected', lookPart === name);
     text.append(el('b', '', title), el('small', '', now));
     card.append(picture, text);
@@ -986,8 +1002,8 @@ function lookBlockTab(pane, block) {
     parts.append(card);
   };
   const backdrop = el('img', 'bg'); backdrop.alt = ''; backdrop.src = sceneThumb(from.name);
-  part('scene', 'Background', backdrop, catalog.scenes[from.name] ? catalog.scenes[from.name].name : '');
-  part('picture', 'Picture', thumb(pictures(block)), given ? catalog.pictures[given].name : taken ? taken.name : m.name);
+  part('scene', 'Background', backdrop, catalog.scenes[from.name] ? catalog.scenes[from.name].name : '', from.from === 'own');
+  part('picture', 'Picture', thumb(pictures(block)), given ? catalog.pictures[given].name : taken ? taken.name : m.name, !!given);
   pane.append(parts);
   if (lookPart === 'scene') {
     pane.append(heading('Background', from.from === 'own' ? 'chosen for this block' : from.from === 'preset' ? 'from this preset' : 'the ' + (m.category || 'block') + ' default',
@@ -1026,7 +1042,7 @@ function lookPresetTab(pane, block) {
   }
   pane.append(el('p', 'lead', 'This preset only. A block with a look of its own keeps it.'));
   // One background for the whole preset: a row that opens its choices, so the blocks below stay in view.
-  const whole = mine && usable(mine.scene), cats = el('div', 'cats'), row = el('button'), mark = el('img');
+  const whole = mine && usable(mine.scene), cats = el('div', 'cats'), row = el('button', whole ? 'changed' : ''), mark = el('img');
   row.setAttribute('aria-expanded', lookKind === 'preset');
   mark.alt = ''; if (whole) mark.src = sceneThumb(whole); else mark.style.visibility = 'hidden';
   row.append(el('span', '', 'Whole preset'), mark, el('span', '', whole ? catalog.scenes[whole].name : 'By kind of block'));
@@ -1038,15 +1054,25 @@ function lookPresetTab(pane, block) {
   const rows = el('div', 'blocks');
   for (const item of ordered().flat().filter(b => b.id !== 'split' && b.id !== 'join')) {
     const m = model(item), taken = capture(item), from = sceneOf(item), own = from.from === 'own' || !!givenPicture(item);
-    const row = el('button', item === block ? 'cur' : ''), text = el('span');
-    text.append(el('b', '', taken ? taken.name : m.name), el('small', '', m.category || 'Block'));
+    // (a dot: not on the default for its kind, whether by its own look or by the preset's background)
+    const row = el('button', (item === block ? 'cur' : '') + (own || from.from !== 'default' ? ' changed' : '')), text = el('span');
+    row.title = "Change this block's look";
+    text.append(el('b', '', taken ? taken.name : m.name), el('small', '', kindOf(item) || 'Block'));
     const bg = el('img', 'bg'); bg.alt = ''; bg.loading = 'lazy'; bg.src = sceneThumb(from.name);
     row.append(thumb(pictures(item), 'g'), text, bg, el('span', 'tag ' + (own ? 'own' : from.from), own ? 'Its own' : from.from === 'preset' ? 'Preset' : 'Default'));
+    row.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 1.5 6 6l-4.5 4.5"/></svg>');
     row.onclick = () => { lookTab = 'block'; lookPart = 'scene'; ask('select', {dsp: item.dsp, id: item.id}); drawLook(true); };
     rows.append(row);
   }
   pane.append(rows);
   if (mine) { const clear = el('button', 'linkish', 'Put this preset back on the defaults'); clear.onclick = () => ask('look', {scope: 'preset', preset: presetRef(), clear: true}); pane.append(clear); }
+}
+function movedDefaults() {                                   // the kinds (and "everything else") not on their starting background
+  const kinds = look.categories.filter(([key]) => {
+    const starting = look.factory.category[key], now = usable(look.assign.category[key]) || usable(look.assign.default);
+    return !!usable(starting) && now !== starting;
+  }).length;
+  return kinds + (usable(look.factory.default) && usable(look.assign.default) !== look.factory.default ? 1 : 0);
 }
 function lookDefaultsTab(pane) {
   pane.append(el('p', 'lead', 'What every preset starts from: one background for each kind of block. The Floor look page edits the same choices.'));
@@ -1084,7 +1110,12 @@ function drawLook(force) {
   const pane = $('lookPane'), at = JSON.stringify([lookTab, presetKey(), block && [block.dsp, block.id]]), keep = at === shownLookAt ? pane.scrollTop : 0;
   const typing = document.activeElement && document.activeElement.type === 'search' && pane.contains(document.activeElement);
   shownLook = key; shownLookAt = at;
-  document.querySelectorAll('.scope button').forEach(tab => tab.setAttribute('aria-selected', tab.dataset.tab === lookTab));
+  const mine = presetKey() && presetLook(), own = block ? ownLook(block) : {};
+  const dotted = {block: !!(block && (usable(own.scene) || givenPicture(block))), preset: !!mine, defaults: movedDefaults() > 0};
+  document.querySelectorAll('.scope button').forEach(tab => {
+    tab.setAttribute('aria-selected', tab.dataset.tab === lookTab);
+    tab.classList.toggle('changed', dotted[tab.dataset.tab]);        // a dot: something on this tab is not at its default
+  });
   pane.textContent = '';
   if (lookTab === 'block') lookBlockTab(pane, block); else if (lookTab === 'preset') lookPresetTab(pane, block); else lookDefaultsTab(pane);
   $('lookNote').textContent = presetKey() && presetLook()
@@ -1212,7 +1243,7 @@ function render() {
   const m = model(block), taken = capture(block);
   app.style.setProperty('--tint', m.tint.join(' '));
   app.classList.toggle('off', !block.enabled);
-  $('cat').textContent = m.category || 'Block';
+  $('cat').textContent = kindOf(block) || 'Block';              // a NAM block says which kind of capture it plays
   $('modelName').textContent = m.name;
   $('captureButton').hidden = !taken; $('captureName').textContent = taken ? taken.name : '';
   $('modelButton').disabled = !/^block/.test(block.id);          // an input or an output is not a model to change
@@ -1225,7 +1256,7 @@ function receive(message) {
   if (message.type === 'catalog') { catalog = message.catalog; shownKey = ''; shownPicture = ''; shownChain = ''; }
   else if (message.type === 'state') state = message.state;
   else if (message.type === 'dsp') { dsp = message.dsp; drawDsp(); return; }
-  else if (message.type === 'look') { look = message.look; shownChain = ''; shownPicture = ''; }
+  else if (message.type === 'look') look = message.look;      // (the scene, the gear and the strip each know when they differ)
   else if (message.type === 'notice') { toast(message.text); return; }
   else if (message.type === 'shown') { visible = message.shown === true; if (visible) place(); else { closePicker(); closeSnapshots(); closePresets(); closeLook(); $('toast').hidden = true; } return; }
   else return;

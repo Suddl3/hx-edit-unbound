@@ -37,6 +37,10 @@ HOSTS = {'app': 'app.focus.example', 'models': 'models.focus.example', 'full': '
          'scenes': 'scenes.focus.example', 'plates': 'plates.focus.example'}
 NAM_ENGINES = ('HD2_AmpNAMLite', 'HD2_AmpNAMPedal')
 NAM_TINT = (0xB0, 0x70, 0xE0)          # nam_catalog.NAM_CATEGORY_COLOR: HX Edit shows NAM blocks in this colour
+# The kinds of NAM capture, as the block picker's NAM categories file them by a capture's gear (tone_view.js
+# captureGroup; the names are nam_catalog.NAM_CATEGORY_GROUPS). A gear in none of them is "NAM Other".
+NAM_KINDS = (('NAM Amp', ('amp', 'preamp')), ('NAM Amp + cab', ('amp-cab', 'amp-pedal-cab')), ('NAM Cab', ('cab',)),
+             ('NAM Pedal', ('pedal', 'pedal-amp')), ('NAM Other', ()))
 NEUTRAL = (0x98, 0x98, 0x98)
 # A block's own switches that the page shows another way (bypass is the stomp switch) or not at all.
 HIDDEN = ('@enabled', '@stereo', '@bypassvolume', '@type', '@model', '@position', '@path')
@@ -354,7 +358,8 @@ def catalog(resources, settings=None):
     {"models": {symbol: {name, category, key, tint, pictures, picture, scene, params}}, "controls": {display type: rules},
      "scenes": {...}, "captures": {"pictures": [url templates with {icon}]}, "nam": [NAM engine symbols],
      "pictures": {picture id: {name, group, urls}}: every picture a block can be given in place of its own (the models'
-     renders as "model:<HX Edit's picture file>", the capture pictures as "capture:<id>")}"""
+     renders as "model:<HX Edit's picture file>", the capture pictures as "capture:<id>"),
+     "nam_kinds": [{name, gears}]: the kinds of NAM capture, in the block picker's order (the last takes the rest)}"""
     resources = Path(resources)
     definitions = _clean(msgpack.unpackb((resources / 'HelixModelDefs.bin').read_bytes()))
     tree = _clean(msgpack.unpackb((resources / 'HX_ModelCatalog.bin').read_bytes()))
@@ -442,7 +447,7 @@ def catalog(resources, settings=None):
                                       'urls': [url.replace('{icon}', quote(icon)) for url in capture_pictures]}
     return {'models': models, 'controls': {display: _control(controls, display) for display in sorted(used) if display},
             'scenes': known_scenes, 'captures': {'pictures': capture_pictures}, 'nam': list(NAM_ENGINES), 'lists': lists,
-            'pictures': gallery}
+            'pictures': gallery, 'nam_kinds': [{'name': name, 'gears': list(gears)} for name, gears in NAM_KINDS]}
 
 
 def model_loads(resources):
