@@ -807,7 +807,7 @@ function drawBar() {
   // The list is offered when HX Edit's own preset list could be read for this setlist; the arrows always.
   const listed = !!preset && Array.isArray(state.presets) && state.presets.length > 0;
   $('presetButton').disabled = !listed;
-  $('presetButton').title = listed ? 'Choose a preset' : '';
+  $('presetButton').title = listed && $('presetList').hidden ? 'Choose a preset' : '';   // no tooltip over its open list
   if (!listed) closePresets(); else if (!$('presetList').hidden) fillPresets();
   const has = Number.isInteger(on) && on >= 0 && on < names.length;
   $('snapButton').hidden = !has;
@@ -828,7 +828,7 @@ function fillSnapshots() {
     return row;
   }));
 }
-function closeSnapshots() { $('snapList').hidden = true; $('snapButton').setAttribute('aria-expanded', 'false'); }
+function closeSnapshots() { $('snapList').hidden = true; $('snapButton').setAttribute('aria-expanded', 'false'); $('snapButton').title = 'Choose a snapshot'; }
 let shownPresets = '';
 function fillPresets() {
   // The loaded setlist's presets by number; redrawn only when a name or the loaded preset changes (it keeps its scroll).
@@ -849,11 +849,14 @@ function fillPresets() {
 function openPresets() {
   closeSnapshots(); shownPresets = '';
   fillPresets();
-  $('presetList').hidden = false; $('presetButton').setAttribute('aria-expanded', 'true');
+  $('presetList').hidden = false; $('presetButton').setAttribute('aria-expanded', 'true'); $('presetButton').title = '';
   const current = $('presetList').querySelector('.cur');
   if (current) current.scrollIntoView({block: 'center'});
 }
-function closePresets() { $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false'); }
+function closePresets() {
+  $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false');
+  $('presetButton').title = $('presetButton').disabled ? '' : 'Choose a preset';
+}
 let toastTimer = 0;
 function toast(text) {
   // Something asked for here did not happen (a preset that did not load, a model with no room on its DSP).
@@ -919,7 +922,7 @@ $('undo').onclick = () => ask('undo');
 $('redo').onclick = () => ask('redo');
 $('snapButton').onclick = () => {
   const list = $('snapList');
-  if (list.hidden) { closePresets(); fillSnapshots(); list.hidden = false; $('snapButton').setAttribute('aria-expanded', 'true'); } else closeSnapshots();
+  if (list.hidden) { closePresets(); fillSnapshots(); list.hidden = false; $('snapButton').setAttribute('aria-expanded', 'true'); $('snapButton').title = ''; } else closeSnapshots();
 };
 $('presetPrev').onclick = () => { closePresets(); ask('preset', 'previous'); };
 $('presetNext').onclick = () => { closePresets(); ask('preset', 'next'); };
