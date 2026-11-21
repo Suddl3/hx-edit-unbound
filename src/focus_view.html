@@ -271,7 +271,7 @@
   .blocks b { display: flex; align-items: center; font-weight: 400; font-size: 15px; min-width: 0; }
   .blocks b span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .blocks button.changed b::after { flex: none; }
-  .blocks small { color: var(--dim); font-size: 12.5px; }
+  .blocks small { display: block; color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .blocks svg { width: 8px; height: 12px; opacity: .45; }
   .blocks button:hover svg { opacity: 1; }
   .tag { justify-self: start; font-size: 11.5px; padding: 2px 8px; border-radius: 9px; color: var(--dim); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16); white-space: nowrap; }
@@ -1067,14 +1067,17 @@ function lookPresetTab(pane, block) {
   pane.append(heading('Blocks in this preset'));
   const rows = el('div', 'blocks');
   for (const item of ordered().flat().filter(b => b.id !== 'split' && b.id !== 'join')) {
-    const m = model(item), taken = capture(item), from = sceneOf(item), own = from.from === 'own' || !!givenPicture(item);
-    // (a dot: not on the default for its kind, whether by its own look or by the preset's background)
-    const row = el('button', (item === block ? 'cur' : '') + (own || from.from !== 'default' ? ' changed' : '')), text = el('span');
+    const m = model(item), taken = capture(item), from = sceneOf(item), pictured = !!givenPicture(item);
+    // (a dot: something of it is not the default, its background or its picture; the tag and the small line say which)
+    const row = el('button', (item === block ? 'cur' : '') + (pictured || from.from !== 'default' ? ' changed' : '')), text = el('span');
     row.title = "Change this block's look";
     const title = el('b'); title.append(el('span', '', taken ? taken.name : m.name));
-    text.append(title, el('small', '', kindOf(item) || 'Block'));
+    text.append(title, el('small', '', (pictured ? 'Own picture, ' : '') + (kindOf(item) || 'Block')));
     const bg = el('img', 'bg'); bg.alt = ''; bg.loading = 'lazy'; bg.src = sceneThumb(from.name);
-    row.append(thumb(pictures(item), 'g'), text, bg, el('span', 'tag ' + (own ? 'own' : from.from), own ? 'Its own' : from.from === 'preset' ? 'Preset' : 'Default'));
+    // The tag beside the background speaks for the background alone: a picture of its own is said under the name.
+    const tag = el('span', 'tag ' + from.from, from.from === 'own' ? 'Its own' : from.from === 'preset' ? 'Preset' : 'Default');
+    tag.title = 'Its background: ' + (from.from === 'own' ? 'chosen for this block' : from.from === 'preset' ? "this preset's" : 'the default for its kind');
+    row.append(thumb(pictures(item), 'g'), text, bg, tag);
     row.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 1.5 6 6l-4.5 4.5"/></svg>');
     row.onclick = () => { lookTab = 'block'; lookPart = 'scene'; ask('select', {dsp: item.dsp, id: item.id}); drawLook(true); };
     rows.append(row);
