@@ -343,18 +343,20 @@ class ScriptTests(unittest.TestCase):
 
     def test_a_value_is_written_with_the_flags_hx_edits_own_sliders_use(self):
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
-        self.assertIn('WRITE_FLAGS = Object.freeze({single: 0x80000000, begin: 0x80000001, move: 0x80000003, end: 0x80000002})', binding)
+        self.assertIn('WRITE_FLAGS = Object.freeze({single: 0x80000000, begin: 0x80000001, move: 0x80000003, end: 0x80000002,', binding)
         write = binding[binding.index('function setValue'):binding.index('function setIndex')]
         for check in ('fixedKeys.has(key)', 'placePattern.test(blockName)', "typeof value !== 'boolean'", 'Number.isFinite(value)'):
             self.assertIn(check, write)
         self.assertIn("new Set(['@model', '@position', '@path', '@type', '@stereo'])", binding)   # never through this door
-        # HX Edit's own sliders follow a value set from the pane: the bit its undo writes with, unless turned off.
-        self.assertIn('const WRITE_NOTIFY = 0x40000000;', binding)
-        self.assertIn('(WRITE_FLAGS[phase] | (notify === true ? WRITE_NOTIFY : 0)) >>> 0', write)
+        # HX Edit's own sliders are shown a value set from the pane by a second write, for its views only: the flag
+        # its undo writes with. The slider-style write before it is the one HX Edit keeps for undo.
+        self.assertIn('refresh: 0x40000000', binding)
+        self.assertIn('writeValue(editor, dsp, block, name, variant, WRITE_FLAGS[phase])', write)
         self.assertTrue(focus_view.write_notify({}))
         self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        self.assertEqual(script.count(", notify)"), 3)                     # every write the script makes
+        self.assertIn("targetBinding.setValue(target, dsp, id, key, value, 'refresh')", script)
+        self.assertEqual(script.count('finish('), 4)                       # defined once; after a single change and each way a drag ends
 
     def test_the_pane_never_outlives_hx_edit(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
@@ -392,7 +394,7 @@ class WiringTests(unittest.TestCase):
             self.assertNotIn(other, script)
         # Every write is a value of a block the pane shows, one of its model's controls or its bypass.
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
-        self.assertEqual(script.count('targetBinding.setValue('), 3)      # the write, and a drag closed for the pane (twice)
+        self.assertEqual(script.count('targetBinding.setValue('), 4)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]

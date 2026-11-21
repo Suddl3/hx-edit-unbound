@@ -267,8 +267,8 @@ def frida_options(models):
 
 
 def write_notify(settings=None):
-    """Whether a value set in the pane is written so that HX Edit's own sliders follow it (on unless
-    settings.json has "focusWriteNotify": false, which writes exactly as a stock slider does)."""
+    """Whether HX Edit's own sliders are shown a value set in the pane (a second write for its views only; on
+    unless settings.json has "focusWriteNotify": false, which leaves exactly a stock slider's write)."""
     return (settings or {}).get('focusWriteNotify') is not False
 
 

@@ -221,13 +221,15 @@ function installTargetBinding(options = {}) {
   // a single change 0x80000000; a drag = begin 0x80000001 (the value as it is), each change 0x80000003,
   // end 0x80000002 (the last value): HX Edit keeps a whole drag as one step of its undo.
   // A slider's own write leaves HX Edit's parameter views as they are (the slider already shows the value), so
-  // after a write from elsewhere they showed the old value. HX Edit's undo writes with 0x40000000 and the views
-  // follow (seen on the Floor editor, 2026-11-20): `notify` adds that bit, so HX Edit's own sliders stay true.
+  // after a write from elsewhere they showed the old value. HX Edit's undo writes with 0x40000000: the views
+  // follow such a write, and it is not kept for undo (both seen on the Floor editor, 2026-11-20; with both bits
+  // set nothing was kept for undo either). So "refresh" is a second write of the value just set, with that flag
+  // alone: HX Edit's own sliders show it, and the step kept for undo is the slider-style write before it.
   // The stored value's own type is kept (a float, a whole number or a switch). Never a model, a place or a name.
-  const WRITE_FLAGS = Object.freeze({single: 0x80000000, begin: 0x80000001, move: 0x80000003, end: 0x80000002});
-  const WRITE_NOTIFY = 0x40000000;
+  const WRITE_FLAGS = Object.freeze({single: 0x80000000, begin: 0x80000001, move: 0x80000003, end: 0x80000002,
+                                     refresh: 0x40000000});
   const fixedKeys = new Set(['@model', '@position', '@path', '@type', '@stereo']);
-  function setValue(editor, dsp, blockName, key, value, phase, notify = false) {
+  function setValue(editor, dsp, blockName, key, value, phase) {
     if (!editorReady(editor) || ![0, 1].includes(dsp) || !placePattern.test(blockName) || !keyPattern.test(key) ||
         fixedKeys.has(key) || !Object.hasOwn(WRITE_FLAGS, phase)) fail('unsupported value write');
     const current = parameter({editor, dsp, blockName}, key);
@@ -243,7 +245,7 @@ function installTargetBinding(options = {}) {
       else if (current.type === 11) variant.add(8).writeU8(value ? 1 : 0);
       else if (current.type === 4) variant.add(8).writeS32(Math.round(value));
       else variant.add(8).writeU32(Math.max(0, Math.round(value)));
-      const result = writeValue(editor, dsp, block, name, variant, (WRITE_FLAGS[phase] | (notify === true ? WRITE_NOTIFY : 0)) >>> 0);
+      const result = writeValue(editor, dsp, block, name, variant, WRITE_FLAGS[phase]);
       if (result < 0) fail(`write was rejected (${result})`);
     } finally {
       destroyVariant(variant);

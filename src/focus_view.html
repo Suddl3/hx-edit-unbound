@@ -504,16 +504,17 @@ function wire(el, p, block) {
   }
   let from = null, last = null, waiting = false, nudging = null;
   const push = (value, phase) => { last = value; setValue(block, turning(p).key, value, phase); redraw(); };
+  // A press alone changes nothing (and a double-click is two of them): the drag begins with its first change.
   dial.onpointerdown = e => {
     if (e.button !== 0) return;
     try { dial.setPointerCapture(e.pointerId); } catch (_) { /* a pointer that is already gone */ }
-    from = {y: e.clientY, x: position(p)}; el.classList.add('live');
-    push(valueAt(p, from.x), 'begin');
+    from = {y: e.clientY, x: position(p), moved: false}; last = valueAt(p, from.x); el.classList.add('live');
   };
   dial.onpointermove = e => {
     if (!from) return;
     const value = valueAt(p, from.x + (from.y - e.clientY) / (e.shiftKey ? 900 : 190));
     if (value === last) return;
+    if (!from.moved) { from.moved = true; setValue(block, turning(p).key, last, 'begin'); }
     last = value; held.set(turning(p).key, {value, until: 0}); redraw();
     if (waiting) return;                                  // one message a frame is plenty
     waiting = true;
@@ -521,8 +522,9 @@ function wire(el, p, block) {
   };
   dial.onpointerup = dial.onpointercancel = () => {
     if (!from) return;
+    const moved = from.moved;
     from = null; el.classList.remove('live');
-    push(last, 'end');
+    if (moved) push(last, 'end');
   };
   // The wheel and the arrow keys: a run of small steps is one drag for HX Edit's undo.
   const nudge = (direction, fine) => {
