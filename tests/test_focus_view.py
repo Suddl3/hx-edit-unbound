@@ -138,6 +138,8 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(lists[0]['folders'], [{'name': 'Mono', 'models': ['HD2_DelayTest', 'HD2_DelayOther']},
                                                {'name': 'Stereo', 'models': ['HD2_DelayWide']}])
         self.assertEqual(focus_view.model_loads(self.res), {'HD2_DelayOther': 30.0, 'HD2_DelayWide': 4.5})
+        # (the lists must not disturb the pictures' addresses: a capture's picture comes from these)
+        self.assertEqual(focus_view.catalog(self.res, {})['captures']['pictures'], ['https://captures.focus.example/{icon}.png'])
 
     def test_the_stock_input_strip_is_never_a_picture(self):
         self.assertEqual(focus_view.catalog(self.res, {})['models']['HD2_In']['pictures'], [])

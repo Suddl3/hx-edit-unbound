@@ -256,7 +256,7 @@ def catalog(resources, settings=None):
         name = str(category.get('name') or '')
         if name in ('None', 'Favorites', 'Connected Devices', 'Input', 'Output', 'Split', 'Merge') or name.startswith('NAM '):
             continue
-        folders, seen = [], set()
+        shelves, seen = [], set()
         for folder in category.get('subcategories') or [category]:
             if str(folder.get('name') or '') == 'All' and len(category.get('subcategories') or []) > 1:
                 continue
@@ -265,9 +265,9 @@ def catalog(resources, settings=None):
                        and entry['id'] not in NAM_ENGINES and entry['id'] not in seen]
             seen.update(symbols)                           # (a model listed again under Stereo is the same model)
             if symbols:
-                folders.append({'name': str(folder.get('name') or '') if folder is not category else '', 'models': symbols})
-        if folders:
-            lists.append({'name': name, 'tint': _tint(category.get('color')), 'folders': folders})
+                shelves.append({'name': str(folder.get('name') or '') if folder is not category else '', 'models': symbols})
+        if shelves:
+            lists.append({'name': name, 'tint': _tint(category.get('color')), 'folders': shelves})
     capture_pictures = [_url(host, '{icon}.png').replace('%7Bicon%7D', '{icon}')
                         for host in ('capturesfull', 'captures') if host in folders]
     return {'models': models, 'controls': {display: _control(controls, display) for display in sorted(used) if display},
