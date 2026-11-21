@@ -474,6 +474,20 @@ class ScriptTests(unittest.TestCase):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn('focus.checked_snapshot(value)', launcher)
 
+    def test_a_preset_with_nothing_selected_shows_its_first_block_never_an_input(self):
+        blocks = [{'dsp': 0, 'id': 'inputA', 'position': None, 'path': 0}, {'dsp': 0, 'id': 'split', 'position': 0, 'path': 0},
+                  {'dsp': 1, 'id': 'block0', 'position': 0, 'path': 0}, {'dsp': 0, 'id': 'block4', 'position': 2, 'path': 1},
+                  {'dsp': 0, 'id': 'block7', 'position': 2, 'path': 0}, {'dsp': 0, 'id': 'block2', 'position': 5, 'path': 0},
+                  {'dsp': 0, 'id': 'outputA', 'position': None, 'path': 0}]
+        self.assertEqual(run_js(['focus_view.js'], f'focusFirstBlock({json.dumps(blocks)})'), {'dsp': 0, 'id': 'block7'})
+        self.assertEqual(run_js(['focus_view.js'], f'focusFirstBlock({json.dumps(blocks[2:3])})'), {'dsp': 1, 'id': 'block0'})   # only path 2 has blocks
+        self.assertIsNone(run_js(['focus_view.js'], f'focusFirstBlock({json.dumps(blocks[:2] + blocks[-1:])})'))                # an empty preset
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        pick = script[script.index("const key = state.preset ? state.preset.setlist + ':' + state.preset.number : '';"):script.index('if (wanted) select(wanted);')]
+        self.assertIn('if (state.selected) pickTries = PICK_TRIES;', pick)           # never again once something was selected in it
+        self.assertIn('pickTries < PICK_TRIES', pick)
+        self.assertIn("name === 'EditBuffer_DevicePresetChanged'", script)           # the same preset loaded again counts as a new one
+
     def test_the_preset_list_is_hx_edits_own_only_when_it_is_the_loaded_presets_setlist(self):
         names = ['Preset %d ' % n for n in range(128)]
         listed = run_js(['focus_view.js'], f'focusPresetNames({json.dumps(names)}, {{setlist: 1, number: 5, name: "Preset 5"}})')

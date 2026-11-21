@@ -889,7 +889,9 @@ function render() {
   drawChain();
   if (!block) {
     closePicker();
-    $('hintText').textContent = state.blocks.length ? 'Select a block in the editor or on the Floor.' : 'Waiting for a preset from HX Edit.';
+    $('hintText').textContent = !state.blocks.length ? 'Waiting for a preset from HX Edit.'
+      : state.blocks.some(block => /^block/.test(block.id)) ? 'Select a block above, or on the Floor.'
+      : 'This preset has no blocks yet. Pick its input or output above, or add a block in the editor.';
     app.classList.remove('off'); app.style.setProperty('--tint', '152 152 152');
     showScene(null); shownKey = ''; shownPicture = '';
     return;

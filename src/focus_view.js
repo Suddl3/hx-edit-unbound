@@ -125,6 +125,14 @@ function focusRoom(view, loads, now, next, dsp) {
 // preset, the snapshot, undo and the DSP meters) down to the edit panel's bottom, across the whole window; HX
 // Edit's status bar stays. sf/ed/main: {x, y, w, h} of the signal flow view ('sfvc'), the editor view ('edvw')
 // and the window's root view ('main'), in client coordinates.
+function focusFirstBlock(blocks) {
+  // The block shown when a preset comes up with nothing selected: the first block of the chain in signal order
+  // (path 1 before path 2; at the same place the upper lane first). Never an input, an output, the split or the
+  // join. null for a preset with no blocks.
+  const chain = (blocks || []).filter(block => /^block\d+$/.test(block.id) && Number.isInteger(block.position));
+  chain.sort((a, b) => a.dsp - b.dsp || a.position - b.position || a.path - b.path);
+  return chain.length ? {dsp: chain[0].dsp, id: chain[0].id} : null;
+}
 function focusPresetNames(names, preset) {
   // The setlist's preset names for the bar's list, only when HX Edit's list is the loaded preset's own setlist:
   // its row for the loaded preset must carry that preset's name (the sidebar can show another setlist, and a
@@ -161,6 +169,10 @@ function installFocusView(options, parts) {
   let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [];
   let header = {preset: null, snapshots: [], presets: null};   // the top bar's preset, snapshot names and preset list (full readings)
   let namesWord = '';                                        // the last outcome of reading the preset list, for the trace
+  // A preset that comes up with nothing selected gets its first block selected, a few tries per preset load and
+  // never again once something has been selected in it (a cursor moved to an empty cell on purpose stays there).
+  let pickKey = null, pickTries = 0;
+  const PICK_TRIES = 3;
   function presetHeader() {
     // The loaded preset's number and name (nam_view reads HX Edit's own header) and its snapshots' names.
     let preset = null;
@@ -311,6 +323,15 @@ function installFocusView(options, parts) {
       // Something to undo: HX Edit's own undo position (as tone_view reads it).
       try { state.undo = editor.add(0x294).readS32() > 0; } catch (_) { state.undo = null; }
       if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: full ? 'read' : 'read-values', ms: Date.now() - began, blocks: state.blocks.length, selected: !!state.selected}); }
+      if (full) {
+        const key = state.preset ? state.preset.setlist + ':' + state.preset.number : '';
+        if (key !== pickKey) { pickKey = key; pickTries = 0; }
+        if (state.selected) pickTries = PICK_TRIES;
+        else if (key && !wanted && pickTries < PICK_TRIES) {
+          const first = focusFirstBlock(state.blocks);
+          if (first) { pickTries++; wanted = first; send({type: 'toneTrace', reason: 'focus-view', stage: 'first-block', dsp: first.dsp, block: first.id, attempt: pickTries}); }
+        }
+      }
       publish(state);
       if (wanted) select(wanted);
     } catch (error) {
@@ -349,6 +370,7 @@ function installFocusView(options, parts) {
     on = value === true;
     if (timer) { clearInterval(timer); timer = null; }
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = [];
+    pickKey = null; pickTries = 0;
     header = {preset: null, snapshots: [], presets: null};
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }
     send({type: 'toneTrace', reason: 'focus-view', stage: on ? 'on' : 'off'});
@@ -364,7 +386,11 @@ function installFocusView(options, parts) {
   const hook = Interceptor.attach(base.add(0x218a00), {
     onEnter(args) {
       if (!on) return;
-      try { if (eventName(args[0]) !== 'EditBuffer_ParamChanged') changed = true; } catch (_) { changed = true; }
+      try {
+        const name = eventName(args[0]);
+        if (name !== 'EditBuffer_ParamChanged') changed = true;
+        if (name === 'EditBuffer_DevicePresetChanged' || name === 'EditBuffer_TargetDeviceChanged') pickKey = null;   // a preset loaded, the same one too
+      } catch (_) { changed = true; }
     },
     onLeave() { if (on) ask(); },
   });
@@ -407,5 +433,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, installFocusView };
 }
