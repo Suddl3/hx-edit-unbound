@@ -128,14 +128,16 @@
   .scene { position: relative; overflow: hidden; background: #000; isolation: isolate; }
   .plate { position: absolute; inset: 0; opacity: 0; transition: opacity .55s ease; }
   .plate.on { opacity: 1; }
-  .plate img { position: absolute; max-width: none; transform: translate(calc(var(--px, 0) * -12px), calc(var(--py, 0) * -7px));
-               transition: transform .5s cubic-bezier(.2, .7, .2, 1), filter .4s; filter: brightness(var(--gain, 1)); }
+  /* the scene leans a little with the pointer (--px / --py are eased by the page: see lean) */
+  .plate img { position: absolute; max-width: none; transform: translate(calc(var(--px, 0) * -5px), calc(var(--py, 0) * -3px));
+               transition: filter .4s; filter: brightness(var(--gain, 1)); }
   .app.off .plate img { filter: brightness(calc(var(--gain, 1) * .42)) saturate(.25); }
   .veil { position: absolute; inset: 0; pointer-events: none;
           background: linear-gradient(180deg, #000 0, rgb(0 0 0 / 0) 11%, rgb(0 0 0 / 0) 72%, rgb(0 0 0 / .8) 91%, #000 100%),
                       radial-gradient(120% 90% at 50% 55%, rgb(0 0 0 / 0) 45%, rgb(0 0 0 / .7) 100%); }
-  .gear { position: absolute; transform: translate(calc(var(--px, 0) * 7px), calc(var(--py, 0) * 3px));
-          transition: transform .5s cubic-bezier(.2, .7, .2, 1), left .28s cubic-bezier(.2, .8, .2, 1); }
+  .gear { position: absolute; transform: translate(calc(var(--px, 0) * 3px), calc(var(--py, 0) * 1.5px));
+          transition: left .28s cubic-bezier(.2, .8, .2, 1), width .28s cubic-bezier(.2, .8, .2, 1); }
+  @media (prefers-reduced-motion: reduce) { .plate img, .gear { transform: none; } }
   .gear .halo { position: absolute; left: 50%; bottom: 8%; width: 170%; height: 120%; translate: -50% 0; pointer-events: none;
                 background: radial-gradient(closest-side, rgb(var(--tint) / .2), rgb(var(--tint) / 0) 70%); transition: opacity .4s; }
   .gear .shadow { position: absolute; left: 50%; bottom: -3%; height: 13%; translate: -50% 0; border-radius: 50%;
@@ -272,6 +274,8 @@
   .blocks b span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .blocks button.changed b::after { flex: none; }
   .blocks small { display: block; color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .blocks small.pictured::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%;
+                                   background: #e05a5b; vertical-align: middle; }
   .blocks svg { width: 8px; height: 12px; opacity: .45; }
   .blocks button:hover svg { opacity: 1; }
   .tag { justify-self: start; font-size: 11.5px; padding: 2px 8px; border-radius: 9px; color: var(--dim); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16); white-space: nowrap; }
@@ -690,13 +694,24 @@ function drawChain() {
 }
 
 // ---- the scene ----------------------------------------------------------------------------------
+function focusGearBox(G, shape, widest) {
+  // {w, h} of the gear's box for a picture `shape` wide per high, where G is the height of tall gear.
+  if (!(shape > 1)) return {w: G, h: G};
+  let h = G / Math.pow(shape, .4), w = h * shape;
+  if (w > widest) { w = widest; h = w / shape; }
+  return {w, h};
+}
 function place() {
   // With the Look panel open, the gear stands in the middle of what the panel leaves in view (the scene still fills it all).
   const full = scene.clientWidth, H = scene.clientHeight, W = full - (app.classList.contains('looking') ? $('look').offsetWidth : 0);
   const G = Math.max(180, Math.min(H * .72, W * .46, 680)), base = Math.round(H * .84);
-  Object.assign($('gear').style, {width: G + 'px', height: G + 'px', left: (W - G) / 2 + 'px', top: base - G + 'px'});
-  const gear = $('gearPicture');
-  if (gear.width > 1) $('shadow').style.width = Math.min(G, G * gear.width / gear.height) * 1.12 + 'px';
+  // The gear's box follows its picture's shape. Tall or square gear (a pedal, a combo, a cab) stands G high. Wide gear
+  // (an amp head, a rack unit) would be left small by that square, so it stands nearly as high and is let grow wider,
+  // up to what the scene has beside it (an amp head: about six sevenths of G high, where the square left it two thirds).
+  const gear = $('gearPicture'), shape = gear.width > 1 ? gear.width / gear.height : 1;
+  const box = focusGearBox(G, shape, Math.min(W * .56, G * 1.6));
+  Object.assign($('gear').style, {width: box.w + 'px', height: box.h + 'px', left: (W - box.w) / 2 + 'px', top: base - box.h + 'px'});
+  if (gear.width > 1) $('shadow').style.width = Math.min(box.w, box.h * shape) * 1.12 + 'px';
   for (const plate of plates) {
     const frame = plate.frame; if (!frame) continue;
     // The Floor pack's own rule (focus_bg.fit_plate): the scene's focus point lands under the gear's base.
@@ -1068,11 +1083,13 @@ function lookPresetTab(pane, block) {
   const rows = el('div', 'blocks');
   for (const item of ordered().flat().filter(b => b.id !== 'split' && b.id !== 'join')) {
     const m = model(item), taken = capture(item), from = sceneOf(item), pictured = !!givenPicture(item);
-    // (a dot: something of it is not the default, its background or its picture; the tag and the small line say which)
-    const row = el('button', (item === block ? 'cur' : '') + (pictured || from.from !== 'default' ? ' changed' : '')), text = el('span');
+    // (each dot sits beside what it speaks for: the one after the name is the background's, as the tag is; a picture of
+    // its own has its dot before the words that say so)
+    const row = el('button', (item === block ? 'cur' : '') + (from.from !== 'default' ? ' changed' : '')), text = el('span');
     row.title = "Change this block's look";
     const title = el('b'); title.append(el('span', '', taken ? taken.name : m.name));
-    text.append(title, el('small', '', (pictured ? 'Own picture, ' : '') + (kindOf(item) || 'Block')));
+    const under = el('small', pictured ? 'pictured' : '', (pictured ? 'Own picture, ' : '') + (kindOf(item) || 'Block'));
+    text.append(title, under);
     const bg = el('img', 'bg'); bg.alt = ''; bg.loading = 'lazy'; bg.src = sceneThumb(from.name);
     // The tag beside the background speaks for the background alone: a picture of its own is said under the name.
     const tag = el('span', 'tag ' + from.from, from.from === 'own' ? 'Its own' : from.from === 'preset' ? 'Preset' : 'Default');
@@ -1302,12 +1319,24 @@ $('floorToggle').onclick = e => {
   const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
   e.currentTarget.setAttribute('aria-pressed', on); $('floor').classList.toggle('away', !on);
 };
+// The scene leans a little with the pointer, and never jumps: each frame it goes a small part of the way to where
+// the pointer asks, and it drifts back to rest, more slowly, when the pointer leaves the scene or is over a panel.
+const lean = {x: 0, y: 0, toX: 0, toY: 0, frame: 0};
+function leanStep() {
+  const rate = lean.toX === 0 && lean.toY === 0 ? .03 : .06;
+  lean.x += (lean.toX - lean.x) * rate; lean.y += (lean.toY - lean.y) * rate;
+  const there = Math.abs(lean.toX - lean.x) < .002 && Math.abs(lean.toY - lean.y) < .002;
+  if (there) { lean.x = lean.toX; lean.y = lean.toY; }
+  scene.style.setProperty('--px', lean.x.toFixed(4)); scene.style.setProperty('--py', lean.y.toFixed(4));
+  lean.frame = there ? 0 : requestAnimationFrame(leanStep);
+}
+function leanTo(x, y) { lean.toX = x; lean.toY = y; if (!lean.frame) lean.frame = requestAnimationFrame(leanStep); }
 scene.addEventListener('pointermove', e => {
+  if (e.target.closest('.look, .picker, .floor')) { leanTo(0, 0); return; }      // (choosing in a panel must not move the scene)
   const r = scene.getBoundingClientRect();
-  scene.style.setProperty('--px', ((e.clientX - r.left) / r.width * 2 - 1).toFixed(3));
-  scene.style.setProperty('--py', ((e.clientY - r.top) / r.height * 2 - 1).toFixed(3));
+  leanTo((e.clientX - r.left) / r.width * 2 - 1, (e.clientY - r.top) / r.height * 2 - 1);
 });
-scene.addEventListener('pointerleave', () => { scene.style.setProperty('--px', 0); scene.style.setProperty('--py', 0); });
+scene.addEventListener('pointerleave', () => leanTo(0, 0));
 addEventListener('keydown', e => {
   if (e.key !== 'Escape' || !visible) return;
   if (!$('snapList').hidden) closeSnapshots();

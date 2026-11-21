@@ -2645,15 +2645,18 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // own size changes (its bounds, vtable +0x38), so HX Edit's own layout keeps it centred, and putting the size
   // back is all it takes to undo. The bypass and delete buttons, which HX Edit puts just above the picture's top
   // corners (0x40c0e7, 0x40c192, from the rect 0x40ac90 gives), go beside its top corners.
-  let chainLarge = profile.chainLarge === true, chainNames = profile.chainNames !== false;
+  let chainLarge = profile.chainLarge === true, chainNames = profile.chainNames !== false, chainGlow = profile.chainGlow !== false;
   const relayout = method(0x3b5e00, 'void', ['int']);
   const widgetBounds = method(0x3b8a60, 'pointer', []);
   const LARGE_BOX = {w: 68, h: 56}, BUTTON_GAP = 2;    // make_chain_pictures.py LARGE is this box at 1.25
   const chainSized = new Map();          // item -> the picture widget's own size, while it is large
   const boundsRect = Memory.alloc(16);
   function chainSet(file) {
-    // CHAIN_x / CHAIN_OFF_x -> the picture of the chosen size
-    return chainLarge ? 'CHAINL_' + file.slice('CHAIN_'.length) : file;
+    // CHAIN_x / CHAIN_OFF_x -> the picture of the chosen size; a large one that is on has a glow behind the gear unless
+    // "Glow behind them" is off (CHAINP_x, where this copy has it; a bypassed block's picture has no glow either way)
+    if (!chainLarge) return file;
+    const name = file.slice('CHAIN_'.length);
+    return !chainGlow && !name.startsWith('OFF_') && chainFiles.has('CHAINP_' + name) ? 'CHAINP_' + name : 'CHAINL_' + name;
   }
   function widgetSize(widget) {
     const bounds = widgetBounds(widget);
@@ -2775,6 +2778,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     // seen is drawn again.
     if (name === 'chainLarge') chainLarge = on === true;
     else if (name === 'chainNames') chainNames = on === true;
+    else if (name === 'chainGlow') chainGlow = on === true;
     else return;
     setChainArt(chainArt);
   }

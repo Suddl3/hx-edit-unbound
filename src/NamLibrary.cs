@@ -1408,18 +1408,20 @@ class UnboundButton : Form
     bool placed;
     // The options: a tick is part of the label (the menus have no image margin). An option that only matters while
     // another is on sits indented under it and is dimmed while that one is off; it keeps its own tick meanwhile.
-    ToolStripMenuItem irDots, chainArt, chainLarge, chainNames;
-    bool dots = true, art, large, names = true;
+    ToolStripMenuItem irDots, chainArt, chainLarge, chainNames, chainGlow;
+    bool dots = true, art, large, names = true, glow = true;
     public void SetIrDots(bool on){ dots=on; Ticks(); }
     public void SetChainArt(bool on){ art=on; Ticks(); }
     public void SetChainLarge(bool on){ large=on; Ticks(); }
     public void SetChainNames(bool on){ names=on; Ticks(); }
+    public void SetChainGlow(bool on){ glow=on; Ticks(); }
     public static string Tick(int level,bool on,string text){ return new string('\u2003',level*2)+(on?"\u2713":"\u2003")+"  "+text; }
     void Ticks(){
         if(chainArt==null)return;
         chainArt.Text=Tick(0,art,"3D pictures of the gear");
         chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;
         chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;
+        chainGlow.Text=Tick(2,glow,"Glow behind them"); chainGlow.Enabled=art&&large;
         irDots.Text=Tick(0,dots,"Mark NAM slots");
     }
     static ContextMenuStrip NewMenu(){
@@ -1448,6 +1450,7 @@ class UnboundButton : Form
         chainArt=Item(options,"","chainArt");
         chainLarge=Item(options,"","chainLarge");
         chainNames=Item(options,"","chainNames");
+        chainGlow=Item(options,"","chainGlow");
         options.Items.Add(new ToolStripSeparator());
         Heading(options,"IR LIST");
         irDots=Item(options,"","irDots");
@@ -1830,6 +1833,7 @@ class DspMeter : Form
         if(unboundButton!=null&&state.TryGetValue("chainArt",out value)&&value is bool)unboundButton.SetChainArt((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainLarge",out value)&&value is bool)unboundButton.SetChainLarge((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainNames",out value)&&value is bool)unboundButton.SetChainNames((bool)value);
+        if(unboundButton!=null&&state.TryGetValue("chainGlow",out value)&&value is bool)unboundButton.SetChainGlow((bool)value);
         // Focus Mode covers HX Edit's toolbar and has meters of its own: the meter and the menu button are hidden meanwhile.
         focusMode=state.TryGetValue("focusMode",out value)&&value is bool&&(bool)value;
         if(state.ContainsKey("ghost"))ApplyGhost(state["ghost"] as Dictionary<string,object>);

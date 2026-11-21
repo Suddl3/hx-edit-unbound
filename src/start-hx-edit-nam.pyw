@@ -200,7 +200,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                            # HX Unbound menu: "Large pictures in the signal chain" (off unless turned on).
                            chainLarge=nam_catalog.load_settings().get('chainLarge') is True,
                            # HX Unbound menu: "Block names under large pictures" (on unless turned off).
-                           chainNames=nam_catalog.load_settings().get('chainNames') is not False)
+                           chainNames=nam_catalog.load_settings().get('chainNames') is not False,
+                           # HX Unbound options: "Glow behind them" (on unless turned off).
+                           chainGlow=nam_catalog.load_settings().get('chainGlow') is not False)
             # HX Unbound menu: "Focus Mode" (focus_view.py). What its script reads for each model comes from this
             # copy's own model files; without them the editor starts as usual and the menu item says so.
             focus_options = {}
@@ -274,7 +276,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.set_ir_dots(on)
                     if not detached.is_set():
                         script.post({'type': 'irDots', 'payload': {'on': on}})
-                elif name in ('chainLarge', 'chainNames'):
+                elif name in ('chainLarge', 'chainNames', 'chainGlow'):
                     on = not chain_options[name]
                     chain_options[name] = on
                     nam_catalog.save_setting(name, on)
@@ -391,7 +393,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 focus.on_action = focus_action
             ir_dots = [options.get('irDots') is not False]
             chain_art = [options.get('chainArt') is True]
-            chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False}
+            chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False,
+                             'chainGlow': options.get('chainGlow') is not False}
             meter = DspMeter(trace=trace, on_choice=unbound_choice, icons=exe.parent / 'res' / 'icons_models')
             meter.set_ir_dots(ir_dots[0])
             meter.set_chain_art(chain_art[0])

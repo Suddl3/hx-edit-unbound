@@ -10,7 +10,8 @@ it); the few pictures no model in the catalog uses are matched by their render's
 The large set (chain_large/, chain_large_off/: 85 x 70, the whole height of a chain block and wider) is for "Large
 pictures in the signal chain": no tile and no ring. A block that is on has a soft glow in its category's colour
 behind the gear; a bypassed one has none, so on and off read at a glance. HX Edit draws the block's label over the
-picture's bottom edge, so the picture is shaded there.
+picture's bottom edge, so the picture is shaded there. chain_large_plain/ is the same set without the glow, for the
+option that turns it off (a bypassed block's picture has none either way).
 
 Written to helix_model_icons/chain/<stock file name> and nam_capture_icons/chain/<id>.png, and the same with a grey
 dimmed ring and picture for bypassed blocks in chain_off/, which nam_catalog.patch_chain_art copies into a prepared HX Edit as CHAIN_*.png
@@ -30,7 +31,8 @@ SIZE, FIT, RING, RADIUS = 38, 28, 2, 7     # the chain icon's size; the gear's l
 # "Large pictures in the signal chain" (chain_large/): the picture box tone_view gives a block (LARGE_BOX there,
 # 68 x 56 in HX Edit's units) at the 1.25 the stock pictures are drawn at; the gear's largest size inside it.
 LARGE, LARGE_FIT = (85, 70), (74, 58)
-GLOW_SPREAD, GLOW_BLUR, GLOW_GAIN = 1, 8, 1.0   # the glow: barely grown, widely blurred: a haze, not an outline
+GLOW_SPREAD, GLOW_BLUR, GLOW_GAIN = 1, 8, 0.8   # the glow: barely grown, widely blurred: a haze, not an outline
+                                                # (0.8: the owner found the full one too strong, 2026-11-21)
 LIFT = 2                                   # px the gear sits above the middle, clear of the label
 LABEL_BAND, LABEL_SHADE = 16, 0.3          # the bottom rows HX Edit writes the label over; how dark they end
 NAM_PURPLE = 0xB070E0                      # nam_catalog.NAM_CATEGORY_COLOR
@@ -125,8 +127,9 @@ def chain_picture(source, target, colour, off=False):
     out.save(target, optimize=True)
 
 
-def large_picture(source, target, colour, off=False):
-    """The gear alone, centred (the chain's cable runs through the picture's middle); on: a glow in the colour."""
+def large_picture(source, target, colour, off=False, glow=True):
+    """The gear alone, centred (the chain's cable runs through the picture's middle); on: a glow in the colour
+    (glow=False: without it)."""
     image = gear_image(source, off)
     scale = min(LARGE_FIT[0] / image.width, LARGE_FIT[1] / image.height)
     gear = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
@@ -134,7 +137,7 @@ def large_picture(source, target, colour, off=False):
     width, height = LARGE
     place = ((width - gear[0]) // 2, max(0, (height - gear[1]) // 2 - LIFT))
     out = Image.new('RGBA', LARGE, (0, 0, 0, 0))
-    if not off:
+    if not off and glow:
         shape = Image.new('L', LARGE, 0)
         shape.paste(image.getchannel('A'), place)
         glow = shape.filter(ImageFilter.MaxFilter(2 * GLOW_SPREAD + 1)).filter(ImageFilter.GaussianBlur(GLOW_BLUR))
@@ -172,6 +175,9 @@ def main(argv):
             make(source, root / folder / source.name, colour)
             make(source, root / f'{folder}_off' / source.name, colour, off=True)
             made += 2
+        (root / 'chain_large_plain').mkdir(exist_ok=True)
+        large_picture(source, root / 'chain_large_plain' / source.name, colour, glow=False)
+        made += 1
     print(f'{made} chain pictures')
 
 

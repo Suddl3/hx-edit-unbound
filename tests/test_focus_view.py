@@ -543,6 +543,15 @@ class PaneDriverTests(unittest.TestCase):
         self.assertEqual(self.actions[:2], [('exit', None), ('failed', 'no WebView2')])
 
 
+def run_js_source(source, expression):
+    """The value of a JavaScript expression after the given source (a piece of the page's own script)."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as folder:
+        script = Path(folder) / 'piece.cjs'
+        script.write_text(source + f'\nprocess.stdout.write(JSON.stringify({expression}));', encoding='utf-8')
+        return json.loads(subprocess.run(['node', str(script)], capture_output=True, text=True, check=True, timeout=30).stdout)
+
+
 def run_js(files, expression):
     source = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in files)
     # (from a file: with a long expression the script is more than a Windows command line may hold)
@@ -703,10 +712,13 @@ class ScriptTests(unittest.TestCase):
             self.assertIn(piece, page)
         # the same dot on what is not at its default elsewhere: a block of the preset, the preset's own background, a block's two choices, a tab
         for piece in (".cats > button.changed span:first-child::after, .blocks button.changed b::after, .parts button.changed b::after {",
-                      "(pictured || from.from !== 'default' ? ' changed' : '')", "el('button', whole ? 'changed' : '')",
+                      "(from.from !== 'default' ? ' changed' : '')", "el('button', whole ? 'changed' : '')",
+                      # each dot beside what it speaks for: a picture of its own has its dot before the words that say so
+                      "el('small', pictured ? 'pictured' : '', (pictured ? 'Own picture, ' : '') + (kindOf(item) || 'Block'))",
+                      ".blocks small.pictured::before",
                       # the tag beside a block's background speaks for the background alone; its own picture is said under the name
                       "el('span', 'tag ' + from.from, from.from === 'own' ? 'Its own' : from.from === 'preset' ? 'Preset' : 'Default')",
-                      "(pictured ? 'Own picture, ' : '') + (kindOf(item) || 'Block')"):
+                      "tag.title = 'Its background: '"):
             self.assertIn(piece, page)
         self.assertNotIn('.scope button.changed', page)                               # not on the tabs (the owner: a dot too many)
         # a background of its own that is the one the block would have anyway is not "its own"
@@ -775,6 +787,24 @@ class ScriptTests(unittest.TestCase):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
         self.assertIn('if (!IsWindow(parent)) Environment.Exit(0);', pane)      # even hidden, even after a crash
         self.assertIn('if (!OnUi(Shutdown)) Environment.Exit(0);', pane)
+
+    def test_wide_gear_stands_larger_than_a_square_box_would_leave_it(self):
+        page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
+        rule = page[page.index('function focusGearBox('):page.index('function place() {')]
+        box = lambda shape, widest=800: run_js_source(rule, f'focusGearBox(400, {shape}, {widest})')
+        self.assertEqual(box(0.6), {'w': 400, 'h': 400})                             # a pedal: as before, 400 high
+        self.assertEqual(box(1), {'w': 400, 'h': 400})
+        head = box(1.45)                                                             # an amp head: 345 high, not the 276 a square leaves it
+        self.assertEqual((round(head['w']), round(head['h'])), (500, 345))
+        wide = box(2.25)                                                             # a rack unit: 289 high, not 178
+        self.assertEqual((round(wide['w']), round(wide['h'])), (651, 289))
+        tight = box(2.25, 450)                                                       # no wider than the scene has room for
+        self.assertEqual((round(tight['w']), round(tight['h'])), (450, 200))
+        # the scene leans less, eased by the page, and goes back to rest outside the scene or over a panel
+        for piece in ("translate(calc(var(--px, 0) * -5px), calc(var(--py, 0) * -3px))", "translate(calc(var(--px, 0) * 3px), calc(var(--py, 0) * 1.5px))",
+                      "if (e.target.closest('.look, .picker, .floor')) { leanTo(0, 0); return; }", "scene.addEventListener('pointerleave', () => leanTo(0, 0));",
+                      "const rate = lean.toX === 0 && lean.toY === 0 ? .03 : .06;"):
+            self.assertIn(piece, page)
 
     def test_the_pane_covers_the_signal_flow_and_the_edit_panel_across_the_window(self):
         box = run_js(['focus_view.js'], 'focusPaneBounds({x:318,y:45,w:1592,h:248}, {x:308,y:0,w:1612,h:954}, {x:0,y:0,w:1920,h:989})')
