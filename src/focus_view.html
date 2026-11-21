@@ -155,6 +155,16 @@
                   letter-spacing: .005em; text-shadow: 0 2px 18px #000; }
   .title .capture { font-size: clamp(18px, 2.6vh, 26px); margin-top: 6px; color: #dcdad3; text-shadow: 0 2px 12px #000;
                     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* a NAM block is known by its capture: the capture's name is the big line (two lines at most, smaller when long),
+     the model the small one under it; each still opens its own list */
+  .title.named .capture { order: 2; margin-top: 0; overflow: visible; white-space: normal; text-align: left; color: var(--ink);
+                          font-size: clamp(calc(30px * var(--fit, 1)), calc(6.4vh * var(--fit, 1)), calc(68px * var(--fit, 1)));
+                          line-height: 1.02; font-weight: 700; font-stretch: 75%; letter-spacing: .005em; text-shadow: 0 2px 18px #000; }
+  .title.named .capture span { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+  .title.named button.capture svg { width: .42em; height: .42em; align-self: flex-end; margin-bottom: .3em; }
+  .title.named .model { order: 3; margin-top: 6px; font-size: clamp(18px, 2.6vh, 26px); line-height: 1.2; font-weight: 400; font-stretch: normal;
+                        letter-spacing: 0; color: #dcdad3; text-shadow: 0 2px 12px #000; }
+  .title.named button.model svg { width: .62em; height: .62em; }
   .title button { display: inline-flex; align-items: center; gap: 12px; max-width: 100%; }
   .title button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .title button svg { width: .42em; height: .42em; opacity: .5; flex: none; transition: opacity .15s, transform .15s; }
@@ -274,8 +284,8 @@
   .cats > button img { width: 64px; height: 30px; object-fit: cover; object-position: 50% 27%; border-radius: 4px; }
   .cats > button span:last-child { color: var(--dim); font-size: 13.5px; }
   /* what is not at its default gets the Floor look page's dot: a kind's default, the preset's own background, a block
-     with a look of its own, each of its two choices, and the tab that holds any of them */
-  .cats > button.changed span:first-child::after, .blocks button.changed b::after, .parts button.changed b::after, .scope button.changed::after {
+     with a look of its own, and each of its two choices (not the tabs: that was a dot too many) */
+  .cats > button.changed span:first-child::after, .blocks button.changed b::after, .parts button.changed b::after {
     content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #e05a5b; vertical-align: middle; }
   .cats .scenes { margin: 6px 0 12px; }
   .linkish { margin-top: 16px; font-size: 13.5px; color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
@@ -609,10 +619,11 @@ function defaultScene(block) {
   return look ? usable(look.assign.category[m.key]) || usable(look.assign.default) || m.scene : m.scene;
 }
 function sceneOf(block) {                                    // {name, from: 'own' | 'preset' | 'default'}
+  const mine = presetLook(), whole = mine && usable(mine.scene), under = whole || defaultScene(block);
   const own = usable(ownLook(block).scene);
-  if (own) return {name: own, from: 'own'};
-  const mine = presetLook(), whole = mine && usable(mine.scene);
-  return whole ? {name: whole, from: 'preset'} : {name: defaultScene(block), from: 'default'};
+  // (a background of its own that is the one it would have anyway says nothing: it counts as that one, as focus_view.tidy_looks keeps it)
+  if (own && own !== under) return {name: own, from: 'own'};
+  return whole ? {name: whole, from: 'preset'} : {name: under, from: 'default'};
 }
 const givenPicture = block => { const id = ownLook(block).picture; return (id && catalog.pictures && catalog.pictures[id]) ? id : null; };
 function ownPictureId(block) {
@@ -1010,7 +1021,7 @@ function lookBlockTab(pane, block) {
   pane.append(parts);
   if (lookPart === 'scene') {
     pane.append(heading('Background', from.from === 'own' ? 'chosen for this block' : from.from === 'preset' ? 'from this preset' : 'the ' + (m.category || 'block') + ' default',
-                        own.scene ? [mine && mine.scene ? "Use the preset's" : 'Use the default', () => change({scene: null})] : null));
+                        from.from === 'own' ? [mine && mine.scene ? "Use the preset's" : 'Use the default', () => change({scene: null})] : null));
     pane.append(sceneGrid(from.name, name => change({scene: name}), {marked: under, mark: mine && usable(mine.scene) ? 'Preset' : 'Default'}));
     return;
   }
@@ -1071,13 +1082,6 @@ function lookPresetTab(pane, block) {
   pane.append(rows);
   if (mine) { const clear = el('button', 'linkish', 'Put this preset back on the defaults'); clear.onclick = () => ask('look', {scope: 'preset', preset: presetRef(), clear: true}); pane.append(clear); }
 }
-function movedDefaults() {                                   // the kinds (and "everything else") not on their starting background
-  const kinds = look.categories.filter(([key]) => {
-    const starting = look.factory.category[key], now = usable(look.assign.category[key]) || usable(look.assign.default);
-    return !!usable(starting) && now !== starting;
-  }).length;
-  return kinds + (usable(look.factory.default) && usable(look.assign.default) !== look.factory.default ? 1 : 0);
-}
 function lookDefaultsTab(pane) {
   pane.append(el('p', 'lead', 'What every preset starts from: one background for each kind of block. The Floor look page edits the same choices.'));
   const cats = el('div', 'cats');
@@ -1114,12 +1118,7 @@ function drawLook(force) {
   const pane = $('lookPane'), at = JSON.stringify([lookTab, presetKey(), block && [block.dsp, block.id]]), keep = at === shownLookAt ? pane.scrollTop : 0;
   const typing = document.activeElement && document.activeElement.type === 'search' && pane.contains(document.activeElement);
   shownLook = key; shownLookAt = at;
-  const mine = presetKey() && presetLook(), own = block ? ownLook(block) : {};
-  const dotted = {block: !!(block && (usable(own.scene) || givenPicture(block))), preset: !!mine, defaults: movedDefaults() > 0};
-  document.querySelectorAll('.scope button').forEach(tab => {
-    tab.setAttribute('aria-selected', tab.dataset.tab === lookTab);
-    tab.classList.toggle('changed', dotted[tab.dataset.tab]);        // a dot: something on this tab is not at its default
-  });
+  document.querySelectorAll('.scope button').forEach(tab => tab.setAttribute('aria-selected', tab.dataset.tab === lookTab));
   pane.textContent = '';
   if (lookTab === 'block') lookBlockTab(pane, block); else if (lookTab === 'preset') lookPresetTab(pane, block); else lookDefaultsTab(pane);
   $('lookNote').textContent = presetKey() && presetLook()
@@ -1250,6 +1249,9 @@ function render() {
   $('cat').textContent = kindOf(block) || 'Block';              // a NAM block says which kind of capture it plays
   $('modelName').textContent = m.name;
   $('captureButton').hidden = !taken; $('captureName').textContent = taken ? taken.name : '';
+  const title = $('cat').parentElement;                       // a NAM block: its capture's name is the big line
+  title.classList.toggle('named', !!taken);
+  title.style.setProperty('--fit', taken ? Math.max(.52, Math.min(1, 20 / taken.name.length)).toFixed(3) : 1);
   $('modelButton').disabled = !/^block/.test(block.id);          // an input or an output is not a model to change
   if (picking) fillPicker();
   showScene(sceneOf(block).name); showGear(block); drawDeck(block); drawFloor(block);
@@ -1289,7 +1291,8 @@ $('pickerClose').onclick = closePicker;
 $('lookButton').onclick = () => lookOpen ? closeLook() : openLook();
 $('lookClose').onclick = closeLook;
 $('lookSave').onclick = () => ask('lookSave');
-document.querySelectorAll('.scope button').forEach(tab => { tab.onclick = () => { lookTab = tab.dataset.tab; drawLook(true); }; });
+// (a row left open on a tab is closed when the tab is left: coming back, the tab reads from the top again)
+document.querySelectorAll('.scope button').forEach(tab => { tab.onclick = () => { lookTab = tab.dataset.tab; lookKind = null; drawLook(true); }; });
 $('pickerSearch').oninput = () => { fillPicker(); $('pickerRows').scrollTop = 0; };
 scene.addEventListener('pointerdown', e => { if (picking && !e.target.closest('.picker')) closePicker(); });
 $('floorToggle').onclick = e => {

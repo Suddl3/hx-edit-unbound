@@ -248,6 +248,31 @@ def preset_looks(settings=None):
     return looks
 
 
+def _kind_scene(assign, kind, scenes):
+    """The default background of a kind of block, as the page works it out: the kind's, else "everything else"."""
+    chosen = assign['category'].get(kind)
+    return chosen if chosen in scenes else assign['default'] if assign['default'] in scenes else None
+
+
+def tidy_looks(looks, assign, scenes, models):
+    """The looks without what says nothing: a block's own background that is the one it would have anyway (the
+    preset's, else the default for its kind) is not a choice of its own, so it is not kept, and it does not hold the
+    block back when that default is changed later. A NAM block (kept by its capture slot) is an amp to the Floor."""
+    for key in list(looks):
+        entry = looks[key]
+        whole = entry.get('scene') if entry.get('scene') in scenes else None
+        for block in list(entry['blocks']):
+            own = entry['blocks'][block]
+            kind = 'amp' if SLOT_KEY.fullmatch(block) else str((models.get(block) or {}).get('key') or '')
+            if 'scene' in own and own['scene'] == (whole or _kind_scene(assign, kind, scenes)):
+                del own['scene']
+            if not own:
+                del entry['blocks'][block]
+        if 'scene' not in entry and not entry['blocks']:
+            del looks[key]
+    return looks
+
+
 def look_view(settings=None):
     """What the page's Change look panel works with: the defaults in force, the Floor tool's own defaults (for the
     "Default" marks and for putting them back), the kinds of block, and every preset's look."""
@@ -276,11 +301,22 @@ def look_change(settings, change, preset, scenes, pictures, models):
     def scene(value):
         return value if isinstance(value, str) and SCENE_ID.fullmatch(value) and value in scenes else None
 
+    # What showed as a default before this change follows the default (tidy_looks), before and after it.
+    before = preset_looks(settings)
+    looks = tidy_looks(preset_looks(settings), assignment(settings), scenes, models)
+
+    def kept(extra=None):
+        changed = dict(extra or {})
+        after = tidy_looks(looks, assignment({**settings, **changed}), scenes, models)
+        if after != before:
+            changed[LOOKS_KEY] = after
+        return changed
+
     if scope == 'default':
         look = dict(settings.get('floorLook')) if isinstance(settings.get('floorLook'), dict) else {}
         if change.get('reset') is True:
             look.pop('assign', None)
-            return {'floorLook': look}
+            return kept({'floorLook': look})
         chosen, kind = scene(change.get('scene')), change.get('category')
         if not chosen or (kind != 'default' and kind not in floor_store.CATEGORY_LABELS):
             return {}
@@ -290,7 +326,7 @@ def look_change(settings, change, preset, scenes, pictures, models):
         else:
             now['category'][kind] = chosen
         look['assign'] = floor_store.assignment(now, list(scenes))
-        return {'floorLook': look}
+        return kept({'floorLook': look})
 
     if scope not in ('block', 'preset') or not isinstance(preset, dict) or not isinstance(change.get('preset'), dict):
         return {}
@@ -300,21 +336,20 @@ def look_change(settings, change, preset, scenes, pictures, models):
     if change['preset'].get('setlist') != setlist or change['preset'].get('number') != number:
         return {}                                      # asked for a preset that is no longer the loaded one
     name = str(preset.get('name') or '')[:32]
-    looks = preset_looks(settings)
     key = f'{setlist}:{number}'
-    kept = looks.get(key)
+    saved = looks.get(key)
     if scope == 'preset' and change.get('adopt') is True:
-        if not kept or kept['name'] == name:
+        if not saved or saved['name'] == name:
             return {}
-        kept['name'] = name
-        return {LOOKS_KEY: looks}
+        saved['name'] = name
+        return kept()
     if scope == 'preset' and change.get('clear') is True:
         if key not in looks:
             return {}
         del looks[key]
-        return {LOOKS_KEY: looks}
+        return kept()
     # A look kept under another name was another preset's (this number has been written over or the presets moved).
-    entry = kept if kept and kept['name'] == name else {'name': name, 'blocks': {}}
+    entry = saved if saved and saved['name'] == name else {'name': name, 'blocks': {}}
     if scope == 'preset':
         if 'scene' not in change or (change['scene'] is not None and not scene(change['scene'])):
             return {}
@@ -349,7 +384,7 @@ def look_change(settings, change, preset, scenes, pictures, models):
         looks[key] = entry
     else:
         looks.pop(key, None)
-    return {LOOKS_KEY: looks}
+    return kept()
 
 
 def catalog(resources, settings=None):

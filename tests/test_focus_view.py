@@ -276,6 +276,32 @@ class LookTests(unittest.TestCase):
         self.keep(settings, {'scope': 'preset', 'preset': self.HERE, 'clear': True})
         self.assertEqual(settings['presetLooks'], {})
 
+    def test_a_background_that_is_the_one_the_block_would_have_anyway_is_not_its_own(self):
+        models = {'HD2_DelayTest': {'key': 'delay'}, 'HD2_AmpNAMLite': {'key': 'amp'}}
+        change = lambda settings, asked: focus_view.look_change(settings, asked, self.PRESET, self.SCENES, self.PICTURES, models)
+        # the default for its kind chosen again (the list's "Default" cell): nothing of its own is kept
+        self.assertEqual(change({}, {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'deep_sea'}), {})
+        self.assertEqual(change({}, {'scope': 'block', 'preset': self.HERE, 'key': 'slot:18', 'scene': 'stage'}), {})   # a NAM block is an amp
+        own = change({}, {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'space'})
+        self.assertEqual(own['presetLooks']['3:5']['blocks'], {'HD2_DelayTest': {'scene': 'space'}})
+        back = change(dict(own), {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'deep_sea'})
+        self.assertEqual(back, {'presetLooks': {}})
+        # the default is changed to what the block has: the block is on the default now, and follows it from then on
+        settings = dict(own)
+        settings.update(change(settings, {'scope': 'default', 'category': 'delay', 'scene': 'space'}))
+        self.assertEqual(settings['presetLooks'], {})
+        self.assertEqual(settings['floorLook']['assign']['category']['delay'], 'space')
+        # ... and what was kept that way before (the owner's 030: its own Desert Dusk on a Desert Dusk default) is dropped by the next change
+        old = {'presetLooks': {'3:5': {'name': 'Mahadeva', 'blocks': {'slot:25': {'scene': 'stage', 'picture': 'capture:brit_gold_head'},
+                                                                      'slot:16': {'scene': 'space'}}}}}
+        after = change(old, {'scope': 'default', 'category': 'looper', 'scene': 'stage'})
+        self.assertEqual(after['presetLooks']['3:5']['blocks'], {'slot:25': {'picture': 'capture:brit_gold_head'}, 'slot:16': {'scene': 'space'}})
+        # the preset's own background chosen for a block again is the preset's
+        whole = change({}, {'scope': 'preset', 'preset': self.HERE, 'scene': 'space'})
+        self.assertEqual(change(dict(whole), {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'space'}), {})
+        both = change(dict(whole), {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'deep_sea'})
+        self.assertEqual(both['presetLooks']['3:5']['blocks'], {'HD2_DelayTest': {'scene': 'deep_sea'}})   # its kind's default, but not the preset's
+
     def test_a_look_kept_under_another_name_is_another_presets_until_it_is_taken_over(self):
         settings = self.keep({}, {'scope': 'preset', 'preset': self.HERE, 'scene': 'space'})
         renamed = {'setlist': 3, 'number': 5, 'name': 'Something else'}
@@ -414,16 +440,16 @@ class PaneDriverTests(unittest.TestCase):
         kinds = [line.get('type') for line in self.lines('P')]
         self.assertLess(kinds.index('catalog'), kinds.index('look'))                 # what it draws with, then the looks
         self.assertEqual(self.lines('P')[kinds.index('look')]['look']['presets'], {})
-        change = {'scope': 'block', 'preset': {'setlist': 3, 'number': 5}, 'key': 'HD2_DelayTest', 'scene': 'deep_sea'}
+        change = {'scope': 'block', 'preset': {'setlist': 3, 'number': 5}, 'key': 'HD2_DelayTest', 'scene': 'aurora'}
         self.assertEqual(self.view.changed_look(change, {}), {})                     # no preset known yet
         self.view.receive({'type': 'focusState', 'state': {'blocks': [], 'selected': None, 'values': {},
                                                            'preset': {'setlist': 3, 'number': 5, 'name': 'Mahadeva'}}})
         self.assertTrue(self.wait(lambda: self.view.state))
         kept = self.view.changed_look(change, {})
-        self.assertEqual(kept, {'presetLooks': {'3:5': {'name': 'Mahadeva', 'blocks': {'HD2_DelayTest': {'scene': 'deep_sea'}}}}})
+        self.assertEqual(kept, {'presetLooks': {'3:5': {'name': 'Mahadeva', 'blocks': {'HD2_DelayTest': {'scene': 'aurora'}}}}})
         self.assertEqual(self.view.changed_look({**change, 'key': 'HD2_NotAModel'}, {}), {})
         self.assertEqual(self.view.changed_look({**change, 'picture': 'model:FX_Delay.png'}, {})['presetLooks']['3:5']['blocks']['HD2_DelayTest'],
-                         {'scene': 'deep_sea', 'picture': 'model:FX_Delay.png'})
+                         {'scene': 'aurora', 'picture': 'model:FX_Delay.png'})
         self.view.show_look(kept)
         self.assertTrue(self.wait(lambda: [line for line in self.lines('P') if line.get('type') == 'look'][-1]['look']['presets']))
         self.assertEqual([line for line in self.lines('P') if line.get('type') == 'look'][-1]['look']['presets'], kept['presetLooks'])
@@ -676,9 +702,16 @@ class ScriptTests(unittest.TestCase):
                       ".cats > button.changed span:first-child::after"):
             self.assertIn(piece, page)
         # the same dot on what is not at its default elsewhere: a block of the preset, the preset's own background, a block's two choices, a tab
-        for piece in (".blocks button.changed b::after, .parts button.changed b::after, .scope button.changed::after",
-                      "(own || from.from !== 'default' ? ' changed' : '')", "el('button', whole ? 'changed' : '')",
-                      "tab.classList.toggle('changed', dotted[tab.dataset.tab]);"):
+        for piece in (".cats > button.changed span:first-child::after, .blocks button.changed b::after, .parts button.changed b::after {",
+                      "(own || from.from !== 'default' ? ' changed' : '')", "el('button', whole ? 'changed' : '')"):
+            self.assertIn(piece, page)
+        self.assertNotIn('.scope button.changed', page)                               # not on the tabs (the owner: a dot too many)
+        # a background of its own that is the one the block would have anyway is not "its own"
+        self.assertIn("if (own && own !== under) return {name: own, from: 'own'};", page)
+        # a row left open closes when its tab is left
+        self.assertIn("tab.onclick = () => { lookTab = tab.dataset.tab; lookKind = null; drawLook(true); };", page)
+        # a NAM block's big line is its capture's name, the model the small one under it
+        for piece in ("title.classList.toggle('named', !!taken);", ".title.named .capture { order: 2;", ".title.named .model { order: 3;"):
             self.assertIn(piece, page)
         # a look change draws again only what it changes (the gear does not come in again for another kind's default)
         self.assertIn("else if (message.type === 'look') look = message.look;", page)
