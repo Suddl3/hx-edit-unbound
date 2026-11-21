@@ -7,7 +7,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from threading import Event
+from threading import Event, Thread
+import time
 
 
 ROOT = Path(__file__).resolve().parent
@@ -304,6 +305,22 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.receive({'type': 'dspNotice', 'text': notice})
                 if not detached.is_set():
                     script.post({'type': 'focusMode', 'payload': {'on': on}})
+            def focus_load(number):
+                try:
+                    import nam_level
+                    nam_level.load_preset(number)
+                except Exception as error:               # no MIDI port, or it is busy: said in the pane
+                    trace({'type': 'focusView', 'event': 'preset-load-failed', 'number': number, 'error': str(error)})
+                    focus.notice(f'Preset {number:03d} did not load. {error}')
+                    return
+                for _ in range(30):                      # HX Edit follows within a moment when the Floor took it
+                    time.sleep(.1)
+                    preset = (focus.state or {}).get('preset') if isinstance(focus.state, dict) else None
+                    if isinstance(preset, dict) and preset.get('number') == number:
+                        return
+                if focus_on[0]:
+                    trace({'type': 'focusView', 'event': 'preset-load-unseen', 'number': number})
+                    focus.notice(f'The Floor did not load preset {number:03d}. Check MIDI PC Receive in its Global Settings.')
             def focus_action(name, value):
                 if name == 'exit':
                     focus_mode(False)
@@ -324,6 +341,18 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     command = focus.checked_snapshot(value) if focus is not None and focus_on[0] else None
                     if command and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': command})
+                elif name == 'preset':
+                    # Another preset of the loaded setlist, from the pane's top bar (its arrows or its list).
+                    # focus_view.js first closes a drag left open on this preset, then asks back ('load').
+                    command = focus.checked_preset(value) if focus is not None and focus_on[0] else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
+                elif name == 'load':
+                    # The preset is loaded as a footswitch or the Level tool loads it (a MIDI Program Change over
+                    # USB); HX Edit follows on its own. Nothing is saved; what was not saved in the preset left
+                    # behind is lost, as with HX Edit's own preset list.
+                    if focus is not None and focus_on[0] and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
+                        Thread(target=focus_load, args=(value,), daemon=True).start()
                 elif name in ('model', 'capture'):
                     # Another model, or a capture, chosen from the pane's list for the block it shows.
                     check = focus.checked_model if name == 'model' else focus.checked_capture

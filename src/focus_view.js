@@ -125,6 +125,15 @@ function focusRoom(view, loads, now, next, dsp) {
 // preset, the snapshot, undo and the DSP meters) down to the edit panel's bottom, across the whole window; HX
 // Edit's status bar stays. sf/ed/main: {x, y, w, h} of the signal flow view ('sfvc'), the editor view ('edvw')
 // and the window's root view ('main'), in client coordinates.
+function focusPresetNames(names, preset) {
+  // The setlist's preset names for the bar's list, only when HX Edit's list is the loaded preset's own setlist:
+  // its row for the loaded preset must carry that preset's name (the sidebar can show another setlist, and a
+  // name changed but not saved differs too). Otherwise null: the bar keeps its arrows and offers no list.
+  if (!Array.isArray(names) || names.length !== 128 || !names.every(name => typeof name === 'string')) return null;
+  if (!preset || !Number.isInteger(preset.number) || preset.number < 0 || preset.number > 127) return null;
+  const clean = names.map(name => name.trim().slice(0, 32));
+  return clean[preset.number] === String(preset.name || '').trim() ? clean : null;
+}
 function focusPaneBounds(sf, ed, main) {
   if (![sf, ed, main].every(box => box && [box.x, box.y, box.w, box.h].every(Number.isFinite))) return null;
   const top = Math.max(0, main.y), bottom = Math.min(main.y + main.h, ed.y + ed.h);
@@ -150,7 +159,8 @@ function installFocusView(options, parts) {
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
   let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [];
-  let header = {preset: null, snapshots: []};               // the top bar's preset and snapshot names (full readings)
+  let header = {preset: null, snapshots: [], presets: null};   // the top bar's preset, snapshot names and preset list (full readings)
+  let namesWord = '';                                        // the last outcome of reading the preset list, for the trace
   function presetHeader() {
     // The loaded preset's number and name (nam_view reads HX Edit's own header) and its snapshots' names.
     let preset = null;
@@ -161,7 +171,17 @@ function installFocusView(options, parts) {
       if (typeof name !== 'string') break;
       snapshots.push(name);
     }
-    return {preset, snapshots};
+    // The setlist's names, from HX Edit's own preset list (nam_view), when that list is this preset's setlist.
+    let names = null;
+    try { names = namView.presetNames?.() ?? 'no-reader'; } catch (error) { names = 'failed: ' + String(error.message).slice(0, 80); }
+    const presets = focusPresetNames(names, preset);
+    const word = presets ? 'ok' : Array.isArray(names) ? 'differs-' + names.length : String(names);
+    if (word !== namesWord) {
+      namesWord = word;
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-names', result: word,
+            ...(Array.isArray(names) && !presets && preset ? {row: String(names[preset.number]).slice(0, 40), name: preset.name} : {})});
+    }
+    return {preset, snapshots, presets};
   }
   // Value writes from the pane, and the drag HX Edit has been told has begun (ended by us if the pane never does).
   const writes = [];
@@ -258,6 +278,13 @@ function installFocusView(options, parts) {
           if (!editor.isNull()) targetBinding.recallSnapshot(editor, command.index);
           changed = true;
           send({type: 'toneTrace', reason: 'focus-view', stage: 'snapshot', index: command.index});
+        } else if (command.action === 'preset') {
+          // Another preset: a drag left open is closed on this preset first, then the launcher asks the Floor
+          // for it (a Program Change, as a footswitch; HX Edit follows on its own).
+          endDrag('a preset change');
+          changed = true;
+          send({type: 'focusPreset', number: command.number});
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
         } else if (command.action) swap(command); else write(command);
       }
       catch (error) { drag = null; changed = true; send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)}); }
@@ -269,7 +296,7 @@ function installFocusView(options, parts) {
       if (place !== lastBounds) { lastBounds = place; send({type: 'focusBounds', window: window.toUInt32(), bounds}); }
       const cursor = toneView.cursorBlock();
       if (cursor && !cursor.editor.isNull()) editor = cursor.editor;
-      if (editor.isNull()) { publish({blocks: [], selected: null, values: {}, captures: [], preset: null, snapshots: [], snapshot: null, undo: null}); return; }
+      if (editor.isNull()) { publish({blocks: [], selected: null, values: {}, captures: [], preset: null, presets: null, snapshots: [], snapshot: null, undo: null}); return; }
       const began = Date.now(), peek = (dsp, place, key) => targetBinding.peekValue(editor, dsp, place, key);
       let state = !changed && known && began - knownAt < FULL_MS ? focusValues(peek, known, cursor, parameters, namEngines) : null;
       const full = !state;
@@ -278,7 +305,7 @@ function installFocusView(options, parts) {
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
       if (full) { onFloor = captures(); header = presetHeader(); }
       state.captures = onFloor;
-      state.preset = header.preset; state.snapshots = header.snapshots;
+      state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots;
       const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
       state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
       // Something to undo: HX Edit's own undo position (as tone_view reads it).
@@ -322,7 +349,7 @@ function installFocusView(options, parts) {
     on = value === true;
     if (timer) { clearInterval(timer); timer = null; }
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = [];
-    header = {preset: null, snapshots: []};
+    header = {preset: null, snapshots: [], presets: null};
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }
     send({type: 'toneTrace', reason: 'focus-view', stage: on ? 'on' : 'off'});
   }
@@ -363,6 +390,9 @@ function installFocusView(options, parts) {
       } else if (on && value.action === 'snapshot' && Number.isInteger(value.index) && value.index >= 0 && value.index <= 7 && writes.length < 32) {
         writes.push({action: 'snapshot', index: value.index});
         queued = false; ask();
+      } else if (on && value.action === 'preset' && Number.isInteger(value.number) && value.number >= 0 && value.number <= 127 && writes.length < 32) {
+        writes.push({action: 'preset', number: value.number});
+        queued = false; ask();
       } else if (on && [0, 1].includes(value.dsp) && typeof value.id === 'string' && chainBlock.test(value.id) && writes.length < 32 &&
                  ((value.action === 'model' && typeof value.symbol === 'string' && modelSymbol.test(value.symbol) && !namEngines.includes(value.symbol)) ||
                   (value.action === 'capture' && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127))) {
@@ -377,5 +407,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusPaneBounds, focusQueue, focusRoom, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, installFocusView };
 }

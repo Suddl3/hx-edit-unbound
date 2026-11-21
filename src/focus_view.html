@@ -15,7 +15,8 @@
   chain strip), "set" (a value of the selected block: {dsp, id, key, value, phase}; a drag is "begin",
   "move"..., "end", so that HX Edit keeps it as one step of its undo; anything else is "single"), "model"
   (another model for the block: {dsp, id, symbol}), "capture" (a capture on the Floor: {dsp, id, slot}),
-  "snapshot" (recall one: its place, 0 = snapshot 1), and "undo" / "redo" (HX Edit's own).
+  "snapshot" (recall one: its place, 0 = snapshot 1), "preset" ("previous", "next" or a number of the list
+  it was given), and "undo" / "redo" (HX Edit's own).
   The page has HX Edit's toolbar under it, so it carries its own: preset, snapshot, undo, the DSP meters.
   The layout keeps to what the Floor's own Focus View draws: title on top, the gear standing in its
   category's scene, the parameters below on black, each with its value above its name.
@@ -46,10 +47,19 @@
           background: rgb(255 255 255 / .07); font-size: 15px; white-space: nowrap; transition: background .15s; }
   .back:hover { background: rgb(255 255 255 / .14); }
   .back svg { width: 14px; height: 14px; }
-  .preset { height: 36px; padding: 0 16px; border-radius: 18px; background: rgb(255 255 255 / .07); font-size: 18px; display: inline-flex;
-            align-items: center; gap: 10px; max-width: 420px; white-space: nowrap; overflow: hidden; }
-  .preset .num { color: var(--dim); font-variant-numeric: tabular-nums; }
-  .preset span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .switch { display: flex; align-items: center; height: 36px; border-radius: 18px; background: rgb(255 255 255 / .07); min-width: 0; }
+  .switch[hidden] { display: none; }
+  .switch .step { width: 32px; height: 36px; display: grid; place-items: center; color: var(--dim); border-radius: 18px; flex: none; }
+  .switch .step:hover { color: var(--ink); background: rgb(255 255 255 / .1); }
+  .switch .step svg { width: 12px; height: 12px; }
+  .switch .name { height: 36px; padding: 0 8px; font-size: 18px; display: inline-flex; align-items: center; gap: 9px; max-width: 380px;
+                  white-space: nowrap; min-width: 0; }
+  .switch .name .num { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .switch .name span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; }
+  .switch .name svg { width: 10px; height: 10px; opacity: .55; flex: none; }
+  .switch .name:hover svg { opacity: 1; }
+  .switch .name:disabled { cursor: default; }
+  .switch .name:disabled svg { display: none; }
   .snap { height: 36px; padding: 0 14px 0 6px; border-radius: 18px; display: inline-flex; align-items: center; gap: 9px; font-size: 16px;
           box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16); max-width: 300px; white-space: nowrap; }
   .snap i { font-style: normal; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; flex: none;
@@ -81,6 +91,12 @@
   .drop button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .drop button:hover { background: rgb(255 255 255 / .08); }
   .drop button.cur { background: rgb(255 255 255 / .1); box-shadow: inset 3px 0 0 #fff; }
+  .drop.presets { width: 330px; max-height: min(480px, 100vh - 70px); scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .drop.presets button { grid-template-columns: 42px 1fr; }
+  .toast { position: absolute; left: 50%; top: 112px; z-index: 9; transform: translateX(-50%); max-width: 560px; padding: 10px 16px;
+           border-radius: 10px; background: rgb(8 8 10 / .94); box-shadow: 0 0 0 1px rgb(255 255 255 / .16), 0 18px 40px rgb(0 0 0 / .7);
+           font-size: 15px; line-height: 1.35; text-align: center; }
+  .toast[hidden] { display: none; }
 
   .chain { display: flex; align-items: flex-start; justify-content: center; gap: 6px; position: relative; padding-top: 2px; margin-top: 8px; min-height: 66px; }
   .run { display: flex; align-items: flex-start; gap: 6px; position: relative; }
@@ -286,7 +302,12 @@
           <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg>
           Editor
         </button>
-        <div class="preset" id="preset" hidden><span class="num" id="presetNum"></span><span id="presetName"></span></div>
+        <div class="switch" id="preset" hidden>
+          <button class="step" id="presetPrev" title="Previous preset" aria-label="Previous preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg></button>
+          <button class="name" id="presetButton" title="Choose a preset" aria-expanded="false"><span class="num" id="presetNum"></span><span id="presetName"></span>
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l5 5 5-5"/></svg></button>
+          <button class="step" id="presetNext" title="Next preset" aria-label="Next preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2l5 5-5 5"/></svg></button>
+        </div>
         <button class="snap" id="snapButton" title="Choose a snapshot" aria-expanded="false" hidden><i id="snapNum"></i><span id="snapName"></span>
           <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l5 5 5-5"/></svg></button>
       </div>
@@ -300,7 +321,9 @@
       </div>
     </div>
     <nav class="chain" id="chain" aria-label="Signal chain"></nav>
+    <div class="drop presets" id="presetList" hidden></div>
     <div class="drop" id="snapList" hidden></div>
+    <div class="toast" id="toast" role="status" hidden></div>
   </header>
 
   <main class="scene" id="scene">
@@ -781,6 +804,11 @@ function drawBar() {
   const preset = state.preset, names = state.snapshots || [], on = state.snapshot;
   $('preset').hidden = !preset;
   if (preset) { $('presetNum').textContent = String(preset.number).padStart(3, '0'); $('presetName').textContent = preset.name || ''; }
+  // The list is offered when HX Edit's own preset list could be read for this setlist; the arrows always.
+  const listed = !!preset && Array.isArray(state.presets) && state.presets.length > 0;
+  $('presetButton').disabled = !listed;
+  $('presetButton').title = listed ? 'Choose a preset' : '';
+  if (!listed) closePresets(); else if (!$('presetList').hidden) fillPresets();
   const has = Number.isInteger(on) && on >= 0 && on < names.length;
   $('snapButton').hidden = !has;
   if (has) { $('snapNum').textContent = on + 1; $('snapName').textContent = names[on] || 'Snapshot ' + (on + 1); }
@@ -801,6 +829,39 @@ function fillSnapshots() {
   }));
 }
 function closeSnapshots() { $('snapList').hidden = true; $('snapButton').setAttribute('aria-expanded', 'false'); }
+let shownPresets = '';
+function fillPresets() {
+  // The loaded setlist's presets by number; redrawn only when a name or the loaded preset changes (it keeps its scroll).
+  const list = $('presetList'), names = state.presets || [], at = state.preset ? state.preset.number : -1;
+  const key = at + '\n' + names.join('\n');
+  list.style.left = $('preset').offsetLeft + 'px';
+  if (key === shownPresets && list.childElementCount === names.length) return;
+  shownPresets = key;
+  list.replaceChildren(...names.map((name, index) => {
+    const row = document.createElement('button');
+    row.className = index === at ? 'cur' : '';
+    row.innerHTML = '<span></span><span></span>';
+    row.firstChild.textContent = String(index).padStart(3, '0'); row.lastChild.textContent = name;
+    row.onclick = () => { if (index !== at) ask('preset', index); closePresets(); };
+    return row;
+  }));
+}
+function openPresets() {
+  closeSnapshots(); shownPresets = '';
+  fillPresets();
+  $('presetList').hidden = false; $('presetButton').setAttribute('aria-expanded', 'true');
+  const current = $('presetList').querySelector('.cur');
+  if (current) current.scrollIntoView({block: 'center'});
+}
+function closePresets() { $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false'); }
+let toastTimer = 0;
+function toast(text) {
+  // Something asked for here did not happen (a preset that did not load, a model with no room on its DSP).
+  const line = $('toast');
+  line.textContent = String(text || ''); line.hidden = !line.textContent;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { line.hidden = true; }, 6000);
+}
 function drawDsp() {
   // Each DSP's blocks out of what they may use on the Floor (its own meter's figure), coloured as HX Edit Unbound's meter.
   $('dsp').replaceChildren(...(dsp || []).map((view, index) => {
@@ -845,7 +906,8 @@ function receive(message) {
   if (message.type === 'catalog') { catalog = message.catalog; shownKey = ''; shownPicture = ''; shownChain = ''; }
   else if (message.type === 'state') state = message.state;
   else if (message.type === 'dsp') { dsp = message.dsp; drawDsp(); return; }
-  else if (message.type === 'shown') { visible = message.shown === true; if (visible) place(); else { closePicker(); closeSnapshots(); } return; }
+  else if (message.type === 'notice') { toast(message.text); return; }
+  else if (message.type === 'shown') { visible = message.shown === true; if (visible) place(); else { closePicker(); closeSnapshots(); closePresets(); $('toast').hidden = true; } return; }
   else return;
   render();
 }
@@ -857,9 +919,15 @@ $('undo').onclick = () => ask('undo');
 $('redo').onclick = () => ask('redo');
 $('snapButton').onclick = () => {
   const list = $('snapList');
-  if (list.hidden) { fillSnapshots(); list.hidden = false; $('snapButton').setAttribute('aria-expanded', 'true'); } else closeSnapshots();
+  if (list.hidden) { closePresets(); fillSnapshots(); list.hidden = false; $('snapButton').setAttribute('aria-expanded', 'true'); } else closeSnapshots();
 };
-addEventListener('pointerdown', e => { if (!$('snapList').hidden && !e.target.closest('#snapList, #snapButton')) closeSnapshots(); });
+$('presetPrev').onclick = () => { closePresets(); ask('preset', 'previous'); };
+$('presetNext').onclick = () => { closePresets(); ask('preset', 'next'); };
+$('presetButton').onclick = () => $('presetList').hidden ? openPresets() : closePresets();
+addEventListener('pointerdown', e => {
+  if (!$('snapList').hidden && !e.target.closest('#snapList, #snapButton')) closeSnapshots();
+  if (!$('presetList').hidden && !e.target.closest('#presetList, #presetButton')) closePresets();
+});
 $('modelButton').onclick = () => picking === 'model' ? closePicker() : openPicker('model');
 $('captureButton').onclick = () => picking === 'capture' ? closePicker() : openPicker('capture');
 $('pickerClose').onclick = closePicker;
@@ -878,6 +946,7 @@ scene.addEventListener('pointerleave', () => { scene.style.setProperty('--px', 0
 addEventListener('keydown', e => {
   if (e.key !== 'Escape' || !visible) return;
   if (!$('snapList').hidden) closeSnapshots();
+  else if (!$('presetList').hidden) closePresets();
   else if (picking) closePicker(); else ask('exit');          // Escape closes a list first, then Focus Mode
 });
 addEventListener('resize', place);

@@ -243,6 +243,52 @@ class PaneDriverTests(unittest.TestCase):
         for refused in (3, -1, 8, True, '1', None, 1.0):                             # only one of this preset's snapshots
             self.assertIsNone(self.view.checked_snapshot(refused))
 
+    def test_the_bars_preset_choice_is_checked_then_loaded_once_the_script_is_ready(self):
+        names = ['Preset %d' % n for n in range(128)]
+        self.view.set_on(True)
+        self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 0, 'w': 1920, 'h': 954}})
+        self.view.receive({'type': 'focusState', 'state': {'blocks': [], 'selected': None, 'values': {}, 'presets': names,
+                                                           'preset': {'setlist': 2, 'number': 5, 'name': 'Preset 5'}}})
+        self.assertTrue(self.wait(lambda: self.view.state))
+        self.assertEqual(self.view.checked_preset('next'), {'action': 'preset', 'number': 6})
+        self.assertEqual(self.view.checked_preset('previous'), {'action': 'preset', 'number': 4})
+        self.assertEqual(self.view.checked_preset(127), {'action': 'preset', 'number': 127})
+        for refused in (5, 128, -1, True, '6', None, 6.0, 'first'):                  # the loaded one, or not a preset
+            self.assertIsNone(self.view.checked_preset(refused))
+        # focus_view.js has closed any drag: only then is the launcher asked to load it
+        self.assertTrue(self.view.receive({'type': 'focusPreset', 'number': 6}))
+        self.assertTrue(self.wait(lambda: ('load', 6) in self.actions))
+        for refused in (128, -1, True, '6', None):
+            self.view.receive({'type': 'focusPreset', 'number': refused})
+        time.sleep(.1)
+        self.assertEqual([action for action in self.actions if action[0] == 'load'], [('load', 6)])
+
+    def test_the_arrows_go_around_the_ends_and_work_without_a_list(self):
+        self.view.set_on(True)
+        self.view.receive({'type': 'focusState', 'state': {'blocks': [], 'selected': None, 'values': {}, 'presets': None,
+                                                           'preset': {'setlist': 0, 'number': 127, 'name': 'Last'}}})
+        self.assertTrue(self.wait(lambda: self.view.state))
+        self.assertEqual(self.view.checked_preset('next'), {'action': 'preset', 'number': 0})
+        self.assertEqual(self.view.checked_preset('previous'), {'action': 'preset', 'number': 126})
+        self.assertIsNone(self.view.checked_preset(3))                               # no list was given: no row to choose
+        self.view.receive({'type': 'focusState', 'state': {'blocks': [], 'selected': None, 'values': {}, 'preset': None}})
+        self.assertTrue(self.wait(lambda: self.view.state.get('preset') is None))
+        self.assertIsNone(self.view.checked_preset('next'))                          # no preset known: nothing to step from
+
+    def test_a_refusal_is_said_in_the_page_while_focus_mode_is_on(self):
+        self.assertFalse(self.view.receive({'type': 'dspNotice', 'text': 'DSP 1 has no room for that model (80 of 75).'}))   # off: the DSP meter says it
+        self.view.set_on(True)
+        self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 0, 'w': 1920, 'h': 954}})
+        self.assertTrue(self.wait(lambda: self.panes))
+        self.panes[0].say({'type': 'ready'})
+        self.assertTrue(self.wait(lambda: any(line.get('type') == 'catalog' for line in self.lines('P'))))
+        self.assertTrue(self.view.receive({'type': 'dspNotice', 'text': 'DSP 1 has no room for that model (80 of 75).'}))
+        self.view.notice('Preset 006 did not load.')
+        self.view.notice('')
+        self.assertTrue(self.wait(lambda: len([line for line in self.lines('P') if line.get('type') == 'notice']) == 2))
+        self.assertEqual([line['text'] for line in self.lines('P') if line.get('type') == 'notice'],
+                         ['DSP 1 has no room for that model (80 of 75).', 'Preset 006 did not load.'])
+
     def test_the_page_gets_the_catalog_then_each_state_and_hides_when_turned_off(self):
         self.view.set_on(True)
         self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 41, 'w': 1920, 'h': 913}})
@@ -427,6 +473,35 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@current_snapshot')", script)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn('focus.checked_snapshot(value)', launcher)
+
+    def test_the_preset_list_is_hx_edits_own_only_when_it_is_the_loaded_presets_setlist(self):
+        names = ['Preset %d ' % n for n in range(128)]
+        listed = run_js(['focus_view.js'], f'focusPresetNames({json.dumps(names)}, {{setlist: 1, number: 5, name: "Preset 5"}})')
+        self.assertEqual((len(listed), listed[5], listed[127]), (128, 'Preset 5', 'Preset 127'))
+        for other in ('{setlist: 1, number: 5, name: "Mahadeva"}',                   # another setlist is showing, or a new name
+                      '{setlist: 1, number: 128, name: "Preset 5"}', 'null'):
+            self.assertIsNone(run_js(['focus_view.js'], f'focusPresetNames({json.dumps(names)}, {other})'))
+        for unread in ('"another-list-class"', 'null', json.dumps(names[:40]), json.dumps(names[:127] + [5])):
+            self.assertIsNone(run_js(['focus_view.js'], f'focusPresetNames({unread}, {{setlist: 1, number: 5, name: "Preset 5"}})'))
+
+    def test_the_preset_names_are_read_like_the_ir_lists_rows_and_a_preset_loads_as_a_footswitch_loads_it(self):
+        reader = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        names = reader[reader.index('    presetNames() {'):reader.index('    favoriteSlot: name =>')]
+        for piece in ("findWidget(libraryRoot, 0x706c7374, 1)", "!list.readPointer().equals(known.readPointer())",
+                      "count < 1 || count > 128", "getIrRow(list, index)"):
+            self.assertIn(piece, names)
+        for write in ('write', 'selectRow', 'clearSelection', 'appendRow', 'postMessage'):   # reading only
+            self.assertNotIn(write, names)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        load = script[script.index("} else if (command.action === 'preset') {"):script.index('} else if (command.action) swap(command)')]
+        self.assertLess(load.index("endDrag('a preset change')"), load.index("send({type: 'focusPreset', number: command.number})"))
+        self.assertNotIn('targetBinding', load)                                      # nothing is written to load it
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        for piece in ('focus.checked_preset(value)', 'nam_level.load_preset(number)', 'Thread(target=focus_load, args=(value,), daemon=True).start()'):
+            self.assertIn(piece, launcher)
+        page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
+        for piece in ("ask('preset', 'previous')", "ask('preset', 'next')", "ask('preset', index)", "message.type === 'notice'"):
+            self.assertIn(piece, page)
 
     def test_hx_edits_toolbar_steps_aside_and_undo_is_hx_edits_own(self):
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')

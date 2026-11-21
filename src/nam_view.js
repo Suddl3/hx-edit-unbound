@@ -2069,6 +2069,24 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (header) lastPresetHeader = {setlist: header.setlist, preset: header.preset, name: header.name || ''};
       return lastPresetHeader ? {...lastPresetHeader} : null;
     },
+    // Focus Mode's preset list: the names in HX Edit's own Presets list (the setlist its sidebar shows), top to
+    // bottom, or a word for why not. Read-only. The rows are read as the IR list's rows are, so the list must be
+    // of the IR list's own class (the same vtable); anything else is left alone.
+    presetNames() {
+      if (libraryRoot.isNull() || irController.isNull()) return 'no-library';
+      const list = findWidget(libraryRoot, 0x706c7374, 1), known = irList();   // plst
+      if (list.isNull() || known.isNull()) return 'no-list';
+      if (!list.readPointer().equals(known.readPointer())) return 'another-list-class';
+      const count = discoveryCount(list);
+      if (count < 1 || count > 128) return 'rows-' + count;
+      const names = [];
+      for (let index = 0; index < count; index++) {
+        const row = getIrRow(list, index);
+        if (row.isNull()) return 'no-row-' + index;
+        try { names.push(row.readUtf8String()); } catch (_) { names.push(row.readCString(64)); }
+      }
+      return names;
+    },
     favoriteSlot: name => favoriteSlots.has(name) ? favoriteSlots.get(name) : null,   // the slot a NAM favorite plays
     favoriteRevision: () => favoriteRevision,
     rememberFavoriteSlot(name, slot) {   // a favorite just saved from the Save As Favorite dialog

@@ -382,9 +382,20 @@ class FocusView:
             self.queue.put(('state', value.get('state')))
         elif kind == 'dspLoad':                          # the DSP meter's figures (dsp_meter.js), for the pane's own meters
             self.queue.put(('dsp', list(value.get('dsp') or [None, None])[:2]))
+        elif kind == 'focusPreset':                      # focus_view.js is ready for the preset the page chose
+            self.queue.put(('load', value.get('number')))
+        elif kind == 'dspNotice':                        # a refusal the DSP meter would show: it is hidden under the pane
+            if not self.on:
+                return False
+            self.notice(value.get('text'))
         else:
             return False
         return True
+
+    def notice(self, text):
+        """A line for the page to show for a moment (something asked for in the pane did not happen)."""
+        if isinstance(text, str) and text.strip():
+            self.queue.put(('notice', text.strip()[:200]))
 
     def set_on(self, on):
         self.queue.put(('on', bool(on)))
@@ -423,6 +434,27 @@ class FocusView:
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < min(count, 8):
             return None
         return {'action': 'snapshot', 'index': value}
+
+    def checked_preset(self, value):
+        """The page's request for another preset of the loaded setlist, as the command for focus_view.js, or None:
+        'previous' or 'next' of the loaded one (around the ends, as the Floor's own footswitches), or a preset's
+        number from the list the page was given."""
+        state = self.state if isinstance(self.state, dict) else {}
+        preset = state.get('preset') if isinstance(state.get('preset'), dict) else {}
+        now = preset.get('number')
+        if isinstance(now, bool) or not isinstance(now, int) or not 0 <= now <= 127:
+            return None
+        if value == 'previous':
+            number = (now - 1) % 128
+        elif value == 'next':
+            number = (now + 1) % 128
+        elif isinstance(value, int) and not isinstance(value, bool) and isinstance(state.get('presets'), list):
+            number = value
+            if not 0 <= number < len(state['presets']) or number > 127 or number == now:
+                return None
+        else:
+            return None
+        return {'action': 'preset', 'number': number}
 
     def checked_model(self, value):
         """The page's request to change a block's model, as the command for focus_view.js, or None: only a block
@@ -564,6 +596,12 @@ class FocusView:
         elif kind == 'dsp':
             self.dsp = value
             self._show_dsp()
+        elif kind == 'load':
+            if self.on and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
+                self._act('load', value)
+        elif kind == 'notice':
+            if self.on and self.page_ready:
+                self._write('P', {'type': 'notice', 'text': value})
         elif kind == 'pane':
             event = value.get('type')
             if event == 'ready':                       # the page has loaded: what it draws with, then what to draw
