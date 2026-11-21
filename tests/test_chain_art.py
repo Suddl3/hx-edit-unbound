@@ -66,7 +66,18 @@ class ChainOptionTests(unittest.TestCase):
         self.assertIn("else if (name === 'chainGlow') chainGlow = on === true;", tone)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("elif name in ('chainLarge', 'chainNames', 'chainGlow'):", launcher)
-        self.assertIn("chainGlow=nam_catalog.load_settings().get('chainGlow') is not False)", launcher)
+        # as a first launch has them: 3D pictures on, large, with block names, no glow; a choice made in the menu is kept
+        for piece in ("chainArt=nam_catalog.load_settings().get('chainModelArt') is not False,", "chainLarge=nam_catalog.load_settings().get('chainLarge') is not False,",
+                      "chainNames=nam_catalog.load_settings().get('chainNames') is not False,", "chainGlow=nam_catalog.load_settings().get('chainGlow') is True)",
+                      "nam_catalog.save_setting(name, on)"):
+            self.assertIn(piece, launcher)
+        self.assertIn('chainGlow = profile.chainGlow === true;', tone)
+        self.assertIn('bool dots = true, art = true, large = true, names = true, glow;', (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8'))
+        # the block list and grid show the renders with the option: put into the launch's copy of HX Edit's own pictures
+        prepare = launcher[launcher.index('        if args.nam_category:\n'):launcher.rindex('run_editor(exe, workspace, device')]
+        self.assertIn('from nam_catalog import load_settings, patch_model_art, patch_nam_category', prepare)
+        self.assertIn("if load_settings().get('chainModelArt') is not False:", prepare)
+        self.assertIn("patch_model_art(exe.parent / 'res')", prepare)
         import make_chain_pictures
         self.assertEqual(make_chain_pictures.GLOW_GAIN, 0.8)                         # a fifth softer than the first one
         tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
@@ -86,7 +97,7 @@ class ChainOptionTests(unittest.TestCase):
             self.assertIn(piece, helper)
         self.assertIn("recv('chainOption'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        self.assertIn("load_settings().get('chainModelArt') is True", launcher)     # off unless turned on
+        self.assertIn("load_settings().get('chainModelArt') is not False", launcher)   # on unless turned off
         self.assertIn("save_setting('chainModelArt', on)", launcher)
 
 

@@ -1409,7 +1409,7 @@ class UnboundButton : Form
     // The options: a tick is part of the label (the menus have no image margin). An option that only matters while
     // another is on sits indented under it and is dimmed while that one is off; it keeps its own tick meanwhile.
     ToolStripMenuItem irDots, chainArt, chainLarge, chainNames, chainGlow;
-    bool dots = true, art, large, names = true, glow = true;
+    bool dots = true, art = true, large = true, names = true, glow;   // as a first launch has them
     public void SetIrDots(bool on){ dots=on; Ticks(); }
     public void SetChainArt(bool on){ art=on; Ticks(); }
     public void SetChainLarge(bool on){ large=on; Ticks(); }

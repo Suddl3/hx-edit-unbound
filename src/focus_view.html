@@ -1323,7 +1323,7 @@ $('floorToggle').onclick = e => {
 // the pointer asks, and it drifts back to rest, more slowly, when the pointer leaves the scene or is over a panel.
 const lean = {x: 0, y: 0, toX: 0, toY: 0, frame: 0};
 function leanStep() {
-  const rate = lean.toX === 0 && lean.toY === 0 ? .03 : .06;
+  const rate = lean.toX === 0 && lean.toY === 0 ? .018 : .03;   // (slow on purpose: it should drift, not follow)
   lean.x += (lean.toX - lean.x) * rate; lean.y += (lean.toY - lean.y) * rate;
   const there = Math.abs(lean.toX - lean.x) < .002 && Math.abs(lean.toY - lean.y) < .002;
   if (there) { lean.x = lean.toX; lean.y = lean.toY; }

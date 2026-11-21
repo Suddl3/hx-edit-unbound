@@ -803,7 +803,7 @@ class ScriptTests(unittest.TestCase):
         # the scene leans less, eased by the page, and goes back to rest outside the scene or over a panel
         for piece in ("translate(calc(var(--px, 0) * -5px), calc(var(--py, 0) * -3px))", "translate(calc(var(--px, 0) * 3px), calc(var(--py, 0) * 1.5px))",
                       "if (e.target.closest('.look, .picker, .floor')) { leanTo(0, 0); return; }", "scene.addEventListener('pointerleave', () => leanTo(0, 0));",
-                      "const rate = lean.toX === 0 && lean.toY === 0 ? .03 : .06;"):
+                      "const rate = lean.toX === 0 && lean.toY === 0 ? .018 : .03;"):
             self.assertIn(piece, page)
 
     def test_the_pane_covers_the_signal_flow_and_the_edit_panel_across_the_window(self):

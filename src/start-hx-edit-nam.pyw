@@ -194,15 +194,16 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                            dragFavorite=str(drag_favorite_path()))
             # HX Unbound menu: "Mark NAM slots in the IR list" (on unless turned off).
             options.update(irDots=nam_catalog.load_settings().get('irNamDots') is not False)
-            # HX Unbound menu: "3D pictures in the signal chain" (off unless turned on), and the pictures it has.
-            options.update(chainArt=nam_catalog.load_settings().get('chainModelArt') is True,
+            # HX Unbound options, as a first launch has them: 3D pictures on, large, with block names, no glow. A choice
+            # made in the menu is kept in settings.json and wins from then on.
+            options.update(chainArt=nam_catalog.load_settings().get('chainModelArt') is not False,
                            chainArtFiles=nam_catalog.chain_art_files(exe.parent / 'res'),
                            # HX Unbound menu: "Large pictures in the signal chain" (off unless turned on).
-                           chainLarge=nam_catalog.load_settings().get('chainLarge') is True,
+                           chainLarge=nam_catalog.load_settings().get('chainLarge') is not False,
                            # HX Unbound menu: "Block names under large pictures" (on unless turned off).
                            chainNames=nam_catalog.load_settings().get('chainNames') is not False,
-                           # HX Unbound options: "Glow behind them" (on unless turned off).
-                           chainGlow=nam_catalog.load_settings().get('chainGlow') is not False)
+                           # HX Unbound options: "Glow behind them" (off unless turned on).
+                           chainGlow=nam_catalog.load_settings().get('chainGlow') is True)
             # HX Unbound menu: "Focus Mode" (focus_view.py). What its script reads for each model comes from this
             # copy's own model files; without them the editor starts as usual and the menu item says so.
             focus_options = {}
@@ -394,7 +395,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             ir_dots = [options.get('irDots') is not False]
             chain_art = [options.get('chainArt') is True]
             chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False,
-                             'chainGlow': options.get('chainGlow') is not False}
+                             'chainGlow': options.get('chainGlow') is True}
             meter = DspMeter(trace=trace, on_choice=unbound_choice, icons=exe.parent / 'res' / 'icons_models')
             meter.set_ir_dots(ir_dots[0])
             meter.set_chain_art(chain_art[0])
@@ -570,8 +571,13 @@ def main():
             patch_navigation_resources(exe.parent)
             patch_library_navigation(exe.parent)
         if args.nam_category:
-            from nam_catalog import patch_nam_category
+            from nam_catalog import load_settings, patch_model_art, patch_nam_category
             patch_nam_category(exe.parent / 'res')
+            # "3D pictures of the gear" (on unless turned off): HX Edit's block list and grid show the renders too. HX Edit
+            # reads those from its own picture files, so they go into this launch's copy; turning the option on or off
+            # changes the signal chain at once and the block list at the next start.
+            if load_settings().get('chainModelArt') is not False:
+                patch_model_art(exe.parent / 'res')
         run_editor(exe, workspace, device, profiles, firmware, floor_reference=args.floor_reference,
                    tone_window=args.tone_window, navigation=args.navigation)
 

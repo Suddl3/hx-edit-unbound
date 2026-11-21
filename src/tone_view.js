@@ -2645,7 +2645,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // own size changes (its bounds, vtable +0x38), so HX Edit's own layout keeps it centred, and putting the size
   // back is all it takes to undo. The bypass and delete buttons, which HX Edit puts just above the picture's top
   // corners (0x40c0e7, 0x40c192, from the rect 0x40ac90 gives), go beside its top corners.
-  let chainLarge = profile.chainLarge === true, chainNames = profile.chainNames !== false, chainGlow = profile.chainGlow !== false;
+  let chainLarge = profile.chainLarge === true, chainNames = profile.chainNames !== false, chainGlow = profile.chainGlow === true;
   const relayout = method(0x3b5e00, 'void', ['int']);
   const widgetBounds = method(0x3b8a60, 'pointer', []);
   const LARGE_BOX = {w: 68, h: 56}, BUTTON_GAP = 2;    // make_chain_pictures.py LARGE is this box at 1.25
