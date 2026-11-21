@@ -39,6 +39,16 @@ Don't like a picture? **Change icon…** picks another from the built-in set, or
 
 <p align="center"><img src="docs/screenshots/icon-picker.png" alt="Choosing a capture's picture" width="420"></p>
 
+### Focus Mode
+
+One click in the **HX Unbound** menu swaps HX Edit's signal flow and sliders for a single view of the selected block: its gear, large, standing in its category's scene, with its own controls as knobs and switches. Turn a knob, flip a switch or press the stomp switch to bypass: the block changes as it does from HX Edit's own sliders, and a drag is one step of undo. A strip of the chain on top picks another block. The block's title opens a list to change its model; on a NAM block the line under it lists the captures on the Floor. **Editor** (or the same menu item) brings the normal editor back as it was.
+
+![Focus Mode on a NAM block](docs/screenshots/focus-mode.jpg)
+
+The small frame in the corner shows what the Floor's own Focus View draws for the same block (with the [HX Unbound Floor](https://github.com/Suddl3/hx-unbound-floor) firmware): the same scene and the same picture. The scenes are the ones chosen on the **Floor look** page. Focus Mode is modelled on that Focus View, which is savedadodo's work.
+
+![Choosing a capture in Focus Mode](docs/screenshots/focus-mode-list.jpg)
+
 ### Level presets
 
 Brings presets and snapshots to one output level, silently. Level plays two seconds of your own recorded playing through each snapshot over USB (nothing comes out of your amp), measures the loudness, and suggests a change to each output block's Level. Keep a lead louder on purpose with an offset, then Apply, with Undo. Recordings are saved per guitar ("Strat · neck"), so you record once. Only output levels change; tone and drive are never touched.

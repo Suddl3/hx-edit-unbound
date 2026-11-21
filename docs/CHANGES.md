@@ -1,5 +1,10 @@
 # What's new
 
+## November 20
+
+- **Focus Mode**, the first item of the **HX Unbound** menu: the selected block shown large in its category's scene, with its own controls as knobs and switches, a strip of the chain to pick another block, and lists to change the block's model or its capture. Everything changes the real block, as HX Edit's own controls do, and undo works as usual. A small frame shows what the Floor's Focus View draws for the same block. See [Focus Mode](../README.md#focus-mode).
+- Signal-chain pictures: 3D pictures, large pictures and block names under them (HX Unbound menu, Options).
+
 ## November 19
 
 - **Drag and drop onto the chain**: captures from the NAM tab and the library window, and (with NAM categories) any model from the block picker. Dropping on a block replaces it, an empty cell adds one, between blocks inserts.
