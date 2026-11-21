@@ -66,8 +66,11 @@ class ChainOptionTests(unittest.TestCase):
                        "file.replace(/^CHAIN_/, 'CHAIN_OFF_')", 'const LABEL_OFF = 0.55;'):
             self.assertIn(marker, tone)
         self.assertIn("recv('chainArt'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
-        self.assertIn('3D pictures in the signal chain', (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8'))
-        self.assertIn('Large pictures in the signal chain', (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8'))
+        helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
+        # the options menu: what depends on another option sits under it and is dimmed while that one is off
+        for piece in ('chainArt.Text=Tick(0,art,"3D pictures of the gear");', 'chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;',
+                      'chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;', 'irDots.Text=Tick(0,dots,"Mark NAM slots");'):
+            self.assertIn(piece, helper)
         self.assertIn("recv('chainOption'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("load_settings().get('chainModelArt') is True", launcher)     # off unless turned on

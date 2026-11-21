@@ -576,7 +576,9 @@ class WiringTests(unittest.TestCase):
     def test_the_menu_item_reaches_the_launcher_and_its_tick_comes_back(self):
         self.assertIn('focusMode', DspMeter.CHOICES)
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
-        self.assertIn('Console.Out.WriteLine("focusMode")', helper)
+        self.assertIn('if(at==0){ tools.Close(); options.Close(); Say("focusMode"); }', helper)   # its own button: one click
+        tools = helper[helper.index('Heading(tools,"TOOLS");'):helper.index('Heading(options,"SIGNAL CHAIN");')]
+        self.assertNotIn('focusMode', tools)                                         # no longer an item of the menu
         self.assertIn('state.TryGetValue("focusMode"', helper)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         for piece in ("name == 'focusMode'", "'focus_view.js'", 'installFocusView(', "script.post({'type': 'focusMode'",
