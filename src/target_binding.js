@@ -216,6 +216,35 @@ function installTargetBinding(options = {}) {
       return parameter({editor, dsp, blockName}, key).value;
     } catch (_) { return undefined; }
   }
+  // Focus Mode's top bar: a value of the preset itself, read as Level presets reads it (dsp -1): the group
+  // "global" ("@current_snapshot") or "snapshot0".."snapshot7" ("@name"). Read-only; undefined when it is not there.
+  const groupPattern = /^(?:global|snapshot[0-7])$/;
+  function peekGlobal(editor, group, key) {
+    try {
+      if (!editorReady(editor) || !groupPattern.test(group) || !keyPattern.test(key)) return undefined;
+      return parameter({editor, dsp: -1, blockName: group}, key).value;
+    } catch (_) { return undefined; }
+  }
+  // Recalls a snapshot (0..7) as HX Edit's own snapshot control and Level presets do: "@current_snapshot" of
+  // "global", one write with the single-change flag. Nothing is saved.
+  function recallSnapshot(editor, index) {
+    if (!editorReady(editor) || !Number.isInteger(index) || index < 0 || index > 7) fail('unsupported snapshot');
+    const current = parameter({editor, dsp: -1, blockName: 'global'}, '@current_snapshot');
+    if (![4, 5].includes(current.type)) fail('unexpected snapshot value');
+    let group = null, name = null;
+    const variant = emptyVariant();
+    try {
+      group = string('global'); name = string('@current_snapshot');
+      variant.writeU32(current.type); variant.add(8).writeU32(index);
+      const result = writeValue(editor, -1, group, name, variant, WRITE_FLAGS.single);
+      if (result < 0) fail(`snapshot recall was rejected (${result})`);
+    } finally {
+      destroyVariant(variant);
+      if (name) destroyVariant(name);
+      if (group) destroyVariant(group);
+    }
+    return true;
+  }
   // Focus Mode: a value of a block written as HX Edit's own parameter view writes it (0x229c47 -> the setter
   // 0x5178c0). The flags are the ones seen on a stock slider (listened to on the Floor editor, 2026-11-20):
   // a single change 0x80000000; a drag = begin 0x80000001 (the value as it is), each change 0x80000003,
@@ -319,7 +348,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, setValue, setIndex, setModel, addModel };
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

@@ -228,6 +228,21 @@ class PaneDriverTests(unittest.TestCase):
         self.assertTrue(self.wait(lambda: self.lines('C')))
         self.assertEqual(self.lines('C')[-1], {'visible': True, 'x': 0, 'y': 41, 'w': 1920, 'h': 913})
 
+    def test_the_bars_dsp_meters_and_snapshot_choice(self):
+        self.view.set_on(True)
+        self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 0, 'w': 1920, 'h': 954}})
+        figures = [{'load': 58.6, 'used': 43.6, 'budget': 75, 'level': 'green'}, None]
+        self.assertTrue(self.view.receive({'type': 'dspLoad', 'dsp': figures}))       # the DSP meter's own figures
+        self.view.receive({'type': 'focusState', 'state': {'blocks': [], 'selected': None, 'values': {},
+                                                           'snapshots': ['clean', 'lead', 'SNAPSHOT 3'], 'snapshot': 1}})
+        self.assertTrue(self.wait(lambda: self.panes))
+        self.panes[0].say({'type': 'ready'})
+        self.assertTrue(self.wait(lambda: any(line.get('type') == 'dsp' for line in self.lines('P'))))
+        self.assertEqual([line for line in self.lines('P') if line.get('type') == 'dsp'][-1], {'type': 'dsp', 'dsp': figures})
+        self.assertEqual(self.view.checked_snapshot(2), {'action': 'snapshot', 'index': 2})
+        for refused in (3, -1, 8, True, '1', None, 1.0):                             # only one of this preset's snapshots
+            self.assertIsNone(self.view.checked_snapshot(refused))
+
     def test_the_page_gets_the_catalog_then_each_state_and_hides_when_turned_off(self):
         self.view.set_on(True)
         self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 41, 'w': 1920, 'h': 913}})
@@ -245,7 +260,7 @@ class PaneDriverTests(unittest.TestCase):
         self.assertTrue(self.wait(lambda: len(self.lines('P')) >= 3))
         self.view.set_on(False)
         self.assertTrue(self.wait(lambda: self.lines('C')[-1] == {'visible': False, 'x': 0, 'y': 41, 'w': 1920, 'h': 913}))
-        self.assertFalse(self.view.receive({'type': 'dspLoad'}))        # not one of this pane's messages
+        self.assertFalse(self.view.receive({'type': 'navigationBanner'}))   # not one of this pane's messages
 
     def test_a_value_set_in_the_page_is_one_control_of_the_shown_block_inside_its_range(self):
         self.view.receive({'type': 'focusState', 'state': {'blocks': [
@@ -398,6 +413,31 @@ class ScriptTests(unittest.TestCase):
         # Full: a waiting change makes room for an end; with only begins, singles and ends waiting, the newest is refused.
         self.assertEqual(run_js(['focus_view.js'], run % json.dumps(full)), ['a:begin:1', 'c:single:3', 'd:single:4', 'e:end:5'])
 
+    def test_the_bar_reads_the_presets_own_values_and_recalls_a_snapshot_as_level_presets_does(self):
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        self.assertIn("const groupPattern = /^(?:global|snapshot[0-7])$/;", binding)
+        peek = binding[binding.index('function peekGlobal'):binding.index('function recallSnapshot')]
+        self.assertIn("parameter({editor, dsp: -1, blockName: group}, key).value", peek)
+        self.assertNotIn('writeValue', peek)
+        recall = binding[binding.index('function recallSnapshot'):binding.index('// Focus Mode: a value of a block written')]
+        for piece in ('index < 0 || index > 7', "string('global')", "string('@current_snapshot')", 'WRITE_FLAGS.single'):
+            self.assertIn(piece, recall)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("targetBinding.recallSnapshot(editor, command.index)", script)
+        self.assertIn("targetBinding.peekGlobal(editor, 'global', '@current_snapshot')", script)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn('focus.checked_snapshot(value)', launcher)
+
+    def test_hx_edits_toolbar_steps_aside_and_undo_is_hx_edits_own(self):
+        helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
+        self.assertIn('if(focusMode){ if(unboundButton!=null)unboundButton.Show(Rectangle.Empty); shown=false; ShowWindow(Handle,0); return; }', helper)
+        pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
+        self.assertIn('if ((string)name == "undo") { PressInEditor(0x5A); return; }', pane)       # Ctrl+Z in HX Edit's window
+        self.assertIn('if ((string)name == "redo") { PressInEditor(0x59); return; }', pane)
+        page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
+        for piece in ("ask('undo')", "ask('redo')", "ask('snapshot', index)"):
+            self.assertIn(piece, page)
+
     def test_a_model_is_refused_where_the_dsp_has_no_room(self):
         room = lambda view, now, then: run_js(['focus_view.js'], f'focusRoom({json.dumps(view)}, {{A: 5, B: 30, C: 20}}, {json.dumps(now)}, {json.dumps(then)}, 1)')
         self.assertEqual(room({'used': 54, 'budget': 75}, 'A', 'B'), 'DSP 2 has no room for that model (79 of 75).')
@@ -430,7 +470,7 @@ class ScriptTests(unittest.TestCase):
 
     def test_the_pane_covers_the_signal_flow_and_the_edit_panel_across_the_window(self):
         box = run_js(['focus_view.js'], 'focusPaneBounds({x:318,y:45,w:1592,h:248}, {x:308,y:0,w:1612,h:954}, {x:0,y:0,w:1920,h:989})')
-        self.assertEqual(box, {'x': 0, 'y': 39, 'w': 1920, 'h': 915})                 # HX Edit's top row and status bar stay
+        self.assertEqual(box, {'x': 0, 'y': 0, 'w': 1920, 'h': 954})                  # over HX Edit's toolbar; its status bar stays
         self.assertIsNone(run_js(['focus_view.js'], 'focusPaneBounds(null, {x:308,y:0,w:1612,h:954}, {x:0,y:0,w:1920,h:989})'))
         self.assertIsNone(run_js(['focus_view.js'], 'focusPaneBounds({x:318,y:45,w:300,h:100}, {x:308,y:0,w:300,h:200}, {x:0,y:0,w:500,h:240})'))
 
@@ -466,7 +506,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
         self.assertEqual(script.count('targetBinding.setValue('), 4)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
-        self.assertIn('if (full) onFloor = captures();', script)        # the captures are listed whatever the preset holds
+        self.assertIn('if (full) { onFloor = captures(); header = presetHeader(); }', script)   # the captures are listed whatever the preset holds
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]
         self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain
@@ -475,7 +515,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn('focus.checked_set(value)', launcher)             # a value from the page is checked before it is sent
         self.assertIn("check = focus.checked_model if name == 'model' else focus.checked_capture", launcher)
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
-        peek = binding[binding.index('function peekValue'):binding.index('// Focus Mode: a value of a block written')]
+        peek = binding[binding.index('function peekValue'):binding.index("// Focus Mode's top bar: a value of the preset itself")]
         self.assertIn('parameter(', peek)
         self.assertNotIn('writeValue', peek)
 

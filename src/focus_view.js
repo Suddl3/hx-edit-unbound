@@ -121,12 +121,13 @@ function focusRoom(view, loads, now, next, dsp) {
   return after <= view.budget ? null : `DSP ${dsp + 1} has no room for that model (${after} of ${view.budget}).`;
 }
 
-// The pane's place: the main window below HX Edit's top row (preset, undo, DSP meter), down to the
-// edit panel's bottom, across the whole window. sf/ed/main: {x, y, w, h} of the signal flow view
-// ('sfvc'), the editor view ('edvw') and the window's root view ('main'), in client coordinates.
+// The pane's place: the main window from its top (over HX Edit's own toolbar: the pane has its own, with the
+// preset, the snapshot, undo and the DSP meters) down to the edit panel's bottom, across the whole window; HX
+// Edit's status bar stays. sf/ed/main: {x, y, w, h} of the signal flow view ('sfvc'), the editor view ('edvw')
+// and the window's root view ('main'), in client coordinates.
 function focusPaneBounds(sf, ed, main) {
   if (![sf, ed, main].every(box => box && [box.x, box.y, box.w, box.h].every(Number.isFinite))) return null;
-  const top = Math.max(0, sf.y - 6), bottom = Math.min(main.y + main.h, ed.y + ed.h);
+  const top = Math.max(0, main.y), bottom = Math.min(main.y + main.h, ed.y + ed.h);
   if (bottom - top < 300 || main.w < 600) return null;                 // a window too small for the pane
   return {x: main.x, y: top, w: main.w, h: bottom - top};
 }
@@ -149,6 +150,19 @@ function installFocusView(options, parts) {
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
   let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [];
+  let header = {preset: null, snapshots: []};               // the top bar's preset and snapshot names (full readings)
+  function presetHeader() {
+    // The loaded preset's number and name (nam_view reads HX Edit's own header) and its snapshots' names.
+    let preset = null;
+    try { const read = namView.presetHeader?.(); if (read) preset = {setlist: read.setlist, number: read.preset, name: read.name}; } catch (_) { preset = null; }
+    const snapshots = [];
+    for (let index = 0; index < 8; index++) {
+      const name = targetBinding.peekGlobal(editor, 'snapshot' + index, '@name');
+      if (typeof name !== 'string') break;
+      snapshots.push(name);
+    }
+    return {preset, snapshots};
+  }
   // Value writes from the pane, and the drag HX Edit has been told has begun (ended by us if the pane never does).
   const writes = [];
   let drag = null;
@@ -237,7 +251,15 @@ function installFocusView(options, parts) {
     if (!on) return;
     while (writes.length) {
       const command = writes.shift();
-      try { if (command.action) swap(command); else write(command); }
+      try {
+        if (command.action === 'snapshot') {
+          // Another snapshot: every value may differ after it.
+          endDrag('a snapshot change');
+          if (!editor.isNull()) targetBinding.recallSnapshot(editor, command.index);
+          changed = true;
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'snapshot', index: command.index});
+        } else if (command.action) swap(command); else write(command);
+      }
       catch (error) { drag = null; changed = true; send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)}); }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
@@ -247,15 +269,20 @@ function installFocusView(options, parts) {
       if (place !== lastBounds) { lastBounds = place; send({type: 'focusBounds', window: window.toUInt32(), bounds}); }
       const cursor = toneView.cursorBlock();
       if (cursor && !cursor.editor.isNull()) editor = cursor.editor;
-      if (editor.isNull()) { publish({blocks: [], selected: null, values: {}, captures: []}); return; }
+      if (editor.isNull()) { publish({blocks: [], selected: null, values: {}, captures: [], preset: null, snapshots: [], snapshot: null, undo: null}); return; }
       const began = Date.now(), peek = (dsp, place, key) => targetBinding.peekValue(editor, dsp, place, key);
       let state = !changed && known && began - knownAt < FULL_MS ? focusValues(peek, known, cursor, parameters, namEngines) : null;
       const full = !state;
       if (full) { state = focusSnapshot(peek, cursor, parameters, namEngines); knownAt = began; changed = false; }
       known = state.blocks;
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
-      if (full) onFloor = captures();
+      if (full) { onFloor = captures(); header = presetHeader(); }
       state.captures = onFloor;
+      state.preset = header.preset; state.snapshots = header.snapshots;
+      const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
+      state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
+      // Something to undo: HX Edit's own undo position (as tone_view reads it).
+      try { state.undo = editor.add(0x294).readS32() > 0; } catch (_) { state.undo = null; }
       if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: full ? 'read' : 'read-values', ms: Date.now() - began, blocks: state.blocks.length, selected: !!state.selected}); }
       publish(state);
       if (wanted) select(wanted);
@@ -295,6 +322,7 @@ function installFocusView(options, parts) {
     on = value === true;
     if (timer) { clearInterval(timer); timer = null; }
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = [];
+    header = {preset: null, snapshots: []};
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }
     send({type: 'toneTrace', reason: 'focus-view', stage: on ? 'on' : 'off'});
   }
@@ -331,6 +359,9 @@ function installFocusView(options, parts) {
                  typeof value.key === 'string' && value.key.length < 49 && ['single', 'begin', 'move', 'end'].includes(value.phase) &&
                  (typeof value.value === 'boolean' || Number.isFinite(value.value))) {
         focusQueue(writes, {dsp: value.dsp, id: value.id, key: value.key, value: value.value, phase: value.phase});
+        queued = false; ask();
+      } else if (on && value.action === 'snapshot' && Number.isInteger(value.index) && value.index >= 0 && value.index <= 7 && writes.length < 32) {
+        writes.push({action: 'snapshot', index: value.index});
         queued = false; ask();
       } else if (on && [0, 1].includes(value.dsp) && typeof value.id === 'string' && chainBlock.test(value.id) && writes.length < 32 &&
                  ((value.action === 'model' && typeof value.symbol === 'string' && modelSymbol.test(value.symbol) && !namEngines.includes(value.symbol)) ||

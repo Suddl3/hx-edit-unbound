@@ -360,6 +360,7 @@ class FocusView:
         self.closed = Event()
         self._catalog = None
         self._pictures = {}
+        self.dsp = None
         self.worker = Thread(target=self._run, daemon=True)
         self.worker.start()
 
@@ -379,6 +380,8 @@ class FocusView:
             self.queue.put(('bounds', (value.get('window'), value.get('bounds'))))
         elif kind == 'focusState':
             self.queue.put(('state', value.get('state')))
+        elif kind == 'dspLoad':                          # the DSP meter's figures (dsp_meter.js), for the pane's own meters
+            self.queue.put(('dsp', list(value.get('dsp') or [None, None])[:2]))
         else:
             return False
         return True
@@ -411,6 +414,15 @@ class FocusView:
             return None
         return next((b for b in state.get('blocks') or [] if isinstance(b, dict) and b.get('dsp') == value.get('dsp')
                      and b.get('id') == value.get('id')), None)
+
+    def checked_snapshot(self, value):
+        """The page's request to recall a snapshot, as the command for focus_view.js, or None: one of the preset's
+        snapshots, by its place (0 = snapshot 1)."""
+        state = self.state if isinstance(self.state, dict) else {}
+        count = len(state.get('snapshots') or [])
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < min(count, 8):
+            return None
+        return {'action': 'snapshot', 'index': value}
 
     def checked_model(self, value):
         """The page's request to change a block's model, as the command for focus_view.js, or None: only a block
@@ -522,6 +534,10 @@ class FocusView:
         if self.page_ready and self.state is not None:
             self._write('P', {'type': 'state', 'state': self.state})
 
+    def _show_dsp(self):
+        if self.page_ready and self.dsp is not None:
+            self._write('P', {'type': 'dsp', 'dsp': self.dsp})
+
     def _handle(self, kind, value):
         if kind == 'on':
             self.on = value
@@ -545,6 +561,9 @@ class FocusView:
         elif kind == 'state':
             self.state = self.with_pictures(value)
             self._show_state()
+        elif kind == 'dsp':
+            self.dsp = value
+            self._show_dsp()
         elif kind == 'pane':
             event = value.get('type')
             if event == 'ready':                       # the page has loaded: what it draws with, then what to draw
@@ -552,6 +571,7 @@ class FocusView:
                 self._write('P', {'type': 'catalog', 'catalog': self.catalog()})
                 self._place()
                 self._show_state()
+                self._show_dsp()
                 self.trace({'type': 'focusView', 'event': 'ready'})
             elif event == 'action':
                 self._act(str(value.get('name') or ''), value.get('value'))

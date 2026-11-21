@@ -1765,6 +1765,8 @@ class DspMeter : Form
         if(unboundButton!=null&&state.TryGetValue("chainLarge",out value)&&value is bool)unboundButton.SetChainLarge((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainNames",out value)&&value is bool)unboundButton.SetChainNames((bool)value);
         if(unboundButton!=null&&state.TryGetValue("focusMode",out value)&&value is bool)unboundButton.SetFocusMode((bool)value);
+        // Focus Mode covers HX Edit's toolbar and has meters of its own: the meter and the menu button are hidden meanwhile.
+        focusMode=state.TryGetValue("focusMode",out value)&&value is bool&&(bool)value;
         if(state.ContainsKey("ghost"))ApplyGhost(state["ghost"] as Dictionary<string,object>);
         if(state.TryGetValue("notice",out value)&&value is string&&((string)value).Length>0){
             notice=(string)value;noticeUntil=Environment.TickCount+NoticeMs;}
@@ -1820,8 +1822,10 @@ class DspMeter : Form
     // The width a span is anchored to: HX Edit's client width, or 0 (wait) while it has none, e.g. minimized.
     public static int AnchorWidth(int parentWidth){ return parentWidth>0?parentWidth:0; }
     public static bool HasReading(object[] dsp){ return dsp!=null&&(dsp[0] is Dictionary<string,object>||dsp[1] is Dictionary<string,object>); }
+    bool focusMode;
     void Place(){
         placedWidth=ParentWidth();
+        if(focusMode){ if(unboundButton!=null)unboundButton.Show(Rectangle.Empty); shown=false; ShowWindow(Handle,0); return; }
         var button=!unbound||spanWidth<0?Rectangle.Empty:ButtonPlacement(spanLeft,spanRight,spanTop,spanHeight,spanWidth,placedWidth);
         if(unboundButton!=null)unboundButton.Show(button);
         int left=button.IsEmpty?spanLeft:button.Right+UnboundGap;
