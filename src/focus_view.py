@@ -266,6 +266,12 @@ def frida_options(models):
     return {'focusParameters': names, 'focusNamEngines': list(NAM_ENGINES)}
 
 
+def write_notify(settings=None):
+    """Whether a value set in the pane is written so that HX Edit's own sliders follow it (on unless
+    settings.json has "focusWriteNotify": false, which writes exactly as a stock slider does)."""
+    return (settings or {}).get('focusWriteNotify') is not False
+
+
 def prepare_focus():
     """FocusView.exe, built beside the TONE3000 pane with the same WebView2 SDK (compiled once per source)."""
     from tone_browser import SDK_ASSETS, SDK_VERSION, browser_sdk
@@ -331,7 +337,7 @@ class FocusView:
         return self._catalog
 
     def frida_options(self):
-        return frida_options(self.catalog()['models'])
+        return {**frida_options(self.catalog()['models']), 'focusWriteNotify': write_notify(self.settings)}
 
     def receive(self, value):
         """A message from focus_view.js. True when it was one of this pane's."""

@@ -123,6 +123,19 @@ sealed class FocusView : Form
         if (closing) return;
         closing = true; watch.Stop();
         try { Close(); } catch (Exception) { }
+        // A pane whose window went with HX Edit's has nothing left to close: the process ends in any case.
+        try { Application.ExitThread(); } catch (Exception) { }
+        lastResort = new System.Threading.Timer(state => Environment.Exit(0), null, 1500, System.Threading.Timeout.Infinite);
+    }
+    System.Threading.Timer lastResort;
+
+    // HX Edit gone (closed, or crashed) with this pane hidden: Windows destroys the child window with its parent, and
+    // nothing on this thread may run again. A timer of its own ends the process then.
+    static System.Threading.Timer orphanWatch;
+    static void WatchParent(IntPtr parent)
+    {
+        if (parent == IntPtr.Zero) return;
+        orphanWatch = new System.Threading.Timer(state => { if (!IsWindow(parent)) Environment.Exit(0); }, null, 2000, 2000);
     }
 
     bool OnUi(Action action)
@@ -164,7 +177,7 @@ sealed class FocusView : Form
         }
         catch (IOException) { }
         catch (ObjectDisposedException) { }
-        OnUi(Shutdown);   // the launcher closed its end: nothing left to show
+        if (!OnUi(Shutdown)) Environment.Exit(0);   // the launcher closed its end: nothing left to show
     }
 
     async Task Start(TextReader input)
@@ -252,6 +265,7 @@ sealed class FocusView : Form
             using (var pane = new FocusView(parent, args[1], address.AbsoluteUri, hosts, output))
             {
                 var handle = pane.Handle;   // a child pane's window exists (hidden) before it is first shown
+                WatchParent(parent);
                 pane.BeginInvoke(new Action(async () => await pane.Start(input)));
                 Application.Run(pane);
             }

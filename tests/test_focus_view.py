@@ -348,6 +348,18 @@ class ScriptTests(unittest.TestCase):
         for check in ('fixedKeys.has(key)', 'placePattern.test(blockName)', "typeof value !== 'boolean'", 'Number.isFinite(value)'):
             self.assertIn(check, write)
         self.assertIn("new Set(['@model', '@position', '@path', '@type', '@stereo'])", binding)   # never through this door
+        # HX Edit's own sliders follow a value set from the pane: the bit its undo writes with, unless turned off.
+        self.assertIn('const WRITE_NOTIFY = 0x40000000;', binding)
+        self.assertIn('(WRITE_FLAGS[phase] | (notify === true ? WRITE_NOTIFY : 0)) >>> 0', write)
+        self.assertTrue(focus_view.write_notify({}))
+        self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertEqual(script.count(", notify)"), 3)                     # every write the script makes
+
+    def test_the_pane_never_outlives_hx_edit(self):
+        pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
+        self.assertIn('if (!IsWindow(parent)) Environment.Exit(0);', pane)      # even hidden, even after a crash
+        self.assertIn('if (!OnUi(Shutdown)) Environment.Exit(0);', pane)
 
     def test_the_pane_covers_the_signal_flow_and_the_edit_panel_across_the_window(self):
         box = run_js(['focus_view.js'], 'focusPaneBounds({x:318,y:45,w:1592,h:248}, {x:308,y:0,w:1612,h:954}, {x:0,y:0,w:1920,h:989})')

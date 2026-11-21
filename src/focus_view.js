@@ -141,6 +141,8 @@ function installFocusView(options, parts) {
   const writes = [];
   let drag = null;
   const DRAG_IDLE_MS = 4000;
+  // HX Edit's own sliders follow what the pane sets (target_binding WRITE_NOTIFY), unless turned off.
+  const notify = options.focusWriteNotify !== false;
 
   function box(widget) {
     const geometry = widget.add(0x54).readPointer();
@@ -170,7 +172,7 @@ function installFocusView(options, parts) {
   function endDrag(why) {
     if (!drag) return;
     const open = drag; drag = null;
-    try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end'); }
+    try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end', notify); }
     catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'drag-end-failed', why, error: String(error.message)}); }
   }
   function write(command) {
@@ -184,7 +186,7 @@ function installFocusView(options, parts) {
     if (phase === 'move' && !drag) phase = 'begin';                     // a change with no begin: begin with it
     if (phase === 'end' && !drag) phase = 'single';
     if (phase === 'begin' && same) phase = 'move';
-    targetBinding.setValue(editor, command.dsp, command.id, command.key, command.value, phase);
+    targetBinding.setValue(editor, command.dsp, command.id, command.key, command.value, phase, notify);
     if (phase === 'begin' || phase === 'move') drag = {editor, dsp: command.dsp, id: command.id, key: command.key, value: command.value, at: Date.now()};
     else drag = null;
     if (writeReports > 0) { writeReports--; send({type: 'toneTrace', reason: 'focus-view', stage: 'write', key: command.key, phase}); }
@@ -244,7 +246,7 @@ function installFocusView(options, parts) {
       // Turned off in the middle of a drag: HX Edit is told the drag has ended, on its own thread.
       const open = drag; drag = null; writes.length = 0;
       namView.queueSidebarAction(() => {
-        try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end'); } catch (_) { /* the block is gone */ }
+        try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end', notify); } catch (_) { /* the block is gone */ }
       });
     }
     on = value === true;
