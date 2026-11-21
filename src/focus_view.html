@@ -135,7 +135,7 @@
           background: linear-gradient(180deg, #000 0, rgb(0 0 0 / 0) 11%, rgb(0 0 0 / 0) 72%, rgb(0 0 0 / .8) 91%, #000 100%),
                       radial-gradient(120% 90% at 50% 55%, rgb(0 0 0 / 0) 45%, rgb(0 0 0 / .7) 100%); }
   .gear { position: absolute; transform: translate(calc(var(--px, 0) * 7px), calc(var(--py, 0) * 3px));
-          transition: transform .5s cubic-bezier(.2, .7, .2, 1); }
+          transition: transform .5s cubic-bezier(.2, .7, .2, 1), left .28s cubic-bezier(.2, .8, .2, 1); }
   .gear .halo { position: absolute; left: 50%; bottom: 8%; width: 170%; height: 120%; translate: -50% 0; pointer-events: none;
                 background: radial-gradient(closest-side, rgb(var(--tint) / .2), rgb(var(--tint) / 0) 70%); transition: opacity .4s; }
   .gear .shadow { position: absolute; left: 50%; bottom: -3%; height: 13%; translate: -50% 0; border-radius: 50%;
@@ -207,7 +207,7 @@
   .scope { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 0 22px 6px 24px; padding: 3px; border-radius: 10px; background: rgb(255 255 255 / .07); }
   .scope button { height: 32px; border-radius: 8px; font-size: 14.5px; color: var(--dim); }
   .scope button[aria-selected=true] { background: rgb(255 255 255 / .14); color: var(--ink); }
-  .pane { overflow-y: auto; padding: 8px 22px 18px 24px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .pane { overflow-x: hidden; overflow-y: auto; padding: 8px 22px 18px 24px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
   .pane .who { margin: 6px 0 2px; font-size: 19px; font-stretch: 87%; }
   .pane .who span { color: var(--dim); font-size: 14.5px; margin-left: 6px; }
   .pane .lead { margin: 6px 0 4px; font-size: 14px; color: var(--dim); line-height: 1.4; }
@@ -258,7 +258,8 @@
   .tag.own { color: #111; background: #f3f1ea; box-shadow: none; }
   .tag.preset { color: var(--ink); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .5); }
   .cats { display: grid; gap: 2px; }
-  .cats > button { display: grid; grid-template-columns: 1fr 64px 110px; gap: 11px; align-items: center; padding: 4px 8px; border-radius: 9px; text-align: left; font-size: 15px; }
+  .cats > button { display: grid; grid-template-columns: minmax(0, 1fr) 64px 110px; gap: 11px; align-items: center; padding: 4px 8px; border-radius: 9px; text-align: left; font-size: 15px; }
+  .cats > button span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cats > button:hover, .cats > button[aria-expanded=true] { background: rgb(255 255 255 / .07); }
   .cats > button img { width: 64px; height: 30px; object-fit: cover; object-position: 50% 27%; border-radius: 4px; }
   .cats > button span:last-child { color: var(--dim); font-size: 13.5px; }
@@ -657,7 +658,8 @@ function drawChain() {
 
 // ---- the scene ----------------------------------------------------------------------------------
 function place() {
-  const W = scene.clientWidth, H = scene.clientHeight;
+  // With the Look panel open, the gear stands in the middle of what the panel leaves in view (the scene still fills it all).
+  const full = scene.clientWidth, H = scene.clientHeight, W = full - (app.classList.contains('looking') ? $('look').offsetWidth : 0);
   const G = Math.max(180, Math.min(H * .72, W * .46, 680)), base = Math.round(H * .84);
   Object.assign($('gear').style, {width: G + 'px', height: G + 'px', left: (W - G) / 2 + 'px', top: base - G + 'px'});
   const gear = $('gearPicture');
@@ -665,8 +667,8 @@ function place() {
   for (const plate of plates) {
     const frame = plate.frame; if (!frame) continue;
     // The Floor pack's own rule (focus_bg.fit_plate): the scene's focus point lands under the gear's base.
-    const s = Math.max(W / frame.w, H / frame.h) * frame.zoom * 1.03, w = frame.w * s, h = frame.h * s;
-    const x = Math.min(Math.max(frame.focus[0] * w - W / 2, 12), Math.max(12, w - W - 12));
+    const s = Math.max(full / frame.w, H / frame.h) * frame.zoom * 1.03, w = frame.w * s, h = frame.h * s;
+    const x = Math.min(Math.max(frame.focus[0] * w - W / 2, 12), Math.max(12, w - full - 12));
     const y = Math.min(Math.max(frame.focus[1] * h - (base - G * .09), 8), Math.max(8, h - H - 8));
     Object.assign(plate.firstElementChild.style, {width: w + 'px', height: h + 'px', left: -x + 'px', top: -y + 'px'});
     plate.style.setProperty('--gain', frame.gain);
@@ -1081,13 +1083,14 @@ function openLook() {
   lookOpen = true; lookTab = current() ? 'block' : 'preset'; lookPart = 'scene'; lookFind = ''; lookKind = null;   // first: the block you are looking at
   const panel = $('look'); panel.classList.add('open'); panel.inert = false;
   app.classList.add('looking'); $('lookButton').setAttribute('aria-expanded', 'true');
-  drawLook(true);
+  drawLook(true); place();
 }
 function closeLook() {
   if (!lookOpen) return;
   lookOpen = false;
   const panel = $('look'); panel.classList.remove('open'); panel.inert = true;
   app.classList.remove('looking'); $('lookButton').setAttribute('aria-expanded', 'false');
+  place();
 }
 
 // ---- the top bar: preset, snapshot, undo, DSP ----------------------------------------------------------------
