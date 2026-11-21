@@ -3,6 +3,7 @@
 ## November 21
 
 - **Focus** is now its own button on the toolbar: one click into Focus Mode. Its top bar chooses presets (arrows and a list) and snapshots, with undo, redo and DSP meters of its own, and a preset that comes up with nothing selected shows its first block.
+- **Change look** in Focus Mode: the background and the picture of the block you are looking at, for this preset only; one background for a whole preset; and the defaults for every preset (the same ones as the Floor look page). The Floor shows the defaults until its firmware can read looks by preset.
 - The **HX Unbound** menu holds the tools only; the options moved to a gear beside it, grouped by what they change. Options that depend on another one sit under it and are dimmed while it is off.
 
 ## November 20

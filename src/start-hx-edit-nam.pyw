@@ -299,6 +299,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     on, notice = False, 'Focus Mode is not available in this copy.'
                 focus_on[0] = on
                 if focus is not None:
+                    if on:                               # the defaults may have been changed on the Floor look page meanwhile
+                        focus.show_look(nam_catalog.load_settings())
                     focus.set_on(on)
                 meter.set_chain_option('focusMode', on)
                 if notice:
@@ -321,6 +323,19 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 if focus_on[0]:
                     trace({'type': 'focusView', 'event': 'preset-load-unseen', 'number': number})
                     focus.notice(f'The Floor did not load preset {number:03d}. Check MIDI PC Receive in its Global Settings.')
+            def focus_look_save():
+                try:
+                    import floor_store
+                    from floor_memory import FloorMemory
+                    path, store = floor_store.write_for(library, FloorMemory(library.folder),
+                                                        nam_catalog.load_settings().get('floorLook'))
+                except Exception as error:               # no library folder, a picture folder that has gone
+                    trace({'type': 'focusView', 'event': 'look-save-failed', 'error': str(error)})
+                    focus.notice(f'The file for the Floor was not saved. {error}')
+                    return
+                trace({'type': 'focusView', 'event': 'look-saved', 'slots': len(store['nam']['slots'])})
+                focus.notice(f"Saved for the Floor: the default backgrounds and {len(store['nam']['slots'])} capture pictures. "
+                             "It goes onto the Floor with its next picture update.")
             def focus_action(name, value):
                 if name == 'exit':
                     focus_mode(False)
@@ -353,6 +368,19 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # behind is lost, as with HX Edit's own preset list.
                     if focus is not None and focus_on[0] and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
                         Thread(target=focus_load, args=(value,), daemon=True).start()
+                elif name == 'look':
+                    # Change look in the pane: a block's or a preset's own look (settings.json presetLooks), or a
+                    # default (floorLook.assign, the same one the Floor look page edits). Checked by focus_view.
+                    if focus is not None and focus_on[0]:
+                        changed = focus.changed_look(value, nam_catalog.load_settings())
+                        for key, kept in changed.items():
+                            nam_catalog.save_setting(key, kept)
+                        if changed:
+                            focus.show_look(nam_catalog.load_settings())
+                elif name == 'lookSave':
+                    # "Save for the Floor": the file the Floor's picture tool reads, as Save on the Floor look page.
+                    if focus is not None and focus_on[0]:
+                        Thread(target=focus_look_save, daemon=True).start()
                 elif name in ('model', 'capture'):
                     # Another model, or a capture, chosen from the pane's list for the block it shows.
                     check = focus.checked_model if name == 'model' else focus.checked_capture

@@ -13,6 +13,7 @@ import msgpack
 ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(ROOT))
 
+import floor_store  # noqa: E402
 import focus_view  # noqa: E402
 from dsp_meter import DspMeter  # noqa: E402
 
@@ -125,6 +126,17 @@ class CatalogTests(unittest.TestCase):
         self.assertIn('deep_sea', catalog['scenes'])
         self.assertEqual(catalog['scenes']['deep_sea']['pictures'], ['https://scenes.focus.example/deep_sea.png'])
 
+    def test_the_pictures_a_block_can_be_given_are_the_models_and_the_captures(self):
+        catalog = focus_view.catalog(self.res, {})
+        self.assertEqual(catalog['models']['HD2_DelayTest']['picture'], 'model:FX_Delay.png')
+        self.assertIsNone(catalog['models']['HD2_In']['picture'])                   # the stock input strip is not a picture
+        self.assertEqual(catalog['pictures']['model:FX_Delay.png'],
+                         {'name': 'Test Delay', 'group': 'Delay', 'urls': ['https://models.focus.example/FX_Delay.png']})
+        capture = catalog['pictures']['capture:brit_gold_head']
+        self.assertEqual((capture['name'], capture['group']), ('Brit gold head', 'NAM'))
+        self.assertEqual(capture['urls'][-1], 'https://captures.focus.example/brit_gold_head.png')
+        self.assertTrue(all(focus_view.PICTURE_ID.fullmatch(ident) for ident in catalog['pictures']))
+
     def test_the_nam_block_is_filed_as_the_floor_files_it_and_drawn_in_its_own_colour(self):
         nam = focus_view.catalog(self.res, {})['models']['HD2_AmpNAMLite']
         self.assertEqual((nam['name'], nam['category'], nam['key'], nam['scene']), ('NAM A2 Lite', 'NAM', 'amp', 'stage'))
@@ -191,6 +203,98 @@ class FakePane:
     def wait(self, timeout=None): return 0
     def __iter__(self): return iter(self.events.get, None)
     def say(self, value): self.events.put(json.dumps(value) + '\n')
+
+
+class LookTests(unittest.TestCase):
+    """Looks: the defaults (one background per kind of block), what a preset changes, what a block in it changes."""
+    SCENES = {'studio': {}, 'stage': {}, 'space': {}, 'synthwave': {}, 'deep_sea': {}}
+    PICTURES = {'model:FX_Delay.png': {}, 'capture:brit_gold_head': {}}
+    MODELS = {'HD2_DelayTest': {}, 'HD2_AmpNAMLite': {}}
+    PRESET = {'setlist': 3, 'number': 5, 'name': 'Mahadeva'}
+    HERE = {'setlist': 3, 'number': 5}
+
+    def change(self, settings, change, preset=None):
+        return focus_view.look_change(settings, change, preset or self.PRESET, self.SCENES, self.PICTURES, self.MODELS)
+
+    def keep(self, settings, change, preset=None):
+        changed = self.change(settings, change, preset)
+        self.assertTrue(changed, change)
+        settings.update(changed)
+        return settings
+
+    def test_a_block_gets_its_own_background_and_picture_in_the_loaded_preset_only(self):
+        settings = {}
+        self.keep(settings, {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'synthwave'})
+        self.keep(settings, {'scope': 'block', 'preset': self.HERE, 'key': 'slot:18', 'picture': 'model:FX_Delay.png'})
+        self.keep(settings, {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'picture': 'capture:brit_gold_head'})
+        self.assertEqual(settings['presetLooks'], {'3:5': {'name': 'Mahadeva', 'blocks': {
+            'HD2_DelayTest': {'scene': 'synthwave', 'picture': 'capture:brit_gold_head'}, 'slot:18': {'picture': 'model:FX_Delay.png'}}}})
+        self.assertNotIn('floorLook', settings)                                      # the defaults are not touched
+        # one of them put back: the other stays; the last one put back: nothing is kept for the preset
+        self.keep(settings, {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': None})
+        self.assertEqual(settings['presetLooks']['3:5']['blocks']['HD2_DelayTest'], {'picture': 'capture:brit_gold_head'})
+        self.keep(settings, {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'picture': None})
+        self.keep(settings, {'scope': 'block', 'preset': self.HERE, 'key': 'slot:18', 'picture': None})
+        self.assertEqual(settings['presetLooks'], {})
+
+    def test_what_is_not_this_editors_or_not_the_loaded_preset_is_refused(self):
+        for refused in ({'scope': 'block', 'preset': {'setlist': 3, 'number': 6}, 'key': 'HD2_DelayTest', 'scene': 'space'},   # another preset
+                        {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_Unknown', 'scene': 'space'},
+                        {'scope': 'block', 'preset': self.HERE, 'key': 'slot:129', 'scene': 'space'},
+                        {'scope': 'block', 'preset': self.HERE, 'key': 'slot:0', 'scene': 'space'},
+                        {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'no_such_scene'},
+                        {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'picture': 'model:Other.png'},
+                        {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'picture': '../x.png'},
+                        {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest'},                                      # nothing to change
+                        {'scope': 'preset', 'preset': self.HERE, 'scene': 'no_such_scene'}, {'scope': 'preset', 'preset': self.HERE},
+                        {'scope': 'preset', 'preset': self.HERE, 'clear': True}, {'scope': 'preset', 'preset': self.HERE, 'adopt': True},
+                        {'scope': 'default', 'category': 'nonsense', 'scene': 'space'}, {'scope': 'default', 'category': 'delay', 'scene': 'nope'},
+                        {'scope': 'elsewhere'}, 'look', None):
+            self.assertEqual(self.change({}, refused), {}, refused)
+        for preset in (None, {'setlist': 3, 'number': 128, 'name': ''}, {'setlist': True, 'number': 5, 'name': ''}):          # no preset known
+            self.assertEqual(focus_view.look_change({}, {'scope': 'preset', 'preset': self.HERE, 'scene': 'space'}, preset,
+                                                    self.SCENES, self.PICTURES, self.MODELS), {})
+
+    def test_a_preset_has_one_background_and_goes_back_to_the_defaults(self):
+        settings = self.keep({}, {'scope': 'preset', 'preset': self.HERE, 'scene': 'space'})
+        self.keep(settings, {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'synthwave'})
+        self.assertEqual(settings['presetLooks']['3:5'], {'name': 'Mahadeva', 'scene': 'space', 'blocks': {'HD2_DelayTest': {'scene': 'synthwave'}}})
+        self.keep(settings, {'scope': 'preset', 'preset': self.HERE, 'scene': None})           # by kind of block again: the block keeps its own
+        self.assertEqual(settings['presetLooks']['3:5'], {'name': 'Mahadeva', 'blocks': {'HD2_DelayTest': {'scene': 'synthwave'}}})
+        self.keep(settings, {'scope': 'preset', 'preset': self.HERE, 'clear': True})
+        self.assertEqual(settings['presetLooks'], {})
+
+    def test_a_look_kept_under_another_name_is_another_presets_until_it_is_taken_over(self):
+        settings = self.keep({}, {'scope': 'preset', 'preset': self.HERE, 'scene': 'space'})
+        renamed = {'setlist': 3, 'number': 5, 'name': 'Something else'}
+        taken = self.keep(json.loads(json.dumps(settings)), {'scope': 'preset', 'preset': self.HERE, 'adopt': True}, renamed)
+        self.assertEqual(taken['presetLooks']['3:5'], {'name': 'Something else', 'scene': 'space', 'blocks': {}})
+        # without taking it over, the first choice made for the new preset starts a look of its own
+        fresh = self.keep(json.loads(json.dumps(settings)), {'scope': 'block', 'preset': self.HERE, 'key': 'HD2_DelayTest', 'scene': 'stage'}, renamed)
+        self.assertEqual(fresh['presetLooks']['3:5'], {'name': 'Something else', 'blocks': {'HD2_DelayTest': {'scene': 'stage'}}})
+
+    def test_a_default_is_the_floor_look_pages_own_choice(self):
+        settings = self.keep({'floorLook': {'gearArt': 'X:/art'}}, {'scope': 'default', 'category': 'delay', 'scene': 'space'})
+        look = settings['floorLook']
+        self.assertEqual((look['gearArt'], look['assign']['category']['delay'], look['assign']['category']['amp']), ('X:/art', 'space', 'stage'))
+        self.assertEqual(look['assign'], floor_store.assignment(focus_view.assignment(settings), list(self.SCENES)))   # as the page would save it
+        self.keep(settings, {'scope': 'default', 'category': 'default', 'scene': 'stage'})
+        self.assertEqual(focus_view.assignment(settings)['default'], 'stage')
+        self.keep(settings, {'scope': 'default', 'reset': True})
+        self.assertEqual(settings['floorLook'], {'gearArt': 'X:/art'})
+        self.assertEqual(focus_view.assignment(settings)['category']['delay'], 'deep_sea')
+
+    def test_the_page_is_given_the_defaults_and_every_presets_look_without_anything_malformed(self):
+        settings = {'presetLooks': {'3:5': {'name': 'Mahadeva', 'scene': 'space', 'blocks': {'HD2_DelayTest': {'scene': 'synthwave', 'picture': '../x'},
+                                                                                             'slot:999': {'scene': 'space'}, 'bad key!': {'scene': 'space'}}},
+                                    '03:005': {'name': 'x' * 80, 'scene': 'stage'}, '40:5': {'scene': 'space'}, '3:128': {'scene': 'space'},
+                                    'x': {'scene': 'space'}, '1:1': {'name': 'Empty', 'blocks': {}}, '2:2': 'space'}}
+        view = focus_view.look_view(settings)
+        self.assertEqual(view['presets'], {'3:5': {'name': 'x' * 32, 'scene': 'stage', 'blocks': {}}})     # (the later spelling of 3:5 stands)
+        self.assertEqual(view['assign']['category']['delay'], 'deep_sea')
+        self.assertEqual(view['factory'], {'default': 'studio', 'category': floor_store.DEFAULT_ASSIGN['category']})
+        self.assertIn(['delay', 'Delay'], view['categories'])
+        self.assertEqual(focus_view.look_view(None)['presets'], {})
 
 
 class PaneDriverTests(unittest.TestCase):
@@ -289,6 +393,29 @@ class PaneDriverTests(unittest.TestCase):
         self.assertEqual([line['text'] for line in self.lines('P') if line.get('type') == 'notice'],
                          ['DSP 1 has no room for that model (80 of 75).', 'Preset 006 did not load.'])
 
+    def test_the_page_gets_the_looks_and_a_change_is_checked_for_the_loaded_preset(self):
+        self.view.set_on(True)
+        self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 0, 'w': 1920, 'h': 954}})
+        self.assertTrue(self.wait(lambda: self.panes))
+        self.panes[0].say({'type': 'ready'})
+        self.assertTrue(self.wait(lambda: any(line.get('type') == 'look' for line in self.lines('P'))))
+        kinds = [line.get('type') for line in self.lines('P')]
+        self.assertLess(kinds.index('catalog'), kinds.index('look'))                 # what it draws with, then the looks
+        self.assertEqual(self.lines('P')[kinds.index('look')]['look']['presets'], {})
+        change = {'scope': 'block', 'preset': {'setlist': 3, 'number': 5}, 'key': 'HD2_DelayTest', 'scene': 'deep_sea'}
+        self.assertEqual(self.view.changed_look(change, {}), {})                     # no preset known yet
+        self.view.receive({'type': 'focusState', 'state': {'blocks': [], 'selected': None, 'values': {},
+                                                           'preset': {'setlist': 3, 'number': 5, 'name': 'Mahadeva'}}})
+        self.assertTrue(self.wait(lambda: self.view.state))
+        kept = self.view.changed_look(change, {})
+        self.assertEqual(kept, {'presetLooks': {'3:5': {'name': 'Mahadeva', 'blocks': {'HD2_DelayTest': {'scene': 'deep_sea'}}}}})
+        self.assertEqual(self.view.changed_look({**change, 'key': 'HD2_NotAModel'}, {}), {})
+        self.assertEqual(self.view.changed_look({**change, 'picture': 'model:FX_Delay.png'}, {})['presetLooks']['3:5']['blocks']['HD2_DelayTest'],
+                         {'scene': 'deep_sea', 'picture': 'model:FX_Delay.png'})
+        self.view.show_look(kept)
+        self.assertTrue(self.wait(lambda: [line for line in self.lines('P') if line.get('type') == 'look'][-1]['look']['presets']))
+        self.assertEqual([line for line in self.lines('P') if line.get('type') == 'look'][-1]['look']['presets'], kept['presetLooks'])
+
     def test_the_page_gets_the_catalog_then_each_state_and_hides_when_turned_off(self):
         self.view.set_on(True)
         self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 41, 'w': 1920, 'h': 913}})
@@ -297,10 +424,11 @@ class PaneDriverTests(unittest.TestCase):
         time.sleep(.1)
         self.assertEqual(self.lines('P'), [])                           # nothing before the page has loaded
         self.panes[0].say({'type': 'ready'})
-        self.assertTrue(self.wait(lambda: len(self.lines('P')) >= 2))
-        first, second = self.lines('P')[:2]
+        self.assertTrue(self.wait(lambda: len(self.lines('P')) >= 3))
+        first, looks, second = self.lines('P')[:3]
         self.assertEqual(first['type'], 'catalog')
         self.assertIn('HD2_DelayTest', first['catalog']['models'])
+        self.assertEqual(looks['type'], 'look')                         # the looks come before the first state is drawn
         self.assertEqual(second, {'type': 'state', 'state': {'blocks': [], 'selected': None, 'values': {}}})
         self.view.receive({'type': 'focusState', 'state': {'blocks': [{'dsp': 0}], 'selected': None, 'values': {}}})
         self.assertTrue(self.wait(lambda: len(self.lines('P')) >= 3))
@@ -516,6 +644,23 @@ class ScriptTests(unittest.TestCase):
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
         for piece in ("ask('preset', 'previous')", "ask('preset', 'next')", "ask('preset', index)", "message.type === 'notice'"):
             self.assertIn(piece, page)
+
+    def test_change_look_asks_the_launcher_which_keeps_it_and_sends_the_looks_back(self):
+        page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
+        for piece in ("ask('look', {scope: 'block', preset: presetRef(), key, ...more})", "ask('look', {scope: 'preset', preset: presetRef(), scene: name})",
+                      "ask('look', {scope: 'default', category: key, scene: name})", "ask('lookSave')", "message.type === 'look'",
+                      "const blockKey = block => isNam(block) && Number.isInteger(block.slot) ? 'slot:' + block.slot : block.model;",
+                      "return kept && kept.name === (state.preset.name || '') ? kept : null;",
+                      "showScene(sceneOf(block).name); showGear(block);"):
+            self.assertIn(piece, page)
+        look = page[page.index('// ---- Change look: this block'):page.index('// ---- the top bar: preset, snapshot')]
+        self.assertNotIn('look.presets[', look)                                      # the panel never edits the looks itself
+        self.assertNotIn('localStorage', page)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        for piece in ('changed = focus.changed_look(value, nam_catalog.load_settings())', 'nam_catalog.save_setting(key, kept)',
+                      'focus.show_look(nam_catalog.load_settings())', 'Thread(target=focus_look_save, daemon=True).start()',
+                      "floor_store.write_for(library, FloorMemory(library.folder),"):
+            self.assertIn(piece, launcher)
 
     def test_hx_edits_toolbar_steps_aside_and_undo_is_hx_edits_own(self):
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')

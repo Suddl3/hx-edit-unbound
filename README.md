@@ -41,7 +41,7 @@ Don't like a picture? **Change icon…** picks another from the built-in set, or
 
 ### Focus Mode
 
-The **Focus** button on the toolbar swaps HX Edit's signal flow and sliders for a single view of the selected block: its gear, large, standing in its category's scene, with its own controls as knobs and switches. Turn a knob, flip a switch or press the stomp switch to bypass: the block changes as it does from HX Edit's own sliders, and a drag is one step of undo. A strip of the chain on top picks another block. The block's title opens a list to change its model; on a NAM block the line under it lists the captures on the Floor. **Editor** (or the same menu item) brings the normal editor back as it was.
+The **Focus** button on the toolbar swaps HX Edit's signal flow and sliders for a single view of the selected block: its gear, large, standing in its category's scene, with its own controls as knobs and switches. Turn a knob, flip a switch or press the stomp switch to bypass: the block changes as it does from HX Edit's own sliders, and a drag is one step of undo. A strip of the chain on top picks another block. The block's title opens a list to change its model; on a NAM block the line under it lists the captures on the Floor. **Editor** (or the same menu item) brings the normal editor back as it was. **Change look** there sets the background and the picture of the block you are looking at for the loaded preset, one background for the whole preset, or the defaults for every preset.
 
 ![Focus Mode on a NAM block](docs/screenshots/focus-mode.jpg)
 

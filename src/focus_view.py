@@ -8,7 +8,8 @@ files in the prepared copy's res folder, and drives the pane:
 - HelixControls.json: how each display type is shown (format, units, the names of a switch's positions);
 - HX_ModelCatalog.bin: the models' names, pictures, categories (with HX Edit's category colours) and the
   order of their parameters, which is also the order of the Floor's parameter pages;
-- floor_store: the scene of each category, the same assignment the Floor look page sends to the Floor.
+- floor_store: the scene of each category, the same assignment the Floor look page sends to the Floor;
+- settings.json "presetLooks": what a preset changes in that (its own background, a block's background or picture).
 
 The live values come from focus_view.js (it reads the edit buffer inside HX Edit). Nothing here talks to
 the device.
@@ -17,6 +18,7 @@ import json
 import os
 from pathlib import Path
 from queue import Empty, Queue
+import re
 import struct
 import subprocess
 from threading import Event, Thread
@@ -191,11 +193,168 @@ def assignment(settings=None):
     return {'default': default, 'category': category}
 
 
+# ---- looks: one background per kind of block (the defaults), and what a preset changes ----------------------------
+# settings.json "presetLooks": {"<setlist>:<preset>": {"name": the preset's name when its look was chosen,
+#   "scene": one background for the whole preset (optional),
+#   "blocks": {<model symbol> or "slot:<capture slot>": {"scene": ..., "picture": ...}}}}
+# The most specific choice wins: the block's own in this preset, then the preset's, then the default for its kind.
+# A block is known by its model (a NAM block by its capture slot), not by its place in the chain: the Floor can look
+# that up, and it stays with the block when the chain is rearranged.
+LOOKS_KEY = 'presetLooks'
+PRESET_KEY = re.compile(r'(\d{1,2}):(\d{1,3})')
+SCENE_ID = re.compile(r'[a-z0-9_]{1,40}')
+SLOT_KEY = re.compile(r'slot:(\d{1,3})')
+MODEL_KEY = re.compile(r'[A-Za-z0-9_]{1,64}')
+PICTURE_ID = re.compile(r'(?:model|capture):[A-Za-z0-9_. -]{1,80}')
+
+
+def _block_key(key):
+    if not isinstance(key, str):
+        return False
+    slot = SLOT_KEY.fullmatch(key)
+    return 1 <= int(slot[1]) <= 128 if slot else bool(MODEL_KEY.fullmatch(key))
+
+
+def _choice(value):
+    """A block's own look as it is kept: {"scene"?, "picture"?}, each only if well formed."""
+    value = value if isinstance(value, dict) else {}
+    kept = {}
+    if isinstance(value.get('scene'), str) and SCENE_ID.fullmatch(value['scene']):
+        kept['scene'] = value['scene']
+    if isinstance(value.get('picture'), str) and PICTURE_ID.fullmatch(value['picture']):
+        kept['picture'] = value['picture']
+    return kept
+
+
+def preset_looks(settings=None):
+    """The looks chosen for presets, as settings.json keeps them; anything malformed is left out."""
+    stored = (settings or {}).get(LOOKS_KEY)
+    looks = {}
+    for key, value in stored.items() if isinstance(stored, dict) else ():
+        where = PRESET_KEY.fullmatch(key) if isinstance(key, str) else None
+        if not where or int(where[1]) > 31 or int(where[2]) > 127 or not isinstance(value, dict):
+            continue
+        blocks = value.get('blocks') if isinstance(value.get('blocks'), dict) else {}
+        entry = {'name': str(value.get('name') or '')[:32],
+                 'blocks': {block: _choice(choice) for block, choice in blocks.items() if _block_key(block) and _choice(choice)}}
+        if isinstance(value.get('scene'), str) and SCENE_ID.fullmatch(value['scene']):
+            entry['scene'] = value['scene']
+        if 'scene' in entry or entry['blocks']:
+            looks[f'{int(where[1])}:{int(where[2])}'] = entry
+    return looks
+
+
+def look_view(settings=None):
+    """What the page's Change look panel works with: the defaults in force, the Floor tool's own defaults (for the
+    "Default" marks and for putting them back), the kinds of block, and every preset's look."""
+    return {'assign': assignment(settings),
+            'factory': {'default': floor_store.DEFAULT_ASSIGN['default'], 'category': dict(floor_store.DEFAULT_ASSIGN['category'])},
+            'categories': [[key, label] for key, label in floor_store.CATEGORY_LABELS.items()],
+            'presets': preset_looks(settings)}
+
+
+def look_change(settings, change, preset, scenes, pictures, models):
+    """One change asked for in the Change look panel, as the settings.json keys to save ({} when it is refused).
+
+    preset: the loaded preset {setlist, number, name} (HX Edit's own header), which a preset's or a block's change
+    must name. scenes / pictures / models: what this editor has (the catalog's), so nothing unknown is kept.
+      {"scope": "block", "preset": {setlist, number}, "key": model or "slot:n", "scene": id | None}   (or "picture")
+      {"scope": "preset", "preset": {...}, "scene": id | None}     one background for the whole preset, or none
+      {"scope": "preset", "preset": {...}, "clear": True}          back on the defaults
+      {"scope": "preset", "preset": {...}, "adopt": True}          a look kept under another name here is this preset's
+      {"scope": "default", "category": kind or "default", "scene": id}
+      {"scope": "default", "reset": True}"""
+    settings = settings if isinstance(settings, dict) else {}
+    if not isinstance(change, dict):
+        return {}
+    scope = change.get('scope')
+
+    def scene(value):
+        return value if isinstance(value, str) and SCENE_ID.fullmatch(value) and value in scenes else None
+
+    if scope == 'default':
+        look = dict(settings.get('floorLook')) if isinstance(settings.get('floorLook'), dict) else {}
+        if change.get('reset') is True:
+            look.pop('assign', None)
+            return {'floorLook': look}
+        chosen, kind = scene(change.get('scene')), change.get('category')
+        if not chosen or (kind != 'default' and kind not in floor_store.CATEGORY_LABELS):
+            return {}
+        now = assignment(settings)
+        if kind == 'default':
+            now['default'] = chosen
+        else:
+            now['category'][kind] = chosen
+        look['assign'] = floor_store.assignment(now, list(scenes))
+        return {'floorLook': look}
+
+    if scope not in ('block', 'preset') or not isinstance(preset, dict) or not isinstance(change.get('preset'), dict):
+        return {}
+    setlist, number = preset.get('setlist'), preset.get('number')
+    if type(setlist) is not int or type(number) is not int or not 0 <= setlist <= 31 or not 0 <= number <= 127:
+        return {}
+    if change['preset'].get('setlist') != setlist or change['preset'].get('number') != number:
+        return {}                                      # asked for a preset that is no longer the loaded one
+    name = str(preset.get('name') or '')[:32]
+    looks = preset_looks(settings)
+    key = f'{setlist}:{number}'
+    kept = looks.get(key)
+    if scope == 'preset' and change.get('adopt') is True:
+        if not kept or kept['name'] == name:
+            return {}
+        kept['name'] = name
+        return {LOOKS_KEY: looks}
+    if scope == 'preset' and change.get('clear') is True:
+        if key not in looks:
+            return {}
+        del looks[key]
+        return {LOOKS_KEY: looks}
+    # A look kept under another name was another preset's (this number has been written over or the presets moved).
+    entry = kept if kept and kept['name'] == name else {'name': name, 'blocks': {}}
+    if scope == 'preset':
+        if 'scene' not in change or (change['scene'] is not None and not scene(change['scene'])):
+            return {}
+        if change['scene'] is None:
+            entry.pop('scene', None)
+        else:
+            entry['scene'] = change['scene']
+    else:
+        block = change.get('key')
+        slot = SLOT_KEY.fullmatch(block) if isinstance(block, str) else None
+        if not _block_key(block) or (not slot and block not in models):
+            return {}
+        own = dict(entry['blocks'].get(block) or {})
+        touched = False
+        if 'scene' in change:
+            if change['scene'] is not None and not scene(change['scene']):
+                return {}
+            touched = True
+            own.pop('scene', None) if change['scene'] is None else own.update(scene=change['scene'])
+        if 'picture' in change:
+            if change['picture'] is not None and change['picture'] not in pictures:
+                return {}
+            touched = True
+            own.pop('picture', None) if change['picture'] is None else own.update(picture=change['picture'])
+        if not touched:
+            return {}
+        if own:
+            entry['blocks'][block] = own
+        else:
+            entry['blocks'].pop(block, None)
+    if 'scene' in entry or entry['blocks']:
+        looks[key] = entry
+    else:
+        looks.pop(key, None)
+    return {LOOKS_KEY: looks}
+
+
 def catalog(resources, settings=None):
     """Everything the page needs to draw any block of this copy of HX Edit.
 
-    {"models": {symbol: {name, category, key, tint, pictures, scene, params}}, "controls": {display type: rules},
-     "scenes": {...}, "captures": {"pictures": [url templates with {icon}]}, "nam": [NAM engine symbols]}"""
+    {"models": {symbol: {name, category, key, tint, pictures, picture, scene, params}}, "controls": {display type: rules},
+     "scenes": {...}, "captures": {"pictures": [url templates with {icon}]}, "nam": [NAM engine symbols],
+     "pictures": {picture id: {name, group, urls}}: every picture a block can be given in place of its own (the models'
+     renders as "model:<HX Edit's picture file>", the capture pictures as "capture:<id>")}"""
     resources = Path(resources)
     definitions = _clean(msgpack.unpackb((resources / 'HelixModelDefs.bin').read_bytes()))
     tree = _clean(msgpack.unpackb((resources / 'HX_ModelCatalog.bin').read_bytes()))
@@ -222,7 +381,7 @@ def catalog(resources, settings=None):
             for entry in folder.get('models') or []:
                 if isinstance(entry, dict) and entry.get('id'):
                     listed.setdefault(entry['id'], (category, entry))
-    models, used = {}, set()
+    models, used, gallery = {}, set(), {}
     for model in definitions:
         if not isinstance(model, dict) or not model.get('symbolicID'):
             continue
@@ -242,9 +401,13 @@ def catalog(resources, settings=None):
             pictures.append(_url('models', image))        # (the stock input/output pictures are strips of glyphs)
         params = parameters(model, entry.get('params'), controls)
         used.update(p['display'] for p in params)
-        models[symbol] = {'name': str(entry.get('name') or model.get('name') or symbol).strip(), 'category': label, 'key': key,
+        title = str(entry.get('name') or model.get('name') or symbol).strip()
+        own = f'model:{image}' if pictures and PICTURE_ID.fullmatch(f'model:{image}') else None
+        if own and not nam:
+            gallery.setdefault(own, {'name': title, 'group': label, 'urls': pictures})
+        models[symbol] = {'name': title, 'category': label, 'key': key,
                           'tint': list(NAM_TINT) if nam else _tint(category.get('color')) if category else list(NEUTRAL),
-                          'pictures': pictures, 'scene': scene_for(key), 'params': params,
+                          'pictures': pictures, 'picture': own, 'scene': scene_for(key), 'params': params,
                           # what HX Edit can bypass has an "@enabled" switch of its own (an input or an output has none)
                           'bypass': any(isinstance(p, dict) and p.get('symbolicID') == '@enabled' for p in model.get('params') or [])}
     used.add('sync_note')
@@ -270,8 +433,16 @@ def catalog(resources, settings=None):
             lists.append({'name': name, 'tint': _tint(category.get('color')), 'folders': shelves})
     capture_pictures = [_url(host, '{icon}.png').replace('%7Bicon%7D', '{icon}')
                         for host in ('capturesfull', 'captures') if host in folders]
+    try:
+        icons = capture_icons.known_icons()
+    except (OSError, ValueError, KeyError):
+        icons = ()
+    for icon in icons if capture_pictures else ():
+        gallery[f'capture:{icon}'] = {'name': icon.replace('_', ' ').capitalize(), 'group': 'NAM',
+                                      'urls': [url.replace('{icon}', quote(icon)) for url in capture_pictures]}
     return {'models': models, 'controls': {display: _control(controls, display) for display in sorted(used) if display},
-            'scenes': known_scenes, 'captures': {'pictures': capture_pictures}, 'nam': list(NAM_ENGINES), 'lists': lists}
+            'scenes': known_scenes, 'captures': {'pictures': capture_pictures}, 'nam': list(NAM_ENGINES), 'lists': lists,
+            'pictures': gallery}
 
 
 def model_loads(resources):
@@ -361,6 +532,7 @@ class FocusView:
         self._catalog = None
         self._pictures = {}
         self.dsp = None
+        self.look = look_view(self.settings)             # the defaults and every preset's look (show_look after a change)
         self.worker = Thread(target=self._run, daemon=True)
         self.worker.start()
 
@@ -391,6 +563,17 @@ class FocusView:
         else:
             return False
         return True
+
+    def show_look(self, settings=None):
+        """The looks as settings.json has them now, to the page (after a change here or on the Floor look page)."""
+        self.queue.put(('look', look_view(settings)))
+
+    def changed_look(self, value, settings=None):
+        """The page's Change look request as the settings.json keys to save ({}: refused): look_change, for the preset
+        HX Edit has loaded and with only the scenes, pictures and models this editor has."""
+        state = self.state if isinstance(self.state, dict) else {}
+        found = self.catalog()
+        return look_change(settings, value, state.get('preset'), found['scenes'], found['pictures'], found['models'])
 
     def notice(self, text):
         """A line for the page to show for a moment (something asked for in the pane did not happen)."""
@@ -570,6 +753,10 @@ class FocusView:
         if self.page_ready and self.dsp is not None:
             self._write('P', {'type': 'dsp', 'dsp': self.dsp})
 
+    def _show_look(self):
+        if self.page_ready and self.look is not None:
+            self._write('P', {'type': 'look', 'look': self.look})
+
     def _handle(self, kind, value):
         if kind == 'on':
             self.on = value
@@ -596,6 +783,9 @@ class FocusView:
         elif kind == 'dsp':
             self.dsp = value
             self._show_dsp()
+        elif kind == 'look':
+            self.look = value
+            self._show_look()
         elif kind == 'load':
             if self.on and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
                 self._act('load', value)
@@ -607,6 +797,7 @@ class FocusView:
             if event == 'ready':                       # the page has loaded: what it draws with, then what to draw
                 self.page_ready = True
                 self._write('P', {'type': 'catalog', 'catalog': self.catalog()})
+                self._show_look()
                 self._place()
                 self._show_state()
                 self._show_dsp()
