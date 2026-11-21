@@ -192,10 +192,11 @@
   .rows p { color: var(--dim); font-size: 14px; padding: 8px 10px; margin: 0; }
 
   /* ---- Change look: this block in this preset, the whole preset, the defaults --------------------------------- */
-  .tools { position: absolute; right: 26px; top: 14px; z-index: 3; transition: right .28s cubic-bezier(.2, .8, .2, 1); }
-  .tools .pill { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); background: rgb(0 0 0 / .45); backdrop-filter: blur(8px); }
-  .tools .pill svg { width: 15px; height: 15px; }
-  .tools .pill[aria-expanded=true] { box-shadow: inset 0 0 0 1px rgb(255 255 255 / .5); }
+  /* the two view buttons of the bar, side by side: quiet until they are on, as each other */
+  .views { display: flex; align-items: center; gap: 8px; }
+  .views .pill { display: inline-flex; align-items: center; gap: 8px; }
+  .views .pill[hidden] { display: none; }
+  .views .pill svg { width: 15px; height: 15px; }
   .look { position: absolute; right: 0; top: 0; bottom: 0; width: 430px; z-index: 5; display: grid; grid-template-rows: auto auto 1fr auto;
           background: rgb(8 8 10 / .9); backdrop-filter: blur(24px) saturate(1.2); box-shadow: -1px 0 0 rgb(255 255 255 / .1), -30px 0 80px rgb(0 0 0 / .55);
           transform: translateX(104%); transition: transform .28s cubic-bezier(.2, .8, .2, 1); }
@@ -234,6 +235,10 @@
   .scenes span { display: block; padding: 4px 7px 5px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .scenes button:hover { box-shadow: 0 0 0 1px rgb(255 255 255 / .4); }
   .scenes button.cur { box-shadow: 0 0 0 2px #fff; }
+  /* the starting background (the default for these blocks, or what the preset gives): outlined and tagged, as on the
+     Floor look page, so one click puts just that one back */
+  .scenes button.start { outline: 2px dashed #8a8a8a; outline-offset: 1px; }
+  .scenes button.start.cur { outline-offset: 3px; }
   .scenes i { position: absolute; left: 5px; top: 5px; padding: 1px 6px; border-radius: 8px; font: normal 10.5px var(--din); background: rgb(0 0 0 / .7); color: #dcdad3; }
   .scenes .none { display: grid; place-items: center; height: 100%; min-height: 56px; padding: 0 6px; text-align: center; color: var(--dim); font-size: 12.5px;
                   background: rgb(255 255 255 / .05); }
@@ -263,13 +268,16 @@
   .cats > button:hover, .cats > button[aria-expanded=true] { background: rgb(255 255 255 / .07); }
   .cats > button img { width: 64px; height: 30px; object-fit: cover; object-position: 50% 27%; border-radius: 4px; }
   .cats > button span:last-child { color: var(--dim); font-size: 13.5px; }
+  /* a default changed from its starting background gets the Floor look page's dot */
+  .cats > button.changed span:first-child::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%;
+                                                    background: #e05a5b; vertical-align: middle; }
   .cats .scenes { margin: 6px 0 12px; }
   .linkish { margin-top: 16px; font-size: 13.5px; color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
   .linkish:hover { color: var(--ink); }
   .look > footer { display: flex; align-items: center; gap: 14px; padding: 12px 22px 14px 24px; box-shadow: 0 -1px 0 rgb(255 255 255 / .1); }
   .look > footer p { margin: 0; flex: 1; font-size: 12.5px; line-height: 1.35; color: var(--dim); }
   .save { height: 34px; padding: 0 14px; border-radius: 17px; font-size: 14px; background: #f3f1ea; color: #111; white-space: nowrap; }
-  .app.looking .floor, .app.looking .tools { right: 456px; }
+  .app.looking .floor { right: 456px; }
 
   .hint { position: absolute; left: 50%; top: 46%; translate: -50% -50%; z-index: 2; text-align: center; font-size: 19px; color: var(--dim);
           max-width: 520px; line-height: 1.45; }
@@ -400,7 +408,12 @@
           <button class="icon" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3l3 3-3 3"/><path d="M14 6H7a4 4 0 0 0 0 8h3"/></svg></button>
         </div>
         <div class="dsp" id="dsp" aria-label="DSP load"></div>
-        <button class="pill" id="floorToggle" aria-pressed="true">Floor preview</button>
+        <div class="views">
+          <button class="pill" id="lookButton" aria-pressed="false" aria-expanded="false" title="Backgrounds and pictures, for this preset or for all" hidden>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 10.5l3.5-3.5 3 3 2.5-2.5 4 4"/><circle cx="10.6" cy="5.8" r="1.1" fill="currentColor" stroke="none"/></svg>
+            Change look</button>
+          <button class="pill" id="floorToggle" aria-pressed="true">Floor preview</button>
+        </div>
       </div>
     </div>
     <nav class="chain" id="chain" aria-label="Signal chain"></nav>
@@ -424,9 +437,6 @@
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l5 5 5-5"/></svg></button>
     </div>
 
-    <div class="tools" id="tools" hidden><button class="pill" id="lookButton" aria-expanded="false" title="Backgrounds and pictures, for this preset or for all">
-      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 10.5l3.5-3.5 3 3 2.5-2.5 4 4"/><circle cx="10.6" cy="5.8" r="1.1" fill="currentColor" stroke="none"/></svg>
-      Change look</button></div>
     <aside class="look" id="look" aria-label="Change look" inert>
       <header><h2>Look</h2><button id="lookClose">Done</button></header>
       <div class="scope" role="tablist">
@@ -945,7 +955,7 @@ function sceneGrid(now, pick, {marked = null, mark = 'Default', none = null} = {
     const cell = el('button', name === now ? 'cur' : ''), img = el('img');
     img.alt = ''; img.loading = 'lazy'; img.src = sceneThumb(name);
     cell.append(img, el('span', '', sc.name));
-    if (name === marked) cell.append(el('i', '', mark));
+    if (name === marked) { cell.classList.add('start'); cell.append(el('i', '', mark)); cell.title = 'Where these blocks start. Click to put it back.'; }
     cell.onclick = () => pick(name);
     grid.append(cell);
   }
@@ -1041,21 +1051,27 @@ function lookPresetTab(pane, block) {
 function lookDefaultsTab(pane) {
   pane.append(el('p', 'lead', 'What every preset starts from: one background for each kind of block. The Floor look page edits the same choices.'));
   const cats = el('div', 'cats');
+  let moved = 0;                                             // how many kinds are not on their starting background
   for (const [key, label] of [...look.categories, ['default', 'Everything else']]) {
     const now = key === 'default' ? usable(look.assign.default) : usable(look.assign.category[key]) || usable(look.assign.default);
-    const row = el('button'); row.setAttribute('aria-expanded', lookKind === key);
+    const starting = key === 'default' ? look.factory.default : look.factory.category[key];
+    const changed = !!usable(starting) && now !== starting;
+    if (changed) moved++;
+    const row = el('button', changed ? 'changed' : ''); row.setAttribute('aria-expanded', lookKind === key);
+    row.title = changed ? 'Changed from ' + catalog.scenes[starting].name + '. Click to choose.' : '';
     const img = el('img'); img.alt = ''; img.loading = 'lazy'; img.src = sceneThumb(now);
     row.append(el('span', '', label), img, el('span', '', now ? catalog.scenes[now].name : ''));
     row.onclick = () => { lookKind = lookKind === key ? null : key; drawLook(true); };
     cats.append(row);
-    if (lookKind === key) cats.append(sceneGrid(now, name => ask('look', {scope: 'default', category: key, scene: name}),
-                                                {marked: key === 'default' ? look.factory.default : look.factory.category[key]}));
+    if (lookKind === key) cats.append(sceneGrid(now, name => ask('look', {scope: 'default', category: key, scene: name}), {marked: starting}));
   }
   pane.append(cats);
   pane.append(heading('Capture pictures'));
   pane.append(el('p', 'lead', "A NAM capture's picture is chosen on its row in the NAM library. It is the same in every preset unless a preset gives that capture another."));
-  const back = el('button', 'linkish', 'Put every default back'); back.onclick = () => ask('look', {scope: 'default', reset: true});
-  pane.append(back);
+  if (moved) {                                               // (a dot marks each one; its outlined background puts just that one back)
+    const back = el('button', 'linkish', 'Put every default back'); back.onclick = () => ask('look', {scope: 'default', reset: true});
+    pane.append(back);
+  }
 }
 function drawLook(force) {
   if (!lookOpen || !catalog || !state || !look) return;
@@ -1082,14 +1098,14 @@ function openLook() {
   closePicker();
   lookOpen = true; lookTab = current() ? 'block' : 'preset'; lookPart = 'scene'; lookFind = ''; lookKind = null;   // first: the block you are looking at
   const panel = $('look'); panel.classList.add('open'); panel.inert = false;
-  app.classList.add('looking'); $('lookButton').setAttribute('aria-expanded', 'true');
+  app.classList.add('looking'); $('lookButton').setAttribute('aria-expanded', 'true'); $('lookButton').setAttribute('aria-pressed', 'true');
   drawLook(true); place();
 }
 function closeLook() {
   if (!lookOpen) return;
   lookOpen = false;
   const panel = $('look'); panel.classList.remove('open'); panel.inert = true;
-  app.classList.remove('looking'); $('lookButton').setAttribute('aria-expanded', 'false');
+  app.classList.remove('looking'); $('lookButton').setAttribute('aria-expanded', 'false'); $('lookButton').setAttribute('aria-pressed', 'false');
   place();
 }
 
@@ -1182,7 +1198,7 @@ function render() {
   $('hint').hidden = !!block;
   drawBar();
   drawChain();
-  $('tools').hidden = !look;
+  $('lookButton').hidden = !look;
   if (!block) {
     closePicker();
     $('hintText').textContent = !state.blocks.length ? 'Waiting for a preset from HX Edit.'

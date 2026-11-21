@@ -654,6 +654,19 @@ class ScriptTests(unittest.TestCase):
                       "showScene(sceneOf(block).name); showGear(block);"):
             self.assertIn(piece, page)
         look = page[page.index('// ---- Change look: this block'):page.index('// ---- the top bar: preset, snapshot')]
+        # its button sits in the bar beside Floor preview, and is lit only while the panel is open
+        views = page[page.index('<div class="views">'):page.index('<nav class="chain"')]
+        self.assertLess(views.index('id="lookButton" aria-pressed="false"'), views.index('id="floorToggle"'))
+        self.assertNotIn('class="tools"', page)
+        # a default that has been changed is marked as on the Floor look page: a dot on its row, its starting background outlined
+        for piece in ("const changed = !!usable(starting) && now !== starting;", "el('button', changed ? 'changed' : '')",
+                      "cell.classList.add('start');", ".scenes button.start { outline: 2px dashed #8a8a8a; outline-offset: 1px; }",
+                      ".cats > button.changed span:first-child::after"):
+            self.assertIn(piece, page)
+        card = (ROOT / 'library_card.html').read_text(encoding='utf-8')               # the same marks as the page it follows
+        self.assertIn('#pickerBody button.scene.start { outline: 2px dashed #8a8a8a; outline-offset: 1px; }', card)
+        self.assertIn('background: #e05a5b', card)
+        self.assertIn('background: #e05a5b', look if 'background: #e05a5b' in look else page)
         self.assertNotIn('look.presets[', look)                                      # the panel never edits the looks itself
         self.assertNotIn('localStorage', page)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
