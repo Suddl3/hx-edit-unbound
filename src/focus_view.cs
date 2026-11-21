@@ -28,6 +28,7 @@ sealed class FocusView : Form
     [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
+    [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hwnd);
 
     readonly IntPtr parent;
     readonly string profile, page;
@@ -93,6 +94,8 @@ sealed class FocusView : Form
         }
         if (Visible != show)
         {
+            // Hidden, the pane must not keep the keyboard: HX Edit's own keys work again at once.
+            if (!show && ContainsFocus) SetFocus(parent);
             Visible = show;
             Post("{\"type\":\"shown\",\"shown\":" + (show ? "true" : "false") + "}");
         }

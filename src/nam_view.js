@@ -1897,6 +1897,25 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const view = sidebar();
       return view ? canonical(findWidget(view.editor, chainIds[0], 1)) : NULL;
     },
+    // Focus Mode: a DSP's chain panel in the window ({x, y, w, h}, or null when it is not showing), and a plain
+    // click at a point of the chain, as the user's own click on a block (it selects the block; nothing else).
+    chainBox(dsp) {
+      const view = sidebar();
+      if (!view || !chainIds[dsp]) return null;
+      const panel = canonical(findWidget(view.editor, chainIds[dsp], 1));
+      if (panel.isNull() || !isVisible(panel, 1)) return null;
+      widgetOrigin(panel, chainPoint);
+      const size = box(panel);
+      return size.w > 0 && size.h > 0 ? {x: chainPoint.readS32(), y: chainPoint.add(4).readS32(), w: size.w, h: size.h} : null;
+    },
+    clickChainPoint(x, y) {
+      if (sidebarHost.isNull() || !Number.isInteger(x) || !Number.isInteger(y) || !inChain(x, y)) return false;
+      const at = ptr(((y & 0xffff) << 16 | (x & 0xffff)) >>> 0);
+      postMessage(sidebarHost, 0x200, NULL, at);          // WM_MOUSEMOVE
+      postMessage(sidebarHost, 0x201, ptr(1), at);        // WM_LBUTTONDOWN, MK_LBUTTON
+      postMessage(sidebarHost, 0x202, NULL, at);          // WM_LBUTTONUP
+      return true;
+    },
     // Main-window client coordinates of the pointer, or null.
     cursorInWindow() {
       if (sidebarHost.isNull() || !getCursorPos(cursorPoint) || !screenToClient(sidebarHost, cursorPoint)) return null;

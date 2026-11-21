@@ -273,9 +273,38 @@ class ScriptTests(unittest.TestCase):
             self.assertIsNone(state['selected'])
             self.assertEqual(state['values'], {})
 
+    def test_between_full_readings_only_values_and_bypass_are_read(self):
+        blocks = run_js(['focus_view.js'], f'focusSnapshot({self.READER}, null, {{}}, ["HD2_AmpNAMLite"]).blocks')
+        asked = '''(() => { const read = %s, keys = []; const peek = (dsp, place, key) => { keys.push(key); return read(dsp, place, key); };
+          const state = focusValues(peek, %s, {dsp: 0, block: "block0"}, {HD2_AmpNAMLite: ["Drive", "Polarity"]}, ["HD2_AmpNAMLite"]);
+          return {state, keys: [...new Set(keys)].sort()}; })()''' % (self.READER, json.dumps(blocks))
+        result = run_js(['focus_view.js'], asked)
+        self.assertEqual(result['keys'], ['@enabled', '@model', 'Drive', 'Index', 'Polarity'])      # no position, no path
+        self.assertEqual(result['state']['values'], {'Drive': 0.83, 'Polarity': False})
+        self.assertEqual(result['state']['selected'], {'dsp': 0, 'id': 'block0'})
+        self.assertEqual([b['enabled'] for b in result['state']['blocks']], [b['enabled'] for b in blocks])
+        # Another model on the selected block, or a cursor on a block not seen yet: everything is read again.
+        other = json.dumps([dict(b, model='HD2_Other') if b['id'] == 'block0' else b for b in blocks])
+        self.assertIsNone(run_js(['focus_view.js'], f'focusValues({self.READER}, {other}, {{dsp: 0, block: "block0"}}, {{}}, [])'))
+        self.assertIsNone(run_js(['focus_view.js'], f'focusValues({self.READER}, {json.dumps(blocks)}, {{dsp: 1, block: "block5"}}, {{}}, [])'))
+        idle = run_js(['focus_view.js'], f'focusValues({self.READER}, {json.dumps(blocks)}, {{dsp: -1, block: ""}}, {{}}, [])')
+        self.assertIsNone(idle['selected'])
+
+    def test_a_block_is_selected_by_a_click_on_its_cell_of_hx_edits_chain(self):
+        box = '{x: 318, y: 45, w: 1592, h: 120}'
+        point = lambda block: run_js(['focus_view.js'], f'focusChainPoint({box}, {json.dumps(block)})')
+        self.assertEqual(point({'id': 'inputA'}), {'x': 398, 'y': 93})                # the first of ten cells, on the name
+        self.assertEqual(point({'id': 'block0', 'position': 1, 'path': 0}), {'x': 716, 'y': 93})
+        self.assertEqual(point({'id': 'block4', 'position': 7, 'path': 1}), {'x': 1671, 'y': 153})   # the lower path
+        self.assertEqual(point({'id': 'outputA'}), {'x': 1830, 'y': 93})
+        for nowhere in ({'id': 'split', 'position': 0}, {'id': 'join', 'position': 8}, {'id': 'block0', 'position': None},
+                        {'id': 'block0', 'position': 9, 'path': 0}):
+            self.assertIsNone(point(nowhere))
+        self.assertIsNone(run_js(['focus_view.js'], 'focusChainPoint(null, {id: "inputA"})'))
+
     def test_the_pane_covers_the_signal_flow_and_the_edit_panel_across_the_window(self):
         box = run_js(['focus_view.js'], 'focusPaneBounds({x:318,y:45,w:1592,h:248}, {x:308,y:0,w:1612,h:954}, {x:0,y:0,w:1920,h:989})')
-        self.assertEqual(box, {'x': 0, 'y': 41, 'w': 1920, 'h': 913})                 # HX Edit's top row and status bar stay
+        self.assertEqual(box, {'x': 0, 'y': 39, 'w': 1920, 'h': 915})                 # HX Edit's top row and status bar stay
         self.assertIsNone(run_js(['focus_view.js'], 'focusPaneBounds(null, {x:308,y:0,w:1612,h:954}, {x:0,y:0,w:1920,h:989})'))
         self.assertIsNone(run_js(['focus_view.js'], 'focusPaneBounds({x:318,y:45,w:300,h:100}, {x:308,y:0,w:300,h:200}, {x:0,y:0,w:500,h:240})'))
 
@@ -298,10 +327,16 @@ class WiringTests(unittest.TestCase):
                       "meter.set_chain_option('focusMode', on)", 'focus.receive(payload)', 'focus.close()'):
             self.assertIn(piece, launcher)
 
-    def test_the_script_only_reads(self):
+    def test_the_script_only_reads_and_a_selection_is_a_click_on_the_chain(self):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         for writer in ('setIndex', 'setModel', 'addModel', 'writeValue', '.restore(', 'Interceptor.replace', 'write'):
             self.assertNotIn(writer, script.replace('writes', '').replace('Writes', ''))
+        self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
+        view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]
+        self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("'action': 'select'", launcher)
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         peek = binding[binding.index('function peekValue'):binding.index('function setIndex')]
         self.assertIn('parameter(', peek)
@@ -316,11 +351,12 @@ class WiringTests(unittest.TestCase):
             self.assertIn(name, module.APP_FILES)
             self.assertTrue((ROOT / name).is_file())
 
-    def test_the_page_is_local_and_asks_only_to_leave(self):
+    def test_the_page_is_local_and_asks_only_to_leave_or_to_select_a_block(self):
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
         self.assertNotIn('http://', page)
         self.assertEqual(page.count('https://'), 0)                      # no font, script or picture from the internet
         self.assertIn("ask('exit')", page)
+        self.assertIn("ask('select', {dsp: b.dsp, id: b.id})", page)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
         self.assertIn('args.Cancel = args.Uri != page', pane)            # the pane opens nothing but the page
 

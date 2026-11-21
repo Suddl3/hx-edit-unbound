@@ -309,6 +309,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     focus_mode(False)
                 elif name == 'failed':
                     focus_mode(False, 'Focus Mode could not start.')
+                elif name == 'select' and isinstance(value, dict) and value.get('dsp') in (0, 1) and isinstance(value.get('id'), str):
+                    # A block clicked in the pane's chain strip: HX Edit selects it, and the pane follows.
+                    if focus_on[0] and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': {'action': 'select', 'dsp': value['dsp'], 'id': value['id'][:16]}})
             if focus is not None:
                 focus.on_action = focus_action
             ir_dots = [options.get('irDots') is not False]

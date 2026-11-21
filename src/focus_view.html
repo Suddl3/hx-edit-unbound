@@ -51,8 +51,11 @@
   .run::before { content: ''; position: absolute; left: 30px; right: 30px; top: 22px; height: 2px;
                  background: linear-gradient(90deg, #3a3a3d, #56565a 50%, #3a3a3d); }
   .blk { position: relative; width: 74px; display: grid; justify-items: center; gap: 6px; cursor: default; }
+  button.blk { cursor: pointer; }
+  button.blk:hover .pic { transform: translateY(-1px); box-shadow: 0 0 0 1.5px rgb(var(--c)); }
+  button.blk.sel:hover .pic { transform: none; box-shadow: 0 0 0 2px #000, 0 0 0 4px #fff, 0 0 18px 2px rgb(var(--c) / .6); }
   .blk .pic { width: 44px; height: 44px; border-radius: 11px; background: #0d0d0f; display: grid; place-items: center;
-              box-shadow: 0 0 0 1.5px rgb(var(--c) / .55); transition: box-shadow .15s; }
+              box-shadow: 0 0 0 1.5px rgb(var(--c) / .55); transition: box-shadow .15s, transform .15s; }
   .blk .pic img { width: 36px; height: 36px; object-fit: contain; }
   .blk .nm { font-size: 11.5px; line-height: 1.1; color: var(--dim); max-width: 72px; white-space: nowrap; overflow: hidden;
              text-overflow: ellipsis; font-stretch: 87%; }
@@ -203,7 +206,7 @@
         <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg>
         Editor
       </button>
-      <span class="note" id="note">Shows the block. Change it in the editor or on the Floor.</span>
+      <span class="note" id="note">Shows the block. Turn its knobs in the editor or on the Floor.</span>
     </div>
     <nav class="chain" id="chain" aria-label="Signal chain"></nav>
     <div class="bar-right">
@@ -247,7 +250,7 @@ const $ = id => document.getElementById(id);
 const app = $('app'), scene = $('scene');
 const host = window.chrome && window.chrome.webview;
 const plates = [$('plateA'), $('plateB')];
-let catalog = null, state = null, plateOn = 0, shownPicture = '', shownKey = '';
+let catalog = null, state = null, plateOn = 0, shownPicture = '', shownKey = '', visible = !host;
 
 const ask = (name, value) => { if (host) host.postMessage(JSON.stringify({name, value: value === undefined ? null : value})); };
 
@@ -370,7 +373,9 @@ function drawChain() {
     if (index) { const mark = document.createElement('span'); mark.className = 'mark'; mark.textContent = 'DSP 2'; chain.append(mark); }
     const run = document.createElement('div'); run.className = 'run';
     for (const b of group) {
-      const m = model(b), taken = capture(b), item = document.createElement('div');
+      // (the split and the join have no cell of their own in HX Edit's chain to click)
+      const m = model(b), taken = capture(b), item = document.createElement(b.id === 'split' || b.id === 'join' ? 'div' : 'button');
+      if (item.tagName === 'BUTTON') item.onclick = () => ask('select', {dsp: b.dsp, id: b.id});
       item.className = 'blk' + (b === now ? ' sel' : '') + (b.enabled ? '' : ' off') + (b.path === 1 && /^block/.test(b.id) ? ' low' : '');
       item.style.setProperty('--c', m.tint.join(' '));
       item.title = m.name + (taken ? ', ' + taken.name : '') + (b.enabled ? '' : ' (bypassed)');
@@ -523,7 +528,7 @@ function receive(message) {
   if (!message || typeof message !== 'object') return;
   if (message.type === 'catalog') { catalog = message.catalog; shownKey = ''; shownPicture = ''; }
   else if (message.type === 'state') state = message.state;
-  else if (message.type === 'shown') { if (message.shown) place(); return; }
+  else if (message.type === 'shown') { visible = message.shown === true; if (visible) place(); return; }
   else return;
   render();
 }
@@ -541,7 +546,7 @@ scene.addEventListener('pointermove', e => {
   scene.style.setProperty('--py', ((e.clientY - r.top) / r.height * 2 - 1).toFixed(3));
 });
 scene.addEventListener('pointerleave', () => { scene.style.setProperty('--px', 0); scene.style.setProperty('--py', 0); });
-addEventListener('keydown', e => { if (e.key === 'Escape') ask('exit'); });
+addEventListener('keydown', e => { if (e.key === 'Escape' && visible) ask('exit'); });
 addEventListener('resize', place);
 </script>
 </body>
