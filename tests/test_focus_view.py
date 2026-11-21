@@ -432,8 +432,10 @@ class ScriptTests(unittest.TestCase):
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
         self.assertIn('if(focusMode){ if(unboundButton!=null)unboundButton.Show(Rectangle.Empty); shown=false; ShowWindow(Handle,0); return; }', helper)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
-        self.assertIn('if ((string)name == "undo") { PressInEditor(0x5A); return; }', pane)       # Ctrl+Z in HX Edit's window
-        self.assertIn('if ((string)name == "redo") { PressInEditor(0x59); return; }', pane)
+        self.assertIn('if ((string)name == "undo") { PressInEditor(0x5A, false); return; }', pane)   # Ctrl+Z in HX Edit's window
+        self.assertIn('if ((string)name == "redo") { PressInEditor(0x5A, true); return; }', pane)    # Ctrl+Shift+Z, as its Edit menu
+        self.assertIn('if (shift) keybd_event(0x10, 0, 0, UIntPtr.Zero);', pane)
+        self.assertNotIn('Ctrl+Y', pane + (ROOT / 'focus_view.html').read_text(encoding='utf-8'))
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
         for piece in ("ask('undo')", "ask('redo')", "ask('snapshot', index)"):
             self.assertIn(piece, page)

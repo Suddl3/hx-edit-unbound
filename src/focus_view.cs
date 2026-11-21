@@ -31,15 +31,18 @@ sealed class FocusView : Form
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hwnd);
     [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 
-    // The page's undo and redo buttons: HX Edit's own Ctrl+Z and Ctrl+Y, typed into HX Edit's window (the keyboard
-    // goes there first), so HX Edit undoes exactly as it does for the user. Nothing for a pane with no HX Edit.
-    void PressInEditor(byte key)
+    // The page's undo and redo buttons: HX Edit's own Ctrl+Z and Ctrl+Shift+Z (its Edit menu's keys), typed into
+    // HX Edit's window (the keyboard goes there first), so HX Edit undoes exactly as it does for the user. Nothing
+    // for a pane with no HX Edit.
+    void PressInEditor(byte key, bool shift)
     {
         if (parent == IntPtr.Zero || !IsWindow(parent)) return;
         SetFocus(parent);
         keybd_event(0x11, 0, 0, UIntPtr.Zero);          // Ctrl down
+        if (shift) keybd_event(0x10, 0, 0, UIntPtr.Zero);
         keybd_event(key, 0, 0, UIntPtr.Zero);
         keybd_event(key, 0, 2, UIntPtr.Zero);           // key up
+        if (shift) keybd_event(0x10, 0, 2, UIntPtr.Zero);
         keybd_event(0x11, 0, 2, UIntPtr.Zero);
     }
 
@@ -237,8 +240,8 @@ sealed class FocusView : Form
                 object name, value;
                 if (message == null || !message.TryGetValue("name", out name) || !(name is string)) return;
                 message.TryGetValue("value", out value);
-                if ((string)name == "undo") { PressInEditor(0x5A); return; }      // Z
-                if ((string)name == "redo") { PressInEditor(0x59); return; }      // Y
+                if ((string)name == "undo") { PressInEditor(0x5A, false); return; }      // Ctrl+Z
+                if ((string)name == "redo") { PressInEditor(0x5A, true); return; }       // Ctrl+Shift+Z
                 Send(new { type = "action", name = (string)name, value = value });
             };
             core.Navigate(page);
