@@ -290,7 +290,7 @@ class PaneDriverTests(unittest.TestCase):
         def factory(command, **options):
             self.panes.append(FakePane(command, **options))
             return self.panes[-1]
-        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=factory, exe='FocusView.exe',
+        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=factory, exe='FocusView.exe', costs_file=None,
                                             on_action=lambda name, value: self.actions.append((name, value)))
         self.addCleanup(self.view.close)
 
@@ -336,6 +336,80 @@ class PaneDriverTests(unittest.TestCase):
         self.assertEqual(self.view.checked_model({'dsp': 0, 'id': 'block0', 'symbol': 'HD2_DelayOther'})['symbol'], 'HD2_DelayOther')
 
 
+class DspCostTests(unittest.TestCase):
+    """A block's DSP, measured from the path's meter when exactly one block comes or goes (dsp_costs.py)."""
+
+    def setUp(self):
+        import tempfile
+        import dsp_costs
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.file = Path(self.folder.name) / 'dsp-costs.json'
+        self.costs = dsp_costs.DspCosts(self.file)
+
+    @staticmethod
+    def state(*models, preset=5):
+        return {'preset': {'setlist': 0, 'number': preset}, 'blocks': [{'dsp': 0, 'id': 'block%d' % k, 'model': m} for k, m in enumerate(models)]}
+
+    @staticmethod
+    def meter(used):
+        return [{'used': used, 'budget': 75}, None]
+
+    def settle(self, state, used, at):
+        found = []
+        for step in range(0, 13):                               # readings every half second for six seconds
+            found += self.costs.observe(state, self.meter(used), at + step / 2)
+        return found
+
+    def test_a_block_that_comes_or_goes_is_measured_and_kept(self):
+        self.assertEqual(self.settle(self.state('Boost'), 10.0, 0), [])
+        self.assertEqual(self.settle(self.state('Boost', 'NAM'), 10.0, 10), [])        # the meter has not followed yet
+        self.assertEqual(self.settle(self.state('Boost', 'NAM'), 32.5, 20), [('NAM', 22.5)])
+        self.assertEqual(self.settle(self.state('Boost'), 10.0, 30), [('NAM', 22.5)])  # and again as it goes
+        import dsp_costs
+        self.assertEqual(dsp_costs.DspCosts(self.file).costs, {'NAM': 22.5})
+
+    def test_a_swap_counts_once_the_old_model_is_known_and_nothing_else_is_measured(self):
+        self.settle(self.state('Boost'), 10.0, 0)
+        self.assertEqual(self.settle(self.state('Drive'), 14.0, 10), [])               # Boost's cost is not known
+        self.costs.costs['Drive'] = 6.0
+        self.assertEqual(self.settle(self.state('Fuzz'), 12.0, 20), [('Fuzz', 4.0)])
+        self.assertEqual(self.settle(self.state('Fuzz', 'A', 'B'), 30.0, 30), [])     # two blocks at once
+        self.assertEqual(self.settle(self.state('Fuzz', preset=6), 5.0, 40), [])       # another preset
+        self.assertEqual(self.settle(self.state('Fuzz', 'A', preset=6), 5.0, 50), [])  # meter never moved
+        self.assertEqual(self.settle(self.state('Fuzz', 'A', preset=6), None, 90), [])  # no meter (Floor off)
+
+    def test_a_short_reading_is_not_trusted(self):
+        self.settle(self.state('Boost'), 10.0, 0)
+        self.costs.observe(self.state('Boost', 'NAM'), self.meter(32.0), 10)
+        self.assertEqual(self.costs.observe(self.state('Boost', 'NAM'), self.meter(32.0), 12), [])
+        self.assertEqual(self.costs.observe(self.state('Boost', 'NAM'), self.meter(32.0), 15.5), [('NAM', 22.0)])
+
+    def test_the_page_shows_the_measured_figure_or_says_it_is_not_measured_yet(self):
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("message.type === 'dspCosts'", page)
+        self.assertIn("'% of DSP ' + (block.dsp + 1) + ' (measured)'", page)
+        self.assertIn('Not measured yet', page)
+
+    def test_the_pane_sends_what_it_measured(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        clock = [0.0]
+        view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe',
+                                       costs_file=self.file, clock=lambda: clock[0])
+        self.addCleanup(view.close)
+        view.costs.costs['Old'] = 3.0
+        shown = []
+        view._write = lambda prefix, value: shown.append(value)
+        view.page_ready = True
+        for state, used, start in ((self.state('Boost'), 10.0, 0), (self.state('Boost', 'NAM'), 30.0, 10)):
+            view.state, view.dsp = state, self.meter(used)
+            for step in range(13):
+                clock[0] = start + step / 2
+                view._idle()
+        self.assertEqual(shown[-1], {'type': 'dspCosts', 'costs': {'Old': 3.0, 'NAM': 20.0}})
+
 class ChainChangeTests(unittest.TestCase):
     """Stage 2: a block added on an empty place, removed, or moved to an empty place of its own path."""
 
@@ -343,7 +417,7 @@ class ChainChangeTests(unittest.TestCase):
         import tempfile
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
-        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe')
+        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe', costs_file=None)
         self.addCleanup(self.view.close)
         self.view.state = {'blocks': [{'dsp': 0, 'id': 'inputA', 'model': 'HD2_In', 'enabled': True},
                                       {'dsp': 0, 'id': 'block0', 'model': 'HD2_DelayTest', 'position': 0, 'path': 0, 'enabled': True},
@@ -482,7 +556,7 @@ class WiringTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('build_windows', ROOT / 'build-windows.py')
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        for name in ('workbench.py', 'workbench.html', 'workbench_layout.js', 'pane_controls.js'):
+        for name in ('workbench.py', 'workbench.html', 'workbench_layout.js', 'pane_controls.js', 'dsp_costs.py'):
             self.assertIn(name, module.APP_FILES)
             self.assertTrue((ROOT / name).is_file())
 

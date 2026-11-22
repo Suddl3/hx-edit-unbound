@@ -920,6 +920,9 @@ class FocusView:
                 if self.on and not self.closed.is_set():
                     self._act('failed', self.failed or 'The Focus Mode pane closed.')
 
+    def _idle(self):
+        """Half a second with nothing to do (the Workbench measures its blocks' DSP then)."""
+
     def _act(self, name, value):
         if self.on_action:
             try:
@@ -932,6 +935,7 @@ class FocusView:
             try:
                 kind, value = self.queue.get(timeout=.5)
             except Empty:
+                self._idle()
                 continue
             if kind == 'close':
                 break

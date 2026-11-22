@@ -10,8 +10,10 @@ the same reading of the preset, the same click on HX Edit's chain to select a bl
 adds what the page draws with on top of Focus Mode's catalog. Nothing here talks to the device.
 """
 import json
+import time
 from pathlib import Path
 
+import dsp_costs
 import focus_view
 
 SETTING = 'workbench'                  # settings.json: the Workbench is on (shown at launch) unless false or missing
@@ -56,8 +58,10 @@ class WorkbenchView(focus_view.FocusView):
     PAGE_NAME = 'workbench.html'
     PROFILE = 'Workbench WebView'
 
-    def __init__(self, resources, **options):
+    def __init__(self, resources, *, costs_file=dsp_costs.FILE, clock=time.monotonic, **options):
         self.options = {}
+        self.costs = dsp_costs.DspCosts(costs_file)
+        self.clock = clock
         super().__init__(resources, **options)
 
     def catalog(self):
@@ -84,3 +88,18 @@ class WorkbenchView(focus_view.FocusView):
         super()._handle(kind, value)
         if kind == 'pane' and isinstance(value, dict) and value.get('type') == 'ready':
             self._write('P', {'type': 'options', 'options': self.options})
+            self._show_costs()
+        if kind in ('state', 'dsp'):
+            self._idle()
+
+    def _idle(self):
+        # Each block's real DSP cost, from the path's meter as blocks come and go (dsp_costs).
+        found = self.costs.observe(self.state, self.dsp, self.clock())
+        for model, cost in found:
+            self.trace({'type': 'workbench', 'event': 'dsp-cost', 'model': model, 'cost': cost})
+        if found:
+            self._show_costs()
+
+    def _show_costs(self):
+        if self.page_ready:
+            self._write('P', {'type': 'dspCosts', 'costs': self.costs.costs})
