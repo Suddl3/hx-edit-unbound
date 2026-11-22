@@ -499,7 +499,7 @@ class NamLibrary : Form
         gripHint.SetToolTip(expand,"Expand this library — same captures, selection and filters");
         expand.Click+=(sender,args)=>output.WriteLine("{\"type\":\"action\",\"action\":\"expand\"}");footer.Controls.Add(expand);
         empty.ForeColor=Color.Silver;empty.BackColor=BackColor;empty.TextAlign=ContentAlignment.TopLeft;
-        empty.Padding=new Padding(8,8,8,8);empty.Text="No captures kept on this PC. Browse TONE3000 and choose Save to PC, or import a NAM capture.";
+        empty.Padding=new Padding(8,8,8,8);empty.Text="No captures kept on this PC. Open the library window and choose Import to add your .nam files, or browse TONE3000 and choose Save to PC.";
         grip.BackColor=Color.FromArgb(48,48,48);grip.Cursor=Cursors.VSplit;
         grip.Paint+=(sender,args)=>{
             using(var pen=new Pen(resizeAvailable?Color.Gray:Color.DimGray))
@@ -750,7 +750,7 @@ class NamLibrary : Form
             }
             table.Sort();count.Text=table.Items.Count+" / "+allRows.Count;
             empty.Visible=table.Items.Count==0;
-            empty.Text=allRows.Count==0?"No captures kept on this PC. Browse TONE3000 and choose Save to PC, or import a NAM capture.":"No captures match this search or type. Clear the search or choose All types.";
+            empty.Text=allRows.Count==0?"No captures kept on this PC. Open the library window and choose Import to add your .nam files, or browse TONE3000 and choose Save to PC.":"No captures match this search or type. Clear the search or choose All types.";
         }finally{table.EndUpdate();applying=false;}
         FitColumns();RefreshLoad();
     }

@@ -61,8 +61,30 @@ def instrument_of(entry):
 
 def capture_gear(path):
     try:
-        gear = json.loads(Path(path).read_text(encoding='utf-8')).get('metadata', {}).get('gear_type')
-    except (OSError, ValueError, AttributeError):
+        return data_gear(Path(path).read_bytes())
+    except OSError:
+        return ''
+
+
+MAX_NAM_FILE = 64 * 1024 * 1024
+
+
+def check_nam(data):
+    """Raise ValueError unless data is a NAM model file (.nam: JSON with an architecture and its weights)."""
+    if len(data) > MAX_NAM_FILE:
+        raise ValueError('too large for a NAM capture')
+    try:
+        model = json.loads(data.decode('utf-8-sig'))
+    except (UnicodeDecodeError, ValueError):
+        raise ValueError('not a NAM capture (not a .nam model file)') from None
+    if not isinstance(model, dict) or not isinstance(model.get('architecture'), str) or not isinstance(model.get('weights'), list):
+        raise ValueError('not a NAM capture (no model architecture and weights)')
+
+
+def data_gear(data):
+    try:
+        gear = json.loads(data.decode('utf-8-sig')).get('metadata', {}).get('gear_type')
+    except (UnicodeDecodeError, ValueError, AttributeError):
         return ''
     # NAM trainer metadata names -> TONE3000 gear names used by the library.
     return {'amp': 'amp', 'preamp': 'amp', 'amp_cab': 'amp-cab', 'amp_pedal_cab': 'amp-cab',
@@ -395,23 +417,34 @@ class Library:
 
     def add(self, capture, *, name=None, gear=None, source=''):
         """Keep a .nam file; the same capture added twice stays one entry with its first date."""
-        data = Path(capture).read_bytes()
+        return self.add_data(Path(capture).read_bytes(), Path(capture).name, name=name, gear=gear, source=source)[0]
+
+    def add_data(self, data, file_name, *, name=None, gear=None, source='', notify=True):
+        """Keep a capture given as the bytes of a .nam file and its file name. (identity, True when it was new).
+        notify=False leaves telling the library's listeners to the caller (an import of many files: once at the end)."""
         identity = sha256(data).hexdigest()
-        ir_name = Path(capture).stem[:IR_NAME_LIMIT].rstrip(' .') or 'NAM'
+        stem = Path(file_name).stem
+        ir_name = stem[:IR_NAME_LIMIT].rstrip(' .') or 'NAM'
         with self.lock:
             entries = self._read(for_write=True)
+            new = identity not in entries
             entry = entries.setdefault(identity, {'added': date.today().isoformat()})
-            entry.setdefault('name', name or Path(capture).stem)
+            entry.setdefault('name', name or stem)
             entry.setdefault('irName', ir_name)
-            entry.setdefault('gear', gear if gear is not None else capture_gear(capture))
-            if source:
+            entry.setdefault('gear', gear if gear is not None else data_gear(data))
+            if source and (source != 'file' or 'source' not in entry):   # a file import never hides where it came from first
                 entry['source'] = source
             self.folder.mkdir(parents=True, exist_ok=True)
             if not (self.folder / f'{identity}.nam').is_file():
                 (self.folder / f'{identity}.nam').write_bytes(data)
             self._write(entries)
+        if notify:
+            self._changed()
+        return identity, new
+
+    def changed(self):
+        """Tell the library's listeners once, after add_data(..., notify=False) calls."""
         self._changed()
-        return identity
 
     def update(self, identity, *, gear=None, name=None):
         with self.lock:

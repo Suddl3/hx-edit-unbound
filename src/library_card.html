@@ -199,14 +199,26 @@
   #moreMenu button:enabled:hover, #moreMenu button:focus-visible { background: #333; outline: none; }
   #moreMenu hr { border: 0; border-top: 1px solid #3c3c3c; margin: 4px 2px; }
   #moreMenu .danger { color: #f08a8a; }
-  #moreMenu svg, #catalog svg { width: 14px; height: 14px; flex: none; }
+  #moreMenu svg, #catalog svg, #import svg { width: 14px; height: 14px; flex: none; }
+  #import { display: inline-flex; align-items: center; gap: 6px; }
+  /* Import NAM files: the menu under the button, and the frame shown while files are dragged over the window */
+  #importMenu { position: fixed; z-index: 7; min-width: 220px; background: #262626; border: 1px solid #575757; border-radius: 6px;
+                padding: 4px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+  #importMenu[hidden], #dropZone[hidden] { display: none; }
+  #importMenu button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 4px; padding: 6px 9px; }
+  #importMenu button:hover, #importMenu button:focus-visible { background: #333; outline: none; }
+  #importMenu small { display: block; color: #9a9a9a; font-size: 11px; margin-top: 1px; }
+  #dropZone { position: fixed; inset: 6px; z-index: 9; display: flex; align-items: center; justify-content: center; text-align: center;
+              border: 2px dashed #fa8585; border-radius: 10px; background: rgb(20 20 20 / .88); color: #eee; font-size: 15px;
+              pointer-events: none; padding: 20px; }
+  #dropZone small { display: block; color: #aaa; font-size: 12px; margin-top: 6px; }
   header { flex-wrap: nowrap; }
   #search { min-width: 0; flex: 1 1 60px; }
   #catalog { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 3px 9px; }
   #close { padding: 3px 9px; }
   /* Close lives in the header on the library; the Level and Floor look pages keep the footer's. */
   body:not(.levelMode):not(.lookMode) footer #finish { display: none; }
-  @media (max-width: 560px) { #catalog .label { display: none; } header select { max-width: 96px; } }
+  @media (max-width: 560px) { #catalog .label, #import .label { display: none; } header select { max-width: 96px; } }
   /* Type and Instrument read as text; a row's dropdowns show on hover, on the selected row and while in use. */
   td select { -webkit-appearance: none; appearance: none; padding: 1px 22px 1px 4px; background: #333 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23cfcfcf' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right 7px center / 9px 6px no-repeat; }
   tbody tr:not(:hover):not([aria-selected="true"]) td select:not(:focus) { background-color: transparent; background-image: none;
@@ -323,6 +335,7 @@
   <select id="instrument" aria-label="Instrument"><option value="*">All</option><option value="guitar">Guitar</option><option value="bass">Bass</option></select>
   <select id="filter" aria-label="Type"><option value="*">All types</option>$gears</select>
   <button id="layout" aria-pressed="false" title="Show as a grid of pictures">⊞</button>
+  <button id="import" title="Add NAM files from this PC to the library. Nothing is put on the Floor." aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 1.8v7M4.2 6.2L7 9l2.8-2.8M2 10.5V12h10v-1.5"/></svg><span class="label">Import</span></button>
   <button id="catalog" title="Browse TONE3000"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2h4v4M12 2L6.5 7.5M10.5 8.5V12h-8.5V3.5H5.5"/></svg><span class="label">TONE3000</span></button>
   <button id="close" title="Close the library" aria-label="Close">✕</button>
 </header>
@@ -340,6 +353,13 @@
   <div id="tiles" role="listbox" aria-label="Captures" hidden></div>
   <p class="empty" hidden>No captures yet. NAM files you import and TONE3000 profiles you save or add appear here.</p>
 </div>
+<div id="importMenu" role="menu" hidden>
+  <button role="menuitem" data-pick="importFiles">NAM files…<small>Choose one or more .nam files</small></button>
+  <button role="menuitem" data-pick="importFolder">A folder…<small>Every .nam file in it and its subfolders</small></button>
+</div>
+<input id="importFiles" type="file" accept=".nam" multiple hidden>
+<input id="importFolder" type="file" webkitdirectory multiple hidden>
+<div id="dropZone" hidden><div>Drop .nam files or folders to add them to your library<small>Kept on this PC only. Nothing is put on the Floor.</small></div></div>
 <div id="picker" role="dialog" aria-modal="true" aria-labelledby="pickerTitle" hidden>
   <div class="panel">
     <div class="top"><h2 id="pickerTitle">Picture</h2><button id="pickerClose">Cancel</button></div>
@@ -849,7 +869,7 @@
     if (gridShown()) renderTiles(shown); else tiles.replaceChildren();
     q('.empty').hidden = shown.length > 0;
     q('.empty').textContent = rows.length ? 'No captures match this search and these filters.' :
-      'No captures kept on this PC. Browse TONE3000 and choose Save to PC, or import a NAM capture.';
+      'No captures kept on this PC. Import your .nam files (Import, or drop files or a folder here), or browse TONE3000 and choose Save to PC.';
     audition.disabled = busy || !selected;
     const capture = rows.find(row => row.id === selected);
     const verified = capture && ['verified', 'partial'].includes(capture.slotState) && capture.irSlots?.length;
@@ -1593,6 +1613,105 @@
     publishView();
   };
   q('#catalog').onclick = () => host.postMessage('catalog');
+  // Import NAM files: from the Import menu (files, or a folder with its subfolders) or dropped on the window. Each
+  // .nam file goes to the library on this PC as it is (no conversion, nothing on the Floor), one message a file,
+  // then importDone, which reports what was added and refreshes the list once.
+  const importMenu = q('#importMenu'), importButton = q('#import');
+  const importTitle = importButton.title;
+  let importing = false;
+  function closeImportMenu() {
+    if (importMenu.hidden) return;
+    importMenu.hidden = true;
+    importButton.setAttribute('aria-expanded', 'false');
+    host?.postMessage('dialog:closed');
+  }
+  importButton.onclick = event => {
+    event.stopPropagation();
+    if (!importMenu.hidden) { closeImportMenu(); return; }
+    const box = importButton.getBoundingClientRect();
+    importMenu.hidden = false;
+    importButton.setAttribute('aria-expanded', 'true');
+    host?.postMessage('dialog:open');      // Escape closes the menu, not the window
+    importMenu.style.left = Math.max(6, Math.min(box.left, innerWidth - importMenu.offsetWidth - 6)) + 'px';
+    importMenu.style.top = (box.bottom + 4) + 'px';
+    importMenu.querySelector('button').focus();
+  };
+  importMenu.onclick = event => {
+    const item = event.target.closest('button');
+    if (!item) return;
+    closeImportMenu();
+    q('#' + item.dataset.pick).click();
+  };
+  importMenu.onkeydown = event => {
+    const items = [...importMenu.querySelectorAll('button')], at = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') { closeImportMenu(); importButton.focus(); }
+    else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      items[(at + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+    }
+  };
+  addEventListener('click', event => { if (!importMenu.contains(event.target)) closeImportMenu(); });
+  const isNam = file => /\.nam$$/i.test(file.name);      // ($$: this page is a string.Template)
+  for (const id of ['importFiles', 'importFolder']) {
+    const input = q('#' + id);
+    input.onchange = () => { const files = [...input.files]; input.value = ''; importNamFiles(files); };
+  }
+  function base64Of(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let text = '';
+    for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));
+    return btoa(text);
+  }
+  async function importNamFiles(files) {
+    if (importing) return;
+    files = files.filter(isNam);
+    importing = true; importButton.disabled = true;
+    try {
+      for (const [at, file] of files.entries()) {
+        importButton.title = 'Adding ' + (at + 1) + ' of ' + files.length + '…';
+        let data = '';
+        try { data = base64Of(await file.arrayBuffer()); } catch (_) { /* unreadable: reported as not added */ }
+        host?.postMessage('importNam:' + encodeURIComponent(file.name) + ':' + data);
+      }
+    } finally {
+      host?.postMessage('importDone');
+      importing = false; importButton.disabled = false; importButton.title = importTitle;
+    }
+  }
+  // Dropped files and folders (a folder is read with its subfolders). Drags of the library's own rows carry no files.
+  const dropZone = q('#dropZone');
+  let dragDepth = 0;
+  const carriesFiles = event => [...(event.dataTransfer?.types || [])].includes('Files');
+  addEventListener('dragenter', event => { if (!carriesFiles(event)) return; dragDepth++; dropZone.hidden = false; });
+  addEventListener('dragleave', event => {
+    if (!carriesFiles(event)) return;
+    if (--dragDepth <= 0) { dragDepth = 0; dropZone.hidden = true; }
+  });
+  addEventListener('dragover', event => {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  function readEntry(entry) {
+    if (!entry) return Promise.resolve([]);
+    if (entry.isFile) return new Promise(resolve => entry.file(file => resolve([file]), () => resolve([])));
+    return new Promise(resolve => {
+      const reader = entry.createReader(), all = [];
+      const more = () => reader.readEntries(async batch => {
+        if (!batch.length) resolve((await Promise.all(all.map(readEntry))).flat());
+        else { all.push(...batch); more(); }
+      }, () => resolve([]));
+      more();
+    });
+  }
+  addEventListener('drop', async event => {
+    if (!carriesFiles(event)) return;
+    event.preventDefault();
+    dragDepth = 0; dropZone.hidden = true;
+    const entries = [...event.dataTransfer.items].map(item => item.webkitGetAsEntry?.()).filter(Boolean);
+    const files = entries.length ? (await Promise.all(entries.map(readEntry))).flat() : [...event.dataTransfer.files];
+    importNamFiles(files);
+  });
   q('#finish').onclick = () => host.postMessage('finish');
   q('#close').onclick = () => host.postMessage('finish');
   q('#versionsToggle').onclick = () => {
