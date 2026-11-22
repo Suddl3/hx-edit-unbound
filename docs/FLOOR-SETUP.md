@@ -71,6 +71,22 @@ $env:T3K_PUBLISHABLE_KEY = "t3k_pub_your_own_key"
 
 The `pip install` line is needed once, for Level presets (it measures over the Floor's USB audio). Nothing else needs reinstalling: the launcher rebuilds its working copy of HX Edit on every start. Leave off `--nam-category` to run without the NAM categories. Your library and remembered slots in `%LOCALAPPDATA%\HX Edit NAM` are kept.
 
+### Sharper pictures in Focus Mode
+
+Optional. The art pack (the gear at about 500 px and the scenes at 1536 px, about 200 MB) is not in git. Unzip it into an
+`art` folder in your editor folder, once; Focus Mode finds it on its next start (git ignores the folder):
+
+```powershell
+$tag = "gear-art-2026-11-22"
+foreach ($zip in "helix-gear-art", "nam-gear-art", "focus-backgrounds") {
+  Invoke-WebRequest "https://github.com/Suddl3/hx-edit-unbound/releases/download/$tag/$zip.zip" -OutFile "$env:TEMP\$zip.zip"
+  Expand-Archive "$env:TEMP\$zip.zip" -DestinationPath .\art -Force
+}
+```
+
+That gives `art\helix-gear-art\full`, `art\nam-gear-art\full` and `art\focus-backgrounds\sources`. A newer art release
+replaces them the same way. Folders named in `settings.json` (`"focusArt": {"models", "captures", "scenes"}`) come first.
+
 ### The NAM categories (`--nam-category`)
 
 ![NAM categories in the block selector](screenshots/nam-category.jpg)
