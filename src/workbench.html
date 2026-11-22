@@ -134,8 +134,9 @@
   .board.dragging .tile.lifted { opacity: .35; }
   .laneb-hint { position: absolute; left: 70px; right: 70px; height: 0; border-top: 2px dashed #3a3f4b; }
   .ghost { position: fixed; z-index: 20; pointer-events: none; width: 92px; height: 92px; border-radius: 11px; background: #1b1e26; border: 1px solid rgb(var(--c));
-           box-shadow: 0 16px 40px rgb(0 0 0 / .6); display: grid; place-items: center; transform: translate(18px, calc(-100% - 10px)) rotate(-2deg); opacity: .92; }
-  /* (up and to the right of the pointer: the place it would go to and the parallel-lane tab stay in sight) */
+           box-shadow: 0 16px 40px rgb(0 0 0 / .6); display: grid; place-items: center; transform: rotate(-2deg); opacity: .78; }
+  /* (see-through, and more so over a place: the place it would go to shows under it) */
+  .ghost.aimed { opacity: .38; }
   .ghost img { width: 60px; height: 60px; object-fit: contain; }
   .btn.danger:hover:not(:disabled) { border-color: #e2483c; color: #ff8a80; }
   .pcats button.remove { color: var(--faint); }
@@ -497,11 +498,15 @@ function liftBlock(event, block, tile) {
       const board = $('board'); board.classList.add('dragging'); tile.classList.add('lifted');
       // Either path takes it when it has room. Nothing opens: a one-lane path offers lane B by a tab under the lit place.
       for (const target of board.querySelectorAll('.slot.spot')) target.classList.toggle('off-path', !fitsOn(block, Number(target.dataset.dsp)));
+      // (it keeps the point it was grabbed by under the pointer: no jump when the drag starts)
+      const r = tile.getBoundingClientRect(), size = 92;
+      dragging.grab = {x: Math.max(0, Math.min(size, (start.x - r.left) * size / r.width)), y: Math.max(0, Math.min(size, (start.y - r.top) * size / r.height))};
       const ghost = el('div', 'ghost'); ghost.style.setProperty('--c', tint(block).join(' '));
+      ghost.style.transformOrigin = dragging.grab.x + 'px ' + dragging.grab.y + 'px';
       ghost.append(image(pictures(block), '', true));
       document.body.append(ghost); dragging.ghost = ghost;
     }
-    dragging.ghost.style.left = e.clientX + 'px'; dragging.ghost.style.top = e.clientY + 'px';
+    dragging.ghost.style.left = (e.clientX - dragging.grab.x) + 'px'; dragging.ghost.style.top = (e.clientY - dragging.grab.y) + 'px';
     const under = document.elementFromPoint(e.clientX, e.clientY);
     const onTab = under && under.closest('.lane-tab');
     const target = !onTab && under && under.closest('.slot.spot:not(.off-path)');
@@ -511,6 +516,7 @@ function liftBlock(event, block, tile) {
       const r = slot.getBoundingClientRect(); return Math.abs(e.clientX - (r.left + r.width / 2)) < 44 && Math.abs(e.clientY - (r.top + r.height / 2)) < 44;
     });
     if (dragging.over !== near) { if (dragging.over) dragging.over.classList.remove('over'); dragging.over = near || null; if (near) near.classList.add('over'); }
+    dragging.ghost.classList.toggle('aimed', !!near);
     if (!onTab) laneTab(near && near.dataset.lane === '0' && !near.closest('.grid8').dataset.two ? near : null);
   };
   const up = () => {
@@ -643,9 +649,11 @@ function capturePanel(block) {
   const who = el('div', 'who'), words = el('div');
   words.append(el('b', '', taken.name), el('small', '', 'gear' in taken ? namKind(taken) : 'Not in the NAM library'));
   who.append(image(captureUrls(taken).concat(model(block).pictures), 'pic', true), words); box.append(who);
-  const facts = el('dl', 'kv'), cost = Number((catalog.loads || {})[block.model]), view = dsp && dsp[block.dsp];
+  // (the DSP as the path's meter shows it: the Floor's own figure for the whole path. HX Edit's estimate for one
+  // block, from its model list, is not what the Floor uses, and the two disagreed side by side.)
+  const facts = el('dl', 'kv'), view = dsp && dsp[block.dsp];
   facts.append(el('dt', '', 'Engine'), el('dd', '', model(block).name));
-  if (Number.isFinite(cost) && view && view.budget) facts.append(el('dt', '', 'DSP'), el('dd', 'num', 'about ' + Math.round(100 * cost / view.budget) + '% of DSP ' + (block.dsp + 1)));
+  if (view && typeof view.used === 'number' && view.budget) facts.append(el('dt', '', 'DSP ' + (block.dsp + 1)), el('dd', 'num', Math.round(100 * view.used / view.budget) + '% in use (the whole path)'));
   box.append(facts);
   const row = el('div', 'btnrow'), change = el('button', 'btn pri');
   change.innerHTML = ICON.swap + 'Change capture'; change.onclick = () => openPicker('captures');
