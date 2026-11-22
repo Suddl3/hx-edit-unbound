@@ -338,7 +338,7 @@ function geometry(width) {
 }
 function drawChain(force) {
   const board = $('board'), width = Math.max(800, board.clientWidth - 28 - 88);
-  const paths = workbenchPaths(state.blocks, catalog);
+  const paths = workbenchPaths(state.blocks, catalog, state.topology);
   const now = current();
   const key = JSON.stringify([width, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
                               now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), dsp]);

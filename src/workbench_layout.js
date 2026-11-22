@@ -7,9 +7,12 @@
 //   a block: @position 0..7 (its place) and @path (0 lane A, 1 lane B);
 //   split / join: @position, the gap the split or the mixer sits in (the split before place k, the mixer before
 //     place k, 8 = after the last place); lane B runs over the places between them;
-//   inputB: @input, 0 (None) unless the split was dragged down, when lane B has an input of its own;
-//   outputB: @output, where lane B goes when the mixer was dragged down. A stock new preset keeps outputB at 1 with
-//     no lane B at all, so it counts only on a path that has a lane B with the mixer at the end.
+//   inputB: @input, where lane B takes its signal when the split was dragged down;
+//   outputB: @output, where lane B goes when the mixer was dragged down;
+//   global @topology0 / @topology1: the path's shape in one word: "A" one lane, "SABJ" a split and a mixer, "SAB" no
+//     mixer (two outputs), "ABJ" no split (two inputs), "AB" two separate lanes. When it is there it decides; else
+//     (an older reading) the shape is worked out from the blocks: a stock new preset keeps outputB at 1 with no lane B
+//     at all, so outputB counts only on a path with a lane B and the mixer at the end.
 //   outputA of path 1: 2, 3 or 4 sends it into path 2 (Path 2A, 2B or 2A+B).
 const WORKBENCH_PLACES = 8;
 const WORKBENCH_INTO_PATH_2 = Object.freeze({2: ['A'], 3: ['B'], 4: ['A', 'B']});
@@ -21,7 +24,14 @@ function workbenchName(list, code) {
   return name.replace(/\s*\(.*\)\s*$/, '').trim();
 }
 
-function workbenchPaths(blocks, names = {}) {
+function workbenchShape(word) {
+  // {laneB, split, join} from HX Edit's topology word, or null for a word it does not know.
+  if (typeof word !== 'string' || !/^S?AB?J?$/.test(word) || (word.includes('J') && !word.includes('B')) || (word.startsWith('S') && !word.includes('B'))) return null;
+  const laneB = word.includes('B');
+  return {laneB, split: laneB && word.startsWith('S'), join: laneB && word.endsWith('J')};
+}
+
+function workbenchPaths(blocks, names = {}, topology = []) {
   const all = Array.isArray(blocks) ? blocks : [];
   const inputs = names.inputs || [], outputs = names.outputs || [];
   const find = (dsp, id) => all.find(block => block.dsp === dsp && block.id === id) || null;
@@ -35,14 +45,23 @@ function workbenchPaths(blocks, names = {}) {
     const inputA = find(dsp, 'inputA'), inputB = find(dsp, 'inputB'), outputA = find(dsp, 'outputA'), outputB = find(dsp, 'outputB');
     const split = find(dsp, 'split'), join = find(dsp, 'join');
     const fromPath1 = dsp === 1 ? fed : [];
-    // Lane B is there with a block on it, or with an input of its own (the split dragged down, or path 1 sent into it).
-    const ownInput = !!inputB && (inputB.input > 0 || fromPath1.includes('B'));
-    const used = b.some(Boolean);
-    const laneB = used || ownInput;
+    const shape = workbenchShape((topology || [])[dsp]);
     const gap = (block, fallback) => block && Number.isInteger(block.position) ? Math.min(WORKBENCH_PLACES, Math.max(0, block.position)) : fallback;
-    let splitAt = ownInput ? 0 : gap(split, 0), joinAt = gap(join, WORKBENCH_PLACES);
-    const ownOutput = laneB && !!outputB && outputB.output > 0 && joinAt >= WORKBENCH_PLACES;
-    if (ownOutput) joinAt = WORKBENCH_PLACES;
+    let laneB, ownInput, ownOutput, splitAt, joinAt;
+    if (shape) {
+      // HX Edit's own word for the shape (a block on lane B shows it in any case).
+      // (a word with no lane B over a block on lane B, never seen: drawn as a split and a mixer)
+      laneB = shape.laneB || b.some(Boolean);
+      ownInput = shape.laneB && !shape.split;
+      ownOutput = shape.laneB && !shape.join;
+    } else {
+      // Lane B is there with a block on it, or with an input of its own (the split dragged down, or path 1 sent into it).
+      ownInput = !!inputB && (inputB.input > 0 || fromPath1.includes('B'));
+      laneB = b.some(Boolean) || ownInput;
+      ownOutput = laneB && !!outputB && outputB.output > 0 && gap(join, WORKBENCH_PLACES) >= WORKBENCH_PLACES;
+    }
+    splitAt = ownInput ? 0 : gap(split, 0);
+    joinAt = ownOutput ? WORKBENCH_PLACES : gap(join, WORKBENCH_PLACES);
     // A block on lane B outside the split and the mixer (never seen; a preset may still say so): the lane takes it in.
     b.forEach((block, place) => { if (block) { splitAt = Math.min(splitAt, place); joinAt = Math.max(joinAt, place + 1); } });
     if (joinAt < splitAt) joinAt = splitAt;
@@ -61,8 +80,8 @@ function workbenchPaths(blocks, names = {}) {
       from: laneB ? splitAt : null, to: laneB ? joinAt : null,
       split: laneB && !ownInput ? split : null,
       join: laneB && !ownOutput ? join : null,
-      inputB: laneB && ownInput ? {block: inputB, name: inputName(inputB)} : null,
-      outputB: laneB && ownOutput ? {block: outputB, name: workbenchName(outputs, outputB.output)} : null,
+      inputB: laneB && ownInput && inputB ? {block: inputB, name: inputName(inputB)} : null,
+      outputB: laneB && ownOutput && outputB ? {block: outputB, name: workbenchName(outputs, outputB.output)} : null,
       empty: !chain.length,
     });
   }
@@ -91,5 +110,5 @@ function workbenchMixNote(join) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchPaths, workbenchSplitNote, workbenchMixNote };
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchSplitNote, workbenchMixNote };
 }

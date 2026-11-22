@@ -123,6 +123,27 @@ class ChainTests(unittest.TestCase):
         self.assertEqual(self.lanes(path)[1][1], 'block0')
         self.assertEqual(self.lanes(path)[1][6], 'block1')
 
+    def test_hx_edits_own_topology_word_decides_the_shape(self):
+        # global @topology0/1 (as the preset files keep it: "A", "SABJ" in DIR_Relief.hlx; HX Edit.exe also names
+        # "SAB" and "ABJ"). With it, an unused outputB or a stray inputB setting changes nothing.
+        chain = ends(0, output_b=6, input_b=3, split=2, join=6) + blocks(0, (0, 0), (2, 1), (3, 1))
+        cases = {'SABJ': ('split', 'join', None, None), 'SAB': ('split', None, None, 'XLR'),
+                 'ABJ': (None, 'join', 'Aux', None), 'AB': (None, None, 'Aux', 'XLR')}
+        for word, (split, join, own_in, own_out) in cases.items():
+            path = run_js(['workbench_layout.js'], f'workbenchPaths({json.dumps(chain)}, {json.dumps({"inputs": INPUTS, "outputs": OUTPUTS})}, [{json.dumps(word)}, "A"])')[0]
+            self.assertEqual((path['split'] or {}).get('id'), split, word)
+            self.assertEqual((path['join'] or {}).get('id'), join, word)
+            self.assertEqual((path['inputB'] or {}).get('name'), own_in, word)
+            self.assertEqual((path['outputB'] or {}).get('name'), own_out, word)
+        plain = run_js(['workbench_layout.js'], f'workbenchPaths({json.dumps(ends(0, output_b=1, input_b=3) + blocks(0, (0, 0)))}, {{}}, ["A", "A"])')[0]
+        self.assertIsNone(plain['b'])
+        for word in ('SABJ', 'SAB', 'ABJ', 'AB', 'A'):
+            self.assertIsNotNone(run_js(['workbench_layout.js'], f'workbenchShape({json.dumps(word)})'))
+        for word in ('', 'SA', 'AJ', 'X', None, 3):
+            self.assertIsNone(run_js(['workbench_layout.js'], f'workbenchShape({json.dumps(word)})'))
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("targetBinding.peekGlobal(editor, 'global', '@topology' + dsp)", script)
+
     def test_the_script_reads_where_inputs_and_outputs_go_and_the_split_and_mixer_settings(self):
         reader = '''(() => { const values = {
             "0|inputA|@model": "HD2_AppDSPFlow1Input", "0|inputA|@input": 2, "0|outputB|@model": "HD2_AppDSPFlowOutput", "0|outputB|@output": 6,
