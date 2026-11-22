@@ -437,6 +437,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         unbound_choice(choice)
                 elif name == 'failed':
                     workbench_mode(False, 'The Workbench could not start.', keep=False)
+                elif name == 'costs':
+                    # Each model's DSP as the Floor's meter measured it (workbench.py, dsp_costs.py): focus_view.js
+                    # checks room with them in place of HX Edit's estimates. Taken from the driver's own record, not
+                    # from the request (the page's own requests come this way too).
+                    if not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': {'action': 'costs', 'costs': dict(workbench.costs.costs)}})
                 else:
                     pane_request(workbench, workbench_on[0] and not focus_on[0], name, value)
             if focus is not None:

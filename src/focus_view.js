@@ -133,6 +133,17 @@ function focusRoom(view, loads, now, next, dsp) {
   return after <= view.budget ? null : `DSP ${dsp + 1} has no room for that model (${after} of ${view.budget}).`;
 }
 
+// The models' costs measured on the Floor's own meter (the Workbench's dsp_costs.py), each in place of HX Edit's
+// estimate: {symbol: used units}, only plausible figures kept.
+function focusMeasured(found) {
+  const kept = {};
+  if (!found || typeof found !== 'object') return kept;
+  for (const [symbol, cost] of Object.entries(found).slice(0, 1000)) {
+    if (/^[A-Za-z0-9_]{3,64}$/.test(symbol) && typeof cost === 'number' && Number.isFinite(cost) && cost > 0 && cost <= 75) kept[symbol] = cost;
+  }
+  return kept;
+}
+
 // The pane's place: the main window from its top (over HX Edit's own toolbar: the pane has its own, with the
 // preset, the snapshot, undo and the DSP meters) down to the edit panel's bottom, across the whole window; HX
 // Edit's status bar stays. sf/ed/main: {x, y, w, h} of the signal flow view ('sfvc'), the editor view ('edvw')
@@ -228,7 +239,9 @@ function installFocusView(options, parts) {
   const DRAG_IDLE_MS = 4000;
   // HX Edit's own sliders are shown what the pane has set (target_binding "refresh"), unless turned off.
   const notify = options.focusWriteNotify !== false;
-  const loads = options.focusLoads || {};
+  const estimates = options.focusLoads || {};
+  let measured = {};          // {type: 'focusCommand', action: 'costs'}: what the Workbench has measured so far
+  const costsNow = () => Object.assign({}, estimates, measured);
   const chainBlock = /^block\d{1,2}$/, modelSymbol = /^[A-Za-z0-9_]{3,64}$/;
   function swap(command) {
     // Another model, or a capture, for a block of the chain: refused with a word by the DSP meter when the DSP
@@ -239,7 +252,7 @@ function installFocusView(options, parts) {
     const isNam = namEngines.includes(block.model);
     const next = command.action === 'capture' ? (isNam ? block.model : namEngines[0]) : command.symbol;
     if (next !== block.model) {
-      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], loads, block.model, next, block.dsp);
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], costsNow(), block.model, next, block.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-no-room'}); return; }
       targetBinding.setModel(editor, block.dsp, block.id, next);
     }
@@ -264,7 +277,7 @@ function installFocusView(options, parts) {
     if (command.action === 'add') {
       if (occupied(command.dsp, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
       const next = command.slot ? namEngines[0] : command.symbol;
-      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], loads, null, next, command.dsp);
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], costsNow(), null, next, command.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'add-no-room'}); return; }
       targetBinding.addModel(editor, command.dsp, command.lane, command.place, next);
       if (command.slot) addFollow = {dsp: command.dsp, lane: command.lane, place: command.place, slot: command.slot, until: Date.now() + ADD_FOLLOW_MS};
@@ -278,7 +291,7 @@ function installFocusView(options, parts) {
         if (occupied(to, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
         if (to === block.dsp) targetBinding.moveBlock(editor, block.dsp, block.id, command.lane, command.place);
         else {
-          const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to], loads, null, block.model, to);
+          const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to], costsNow(), null, block.model, to);
           if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'move-no-room'}); return; }
           targetBinding.moveAcross(editor, block.dsp, block.id, to, command.lane, command.place);
         }
@@ -501,7 +514,8 @@ function installFocusView(options, parts) {
   function commands() {
     recv('focusCommand', message => {
       const value = message.payload || {};
-      if (on && value.action === 'select' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16) {
+      if (value.action === 'costs') measured = focusMeasured(value.costs);
+      else if (on && value.action === 'select' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16) {
         wanted = {dsp: value.dsp, id: value.id};
         queued = false; ask();
       } else if (on && value.action === 'set' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16 &&
@@ -539,5 +553,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusCaptures, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusMeasured, focusCaptures, installFocusView };
 }

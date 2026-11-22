@@ -286,6 +286,8 @@ const $ = id => document.getElementById(id);
 const host = window.chrome && window.chrome.webview;
 let catalog = null, state = null, dsp = null, options = {}, visible = !host;
 let costs = {};          // each model's DSP as the Floor's meter measured it ({type: "dspCosts"}, workbench.py)
+// A model's DSP: as measured on the Floor where it has been, else HX Edit's estimate (catalog.loads). NaN: unknown.
+const costOf = symbol => { const found = Number(costs[symbol]); return Number.isFinite(found) && found > 0 ? found : Number((catalog && catalog.loads || {})[symbol]); };
 const ask = (name, value) => { if (host) host.postMessage(JSON.stringify({name, value: value === undefined ? null : value})); };
 const el = (tag, cls, words) => { const node = document.createElement(tag); if (cls) node.className = cls; if (words !== undefined) node.textContent = words; return node; };
 const svg = inner => '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
@@ -488,7 +490,7 @@ function drawPath(p, g, now) {
 // The other path takes it only with room on its DSP for the block's model (the driver checks again).
 function fitsOn(block, path) {
   if (path === block.dsp) return true;
-  const view = dsp && dsp[path], cost = Number((catalog.loads || {})[block.model]);
+  const view = dsp && dsp[path], cost = costOf(block.model);
   return !view || typeof view.used !== 'number' || !Number.isFinite(cost) || view.used + cost <= view.budget;
 }
 let dragging = null, dragDone = false;
@@ -769,13 +771,13 @@ function captureHome(block) {
 }
 function room(block) {
   // What the selected block may cost on its DSP, in the units of the Floor's own meter: what is free plus its own.
-  const view = dsp && dsp[block.dsp], loads = catalog.loads || {};
+  const view = dsp && dsp[block.dsp];
   if (!view || typeof view.used !== 'number') return null;
-  return {left: view.budget - view.used + (Number(loads[block.model]) || 0), budget: view.budget};
+  return {left: view.budget - view.used + (costOf(block.model) || 0), budget: view.budget};
 }
 function drawPicker(block) {
   const panel = $('insp'), lists = catalog.lists || [], captures = state.captures || [];
-  const space = room(block), loads = catalog.loads || {}, namCost = Number(loads[catalog.nam[0]]);
+  const space = room(block), namCost = costOf(catalog.nam[0]);
   const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickQuery, space, captures.map(c => [c.slot, c.name, c.icon])]);
   panel.style.setProperty('--c', tint(block).join(' '));
   if (key === shownPanel) return;
@@ -842,7 +844,7 @@ function drawPicker(block) {
   const cards = el('div', 'cards'), query = pickQuery.trim().toLowerCase();
   const costText = cost => space && Number.isFinite(cost) ? Math.round(100 * cost / space.budget) + '%' : '';
   const modelCard = symbol => {
-    const m = catalog.models[symbol], cost = Number(loads[symbol]), inUse = symbol === block.model;
+    const m = catalog.models[symbol], cost = costOf(symbol), inUse = symbol === block.model;
     const full = !inUse && space && Number.isFinite(cost) && cost > space.left + 1e-6;
     const item = el('button', 'mc' + (inUse ? ' on' : '') + (full ? ' full' : ''));
     item.style.setProperty('--c', m.tint.join(' '));
@@ -996,7 +998,7 @@ function receive(message) {
     if (picking && picking.place && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
   }
   else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
-  else if (message.type === 'dspCosts') { costs = message.costs && typeof message.costs === 'object' ? message.costs : {}; }
+  else if (message.type === 'dspCosts') { costs = message.costs && typeof message.costs === 'object' ? message.costs : {}; shownPanel = ''; }
   else if (message.type === 'options') { options = message.options || {}; return; }
   else if (message.type === 'notice') { toast(message.text); return; }
   else if (message.type === 'shown') { visible = message.shown === true; if (!visible) { closePresets(); closeMenu(); $('toast').hidden = true; } else render(); return; }

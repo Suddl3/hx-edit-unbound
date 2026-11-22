@@ -397,6 +397,18 @@ class DspCostTests(unittest.TestCase):
         self.assertIn("'% of DSP ' + (block.dsp + 1) + ' (measured)'", page)
         self.assertIn('Not measured yet', page)
 
+    def test_measured_costs_replace_the_estimates_in_the_room_checks(self):
+        kept = run_js(['focus_view.js'], 'focusMeasured({HD2_AmpNAMLite: 27, "bad name": 3, HD2_Zero: 0, HD2_Huge: 90, HD2_Text: "5"})')
+        self.assertEqual(kept, {'HD2_AmpNAMLite': 27})
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertEqual(script.count('], costsNow(), '), 3)                                # swap, add, move across
+        self.assertIn("if (value.action === 'costs') measured = focusMeasured(value.costs);", script)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("'payload': {'action': 'costs', 'costs': dict(workbench.costs.costs)}", launcher)
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertNotIn('catalog.loads ||', page.replace('(catalog && catalog.loads || {})', ''))   # only through costOf
+        self.assertIn('namCost = costOf(catalog.nam[0])', page)
+
     def test_the_pane_sends_what_it_measured(self):
         import tempfile
         folder = tempfile.TemporaryDirectory()
@@ -406,7 +418,8 @@ class DspCostTests(unittest.TestCase):
                                        costs_file=self.file, clock=lambda: clock[0])
         self.addCleanup(view.close)
         view.costs.costs['Old'] = 3.0
-        shown = []
+        shown, acted = [], []
+        view.on_action = lambda name, value: acted.append((name, value))
         view._write = lambda prefix, value: shown.append(value)
         view.page_ready = True
         for state, used, start in ((self.state('Boost'), 10.0, 0), (self.state('Boost', 'NAM'), 30.0, 10)):
@@ -415,6 +428,7 @@ class DspCostTests(unittest.TestCase):
                 clock[0] = start + step / 2
                 view._idle()
         self.assertEqual(shown[-1], {'type': 'dspCosts', 'costs': {'Old': 3.0, 'NAM': 20.0}})
+        self.assertEqual(acted[-1], ('costs', {'Old': 3.0, 'NAM': 20.0}))           # for focus_view.js's room checks
 
 class ChainChangeTests(unittest.TestCase):
     """Stage 2: a block added on an empty place, removed, or moved to an empty place of its own path."""

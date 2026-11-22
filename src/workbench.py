@@ -107,5 +107,7 @@ class WorkbenchView(focus_view.FocusView):
             self._show_costs()
 
     def _show_costs(self):
+        # to the page, and to focus_view.js (the launcher posts them: its room checks then use them too)
         if self.page_ready:
             self._write('P', {'type': 'dspCosts', 'costs': self.costs.costs})
+        self._act('costs', dict(self.costs.costs))
