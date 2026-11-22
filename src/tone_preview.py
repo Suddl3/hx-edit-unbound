@@ -10,13 +10,13 @@ from queue import Empty, Full, Queue
 from string import Template
 from threading import Event, Lock, RLock, Thread, current_thread
 from time import monotonic, sleep
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import tempfile
 import traceback
 
 from nam_convert import IR_NAME_LIMIT, convert_batch
-from nam_library import render_library
+from nam_library import check_nam, render_library
 import nam_light
 from tone3000 import (API_HOSTS, ORIGIN, ToneError, get_tone, prepare_model, remember_link, select_tone, tone_link,
                       tone_url)
@@ -61,6 +61,20 @@ class _LibraryActionSession:
         pass
 
 
+def import_summary(stats):
+    """The status line after "Import NAM files": what was added, what was there already, what was not a capture."""
+    added, same, bad = stats['added'], stats['same'], stats['bad']
+    parts = []
+    if added:
+        parts.append(f'Added {added} capture{"s" * (added != 1)} to your NAM library on this PC. Nothing was put on the Floor.')
+    if same:
+        parts.append(f'{same} {"were" if same != 1 else "was"} already in the library.')
+    if bad:
+        names = ', '.join(bad[:3]) + (f' and {len(bad) - 3} more' if len(bad) > 3 else '')
+        parts.append(f'{len(bad)} file{"s" * (len(bad) != 1)} could not be added (not a NAM capture): {names}.')
+    return ' '.join(parts) or 'No NAM files were found to import.'
+
+
 def render_card(tone=None, models=(), library=False):
     visible = tone is not None
     tone = tone or {}
@@ -96,6 +110,7 @@ class TonePreview:
         # Optimize A/B: where the Listen renders are kept (nam_ab.RENDERS; tests use their own).
         self.listen_folder = Path(listen_folder) if listen_folder else None
         self.library = library  # nam_library.Library on Windows; None hides the library
+        self.import_stats = {'added': 0, 'same': 0, 'bad': []}   # "Import NAM files" in progress (importNam/importDone)
         self.payload_callback = payload_callback
         self.workspace = workspace
         self.converter = converter
@@ -1249,6 +1264,23 @@ class TonePreview:
                         except ValueError:
                             raise ValueError('The picture could not be read.')
                         self.library.set_icon(identity, self.library.add_picture(picture))
+                    elif command == 'importNam':
+                        # Import NAM files (button, or files and folders dropped on the page): one file a message,
+                        # kept on this PC only (no conversion, nothing on the Floor); importDone reports and refreshes.
+                        file_name = unquote(identity)[:255]
+                        stats = self.import_stats
+                        try:
+                            data = base64.b64decode(value, validate=True)
+                            check_nam(data)
+                        except ValueError:
+                            stats['bad'].append(file_name)
+                        else:
+                            new = self.library.add_data(data, file_name, source='file', notify=False)[1]
+                            stats['added' if new else 'same'] += 1
+                    elif command == 'importDone':
+                        stats, self.import_stats = self.import_stats, {'added': 0, 'same': 0, 'bad': []}
+                        self.library.changed()
+                        status(import_summary(stats))
                     elif command == 'iconDelete':
                         self.library.remove_picture(identity)   # identity: the uploaded icon's id
                     elif command == 'light' and identity in self.library.entries() and light_job is None:
