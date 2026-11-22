@@ -439,17 +439,6 @@ function installTargetBinding(options = {}) {
       open(editor, 0x80000000);
       try {
         result = paste(editor, 2, toDsp, cell, 0x100);
-        if (result >= 0 && via !== null) {
-          const made = blockCells(editor, toDsp).find(b => !before.includes(b.name) && b.path === 0 && b.position === via);
-          if (!made) result = -1;
-          else {
-            const madeName = string(made.name), down = emptyVariant();
-            try {
-              down.writeU32(5); down.add(8).writeU32(((1 << 16) | col) >>> 0);
-              result = move(editor, toDsp, madeName, down, 0);
-            } finally { destroyVariant(madeName); }
-          }
-        }
         // The paste with 0x100 takes the block from its own path itself (seen 2026-11-22: a removal after it was
         // refused, -4, and closing the undo step with that lost it). Removed here only if it is still there.
         const left = result >= 0 ? peekModel(editor, fromDsp, blockName) : null;
@@ -458,6 +447,19 @@ function installTargetBinding(options = {}) {
         close(editor, result);
       }
       if (result < 0) fail(`moving the block to the other path was rejected (${result})`);
+      // Pasted on lane A for lane B: moved down as a step of its own, as a drag within that path moves it. Moved
+      // inside the paste's undo step (flags 0), HX Edit had it on lane B but the Floor never got the move (seen
+      // 2026-11-22: the Floor kept it on lane A, under the next block added there). Undo then takes two presses.
+      if (via !== null) {
+        const made = blockCells(editor, toDsp).find(b => !before.includes(b.name) && b.path === 0 && b.position === via);
+        if (!made) fail('the block reached the other path but could not be moved down to its parallel lane');
+        const madeName = string(made.name), down = emptyVariant();
+        try {
+          down.writeU32(5); down.add(8).writeU32(((1 << 16) | col) >>> 0);
+          result = move(editor, toDsp, madeName, down, 0x80000000);
+        } finally { destroyVariant(madeName); }
+        if (result < 0) fail(`the block reached the other path but moving it to the parallel lane was rejected (${result})`);
+      }
     } finally {
       if (name) destroyVariant(name);
     }
