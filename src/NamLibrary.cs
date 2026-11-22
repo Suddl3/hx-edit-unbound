@@ -1391,6 +1391,7 @@ class UnboundButton : Form
     }
     // The tools menu: (label, output) pairs.
     public static readonly Tuple<string,string>[] Choices = {
+        Tuple.Create("Workbench (the modern screen)", "workbench"),
         Tuple.Create("Level presets…", "level"),
         Tuple.Create("Floor look…", "look"),
         Tuple.Create("NAM library…", "library"),
@@ -1995,7 +1996,7 @@ class DspMeter : Form
         if(ButtonPlacement(310,1388,9,24,1920,1420)!=new Rectangle(310,9,UnboundButton.Width,24))throw new Exception("Unbound button placement");
         if(!ButtonPlacement(310,1388,9,24,1920,850).IsEmpty)throw new Exception("Unbound button hides without room");
         if(ButtonPlacement(310,1388,9,24,1920,1100)!=new Rectangle(310,9,UnboundButton.CompactWidth,24))throw new Exception("Unbound buttons as marks in a narrow span");
-        if(UnboundButton.Choices.Length<1||UnboundButton.Choices[0].Item2!="level")throw new Exception("Unbound menu");
+        if(UnboundButton.Choices.Length<2||UnboundButton.Choices[0].Item2!="workbench"||UnboundButton.Choices[1].Item2!="level")throw new Exception("Unbound menu");
         // Three buttons, left to right, inside the window they are drawn in, named or as marks.
         var named=UnboundButton.Parts(UnboundButton.Width,24); var marks=UnboundButton.Parts(UnboundButton.CompactWidth,24);
         if(named.Length!=3||named[0].X!=0||named[1].X!=named[0].Right+UnboundButton.Gap||named[2].Right!=UnboundButton.Width||

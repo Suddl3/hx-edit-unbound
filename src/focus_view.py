@@ -550,9 +550,9 @@ def prepare_focus():
     return exe
 
 
-def pane_command(exe, parent, profile, folders):
-    """FocusView.exe <parent window> <profile folder> <page url> <host=folder>…"""
-    return [str(exe), str(int(parent)), str(profile), _url('app', PAGE),
+def pane_command(exe, parent, profile, folders, page=PAGE):
+    """FocusView.exe <parent window> <profile folder> <page url> <host=folder>… (the Workbench: page workbench.html)"""
+    return [str(exe), str(int(parent)), str(profile), _url('app', page),
             *(f'{HOSTS[name]}={folder}' for name, folder in folders.items())]
 
 
@@ -560,7 +560,11 @@ class FocusView:
     """The pane's process and what it shows. Lines to the pane: "P <json>" goes to the page as it is,
     "C <json>" is for the pane itself (its place, shown or hidden). Lines from it: {type: ready | action | error}.
 
-    on_action(name, value): what the page asks for ("exit": back to the normal editor)."""
+    on_action(name, value): what the page asks for ("exit": back to the normal editor).
+
+    The Workbench (workbench.WorkbenchView) is the same pane with another page: PAGE_NAME and PROFILE say which."""
+    PAGE_NAME = PAGE
+    PROFILE = 'Focus WebView'
 
     def __init__(self, resources, *, settings=None, on_action=None, trace=None, process_factory=subprocess.Popen, exe=None):
         self.resources = Path(resources)
@@ -760,9 +764,9 @@ class FocusView:
     # -- the worker: the only thread that touches the pane's process ---------------------------------------------
     def _start(self):
         exe = self.exe or prepare_focus()
-        profile = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'Focus WebView'
+        profile = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / self.PROFILE
         profile.mkdir(parents=True, exist_ok=True)
-        command = pane_command(exe, self.window, profile, art_folders(self.resources, self.settings))
+        command = pane_command(exe, self.window, profile, art_folders(self.resources, self.settings), self.PAGE_NAME)
         self.process = self.process_factory(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, encoding='utf-8',
                                             errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         Thread(target=self._read, args=(self.process.stdout,), daemon=True).start()

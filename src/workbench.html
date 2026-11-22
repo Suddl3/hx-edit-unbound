@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workbench</title>
+<!--
+  The Workbench (workbench.py serves it in the pane of focus_view.cs): a modern view of the regular editor, over HX
+  Edit's own toolbar, signal flow and edit panel. It is Focus Mode's pane with another page, and speaks the same
+  messages (focus_view.html has the list): {type: "catalog"} (Focus Mode's catalog plus each model's DSP cost
+  "loads", the input and output names "inputs" / "outputs", and "captureTabs"), {type: "state"} (focus_view.js's
+  reading: the blocks with each input's and output's route and the split's and the mixer's settings, the preset,
+  its snapshots, the tempo), {type: "dsp"}, {type: "notice"}, {type: "shown"}, {type: "options"} (the Unbound menu).
+  It asks for the same things as Focus Mode ("select", "set", "model", "capture", "snapshot", "preset", "undo",
+  "redo"), plus "save" (HX Edit's own Ctrl+S) and "menu" ("classic": HX Edit's own screen, "focus": Focus Mode, or a
+  tool of the Unbound menu).
+  The chain is drawn by workbench_layout.js; the controls turn as HX Edit's sliders do (pane_controls.js).
+-->
+<style>
+  :root {
+    --bg: #0c0d10; --panel: #14161b; --raise: #1c1f26; --raise2: #252933; --line: #2a2e38;
+    --ink: #eceef2; --dim: #8d93a0; --faint: #5a606c; --unbound: #b070e0;
+    --din: Bahnschrift, 'DIN Alternate', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  img, canvas { -webkit-user-drag: none; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.25 var(--din); overflow: hidden;
+               user-select: none; -webkit-user-select: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:disabled { cursor: default; }
+  button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #fff; outline-offset: 2px; border-radius: 6px; }
+  [hidden] { display: none !important; }
+  .num { font-variant-numeric: tabular-nums; }
+  .pic { display: block; object-fit: contain; }
+  .led { width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--c)); box-shadow: 0 0 8px rgb(var(--c) / .9); flex: none; }
+  .led.off { background: #3a3e48; box-shadow: none; }
+
+  .app { height: 100%; display: grid; grid-template-rows: 58px auto minmax(0, 1fr); }
+
+  /* ---- the top bar ------------------------------------------------------------------------------------- */
+  .top { position: relative; z-index: 6; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
+  .logo { width: 68px; height: 100%; display: grid; place-items: center; flex: none; }
+  .logo i { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #2b3350, #151a2c); display: grid; place-items: center; font-style: normal; font-weight: 700; color: #cfd6ff; font-size: 17px; }
+  .now { display: flex; align-items: center; gap: 2px; min-width: 0; }
+  .now .step { width: 22px; height: 34px; border-radius: 6px; color: var(--faint); display: grid; place-items: center; flex: none; }
+  .now .step:hover { color: var(--ink); background: var(--raise); }
+  .now .step svg { width: 11px; height: 11px; }
+  .preset { display: grid; line-height: 1.15; text-align: left; padding: 2px 6px; border-radius: 7px; min-width: 0; }
+  .preset:hover:not(:disabled) { background: var(--raise); }
+  .preset small { color: var(--dim); font-size: 11.5px; }
+  .preset strong { font-size: 19px; font-weight: 600; font-stretch: 86%; display: flex; align-items: center; gap: 8px; white-space: nowrap; min-width: 0; }
+  .preset strong span { overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+  .preset strong b { color: var(--dim); font-weight: 400; }
+  .preset strong i { width: 6px; height: 6px; border-radius: 50%; background: #f0c94a; flex: none; }
+  .icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--raise); border: 1px solid var(--line); color: var(--dim); flex: none; }
+  .icon:hover:not(:disabled) { color: var(--ink); border-color: #4a5060; }
+  .icon:disabled { opacity: .45; }
+  .icon svg { width: 15px; height: 15px; }
+  .snaps { display: flex; gap: 4px; background: #0e1014; border: 1px solid var(--line); padding: 3px; border-radius: 9px; min-width: 0; }
+  .snaps button { height: 28px; padding: 0 12px; border-radius: 6px; color: var(--dim); display: flex; gap: 7px; align-items: center; white-space: nowrap; max-width: 150px; }
+  .snaps button span { overflow: hidden; text-overflow: ellipsis; }
+  .snaps button b { font-weight: 400; color: var(--faint); }
+  .snaps button:hover { color: var(--ink); }
+  .snaps button.on { background: var(--raise2); color: var(--ink); } .snaps button.on b { color: #f0c94a; }
+  .pair { display: flex; gap: 6px; }
+  .grow { flex: 1; }
+  .tempo { height: 34px; padding: 0 10px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); display: grid; place-items: center; line-height: 1; font-size: 15px; }
+  .tempo small { color: var(--dim); font-size: 10.5px; }
+  .view { display: flex; background: #0e1014; border: 1px solid var(--line); padding: 3px; border-radius: 9px; flex: none; }
+  .view button { height: 28px; padding: 0 14px; border-radius: 6px; color: var(--dim); }
+  .view button:hover { color: var(--ink); }
+  .view button.on { background: var(--ink); color: #111; font-weight: 600; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); white-space: nowrap; flex: none; }
+  .chip.unbound { color: var(--unbound); }
+  .chip.unbound:hover, .chip.unbound[aria-expanded=true] { border-color: rgb(176 112 224 / .6); }
+  .chip svg { width: 15px; height: 15px; }
+  .drop { position: absolute; top: 54px; z-index: 9; min-width: 240px; max-height: min(520px, 100vh - 70px); overflow-y: auto; padding: 6px; border-radius: 10px;
+          background: #15171c; box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgb(0 0 0 / .75); scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .drop button { width: 100%; display: grid; grid-template-columns: 38px 1fr; align-items: center; height: 29px; padding: 0 8px; border-radius: 6px; text-align: left; font-size: 13.5px; }
+  .drop button span:first-child { color: var(--faint); }
+  .drop button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drop button:hover { background: var(--raise2); }
+  .drop button.cur { background: var(--raise2); box-shadow: inset 2px 0 0 #f0c94a; }
+  .drop.menu { right: 16px; width: 300px; }
+  .drop.menu button { grid-template-columns: 1fr; height: auto; padding: 7px 10px; }
+  .drop.menu button span:first-child, .drop.menu button span:last-child { color: var(--ink); white-space: normal; }
+  .drop.menu button small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
+  .drop.menu h6 { margin: 8px 10px 4px; font-size: 11px; font-weight: 500; color: var(--faint); letter-spacing: .04em; text-transform: uppercase; }
+  .drop.menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+  .toast { position: absolute; left: 50%; top: 66px; z-index: 10; transform: translateX(-50%); max-width: 600px; padding: 10px 16px; border-radius: 10px;
+           background: #15171c; box-shadow: 0 0 0 1px #3a3f4b, 0 18px 40px rgb(0 0 0 / .7); font-size: 14px; line-height: 1.35; text-align: center; }
+
+  /* ---- the chain: two paths of eight places, lane B under lane A ------------------------------------------- */
+  .board { position: relative; padding: 12px 14px 10px; display: grid; align-content: start; gap: 16px; min-width: 0;
+           background: radial-gradient(90% 120% at 50% 100%, #1a1d25 0%, var(--bg) 75%); border-bottom: 1px solid var(--line); }
+  .path { display: flex; align-items: flex-start; min-width: 0; }
+  .path .tag { width: 88px; height: 104px; flex: none; display: grid; gap: 5px; align-content: center; }
+  .path .tag b { font-weight: 600; font-size: 13px; }
+  .path .tag small { color: var(--dim); font-size: 11.5px; }
+  .meter { width: 66px; height: 5px; border-radius: 3px; background: #262a33; overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #2fae5c, #3fc56b); }
+  .meter.yellow i { background: linear-gradient(90deg, #d9b23c, #f0c94a); } .meter.red i { background: linear-gradient(90deg, #d23a30, #e2483c); }
+  .grid8 { position: relative; flex: 1; min-width: 0; }
+  .grid8 > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .grid8 > svg path { fill: none; stroke: #414754; stroke-width: 2; }
+  .grid8 > svg path.b { stroke: #565d6d; }
+  .tile { position: absolute; height: 104px; border-radius: 11px; background: #15181e; border: 1px solid var(--line); display: grid; grid-template-rows: 1fr auto;
+          justify-items: center; padding: 7px 5px 0; overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+  button.tile:hover { border-color: rgb(var(--c) / .7); }
+  .tile .pic { width: 56px; height: 56px; filter: drop-shadow(0 7px 6px rgb(0 0 0 / .6)); }
+  .tile .strip { width: calc(100% + 10px); margin: 4px -5px 0; padding: 4px 4px 5px; background: #0b0c0f; border-top: 2px solid rgb(var(--c)); text-align: center;
+                 font-size: 12px; font-stretch: 88%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .strip small { display: block; font-size: 10.5px; color: rgb(var(--c)); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; }
+  .tile.off .pic { filter: grayscale(.9) brightness(.45); } .tile.off .strip { border-top-color: #3a3e48; color: var(--faint); } .tile.off .strip small { color: var(--faint); }
+  .tile.on { border-color: rgb(var(--c)); box-shadow: 0 0 0 1px rgb(var(--c)), 0 10px 30px rgb(var(--c) / .22); background: linear-gradient(#1b1e26, #15181e); }
+  .tile .led { position: absolute; top: 7px; left: 7px; }
+  .tile.io { width: 64px; height: 80px; background: #101216; border-style: dashed; padding: 10px 2px 0; }
+  .tile.io svg { width: 32px; height: 32px; color: #9aa1ae; }
+  .tile.io .strip { background: none; border-top-color: transparent; color: var(--dim); font-size: 11px; width: 100%; margin: 0; padding: 2px 0 6px; }
+  .tile.io.on { border-style: solid; }
+  .slot { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #101216; border: 1px dashed #4a505d; color: var(--faint);
+          display: grid; place-items: center; font-size: 16px; line-height: 1; cursor: default; }
+  .node { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: #20242d; border: 1.5px solid #7b8394; color: var(--ink);
+          display: grid; place-items: center; box-shadow: 0 4px 12px rgb(0 0 0 / .5); }
+  .node svg { width: 16px; height: 16px; }
+  .note { position: absolute; display: grid; gap: 1px; line-height: 1.2; white-space: nowrap; margin-top: -16px; }
+  .note b { font-weight: 600; font-size: 12.5px; } .note small { color: var(--dim); font-size: 11.5px; }
+  .note.r { text-align: right; }
+
+  /* ---- the panel under the chain: the selected block --------------------------------------------------------- */
+  .insp { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 0; }
+  .insp.nam { grid-template-columns: 250px minmax(0, 1fr) 316px; }
+  .insp.pick { grid-template-columns: 250px 176px minmax(0, 1fr); }
+  .card { padding: 18px 18px 14px; border-right: 1px solid var(--line); display: grid; align-content: start; gap: 12px; min-height: 0;
+          background: linear-gradient(180deg, rgb(var(--c) / .10), transparent 55%); }
+  .card .pic { width: 150px; height: 150px; margin: 0 auto; filter: drop-shadow(0 16px 14px rgb(0 0 0 / .6)); }
+  .card .pic.io { width: 90px; height: 90px; color: #9aa1ae; }
+  .card h4 { margin: 0; font-size: 24px; font-weight: 600; font-stretch: 80%; line-height: 1.05; overflow-wrap: anywhere; }
+  .card p { margin: 4px 0 0; color: rgb(var(--c)); display: flex; gap: 8px; align-items: center; }
+  .card .hint { color: var(--dim); font-size: 12.5px; line-height: 1.4; }
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btn { height: 32px; padding: 0 12px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .btn:hover:not(:disabled) { border-color: #4a5060; }
+  .btn:disabled { opacity: .45; }
+  .btn.pri { background: rgb(var(--c) / .18); border-color: rgb(var(--c) / .55); }
+  .btn.pri:hover:not(:disabled) { border-color: rgb(var(--c)); }
+  .btn svg { width: 14px; height: 14px; }
+  .btn.power[aria-pressed=true] { color: rgb(var(--c)); }
+  .btn.power[aria-pressed=false] { color: var(--faint); }
+  .ctl { padding: 0 22px; display: grid; grid-template-rows: 44px minmax(0, 1fr); min-width: 0; min-height: 0; }
+  .tabs { display: flex; gap: 22px; padding: 0 6px; align-items: end; border-bottom: 1px solid var(--line); }
+  .tabs button { padding: 0 2px 9px; color: var(--dim); font-size: 13.5px; }
+  .tabs button.on { color: var(--ink); box-shadow: 0 2px 0 var(--ink); }
+  .tabs button:disabled { color: var(--faint); }
+  .knobs { display: flex; flex-wrap: wrap; gap: 22px 6px; align-content: center; justify-content: center; padding: 14px 0; overflow-y: auto; min-height: 0;
+           scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .knobs.s { gap: 14px 2px; }
+  .knob { width: 86px; display: grid; justify-items: center; gap: 2px; position: relative; text-align: center; }
+  .knob .dial { width: 80px; height: 80px; cursor: ns-resize; touch-action: none; border-radius: 50%; display: block; }
+  .knobs.s .knob { width: 78px; } .knobs.s .knob .dial { width: 66px; height: 66px; }
+  .knob .dial svg { width: 100%; height: 100%; overflow: visible; }
+  .knob .val { font-size: 16px; color: rgb(var(--c)); margin-top: -4px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; height: 20px; }
+  .knobs.s .knob .val { font-size: 14px; }
+  .knob .nm { color: var(--ink); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .knob.live .val { color: #fff; }
+  .insp.off .knob .val, .insp.off .sw .val { color: var(--dim); }
+  .sync { position: absolute; top: -6px; right: 0; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; line-height: 18px; color: var(--dim);
+          background: #0b0c0f; box-shadow: inset 0 0 0 1px var(--line); }
+  .sync.on { color: #111; background: rgb(var(--c)); box-shadow: none; }
+  .sw { width: 86px; display: grid; justify-items: center; gap: 2px; align-content: end; text-align: center; }
+  .sw .lever { width: 54px; height: 28px; border-radius: 14px; background: #0b0c0f; border: 1px solid var(--line); position: relative; margin: 26px 0; transition: background .15s; }
+  .sw .lever::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #d7dae1; transition: left .15s; }
+  .sw .lever.up { background: rgb(var(--c) / .75); border-color: transparent; }
+  .sw .lever.up::after { left: 29px; }
+  .sw .val { font-size: 16px; color: rgb(var(--c)); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .empty { display: grid; place-items: center; color: var(--dim); font-size: 15px; text-align: center; line-height: 1.5; padding: 20px; }
+  .empty b { display: block; color: var(--ink); font-size: 20px; font-weight: 600; font-stretch: 86%; }
+  .capt { border-left: 1px solid var(--line); padding: 14px 16px; display: grid; align-content: start; gap: 12px; min-height: 0; overflow-y: auto;
+          background: linear-gradient(180deg, rgb(176 112 224 / .07), transparent 50%); }
+  .capt h5 { margin: 0; font-size: 12px; font-weight: 500; color: var(--unbound); display: flex; justify-content: space-between; }
+  .capt h5 span { color: var(--dim); }
+  .capt .who { display: grid; grid-template-columns: 56px 1fr; gap: 12px; align-items: center; }
+  .capt .who img { width: 56px; height: 56px; }
+  .capt .who b { font-size: 16px; font-weight: 600; display: block; overflow-wrap: anywhere; } .capt .who small { color: var(--dim); }
+  .kv { display: grid; grid-template-columns: 88px 1fr; row-gap: 9px; align-items: center; margin: 0; }
+  .kv dt { color: var(--dim); } .kv dd { margin: 0; }
+  .capt .later { color: var(--faint); font-size: 12px; line-height: 1.4; margin: 0; }
+  .capt .later button { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
+
+  /* ---- the picker: the selected block's category, its kinds as tabs (captures among them) ------------------------ */
+  .pcats { border-right: 1px solid var(--line); padding: 10px 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .pcats button { display: flex; width: calc(100% - 8px); align-items: center; gap: 10px; height: 22px; padding: 0 12px; margin: 0 4px; border-radius: 6px; color: var(--dim); text-align: left; }
+  .pcats button:hover { color: var(--ink); }
+  .pcats button.on { background: var(--raise2); color: var(--ink); box-shadow: inset 2px 0 0 rgb(var(--c)); }
+  .pcats .led { width: 6px; height: 6px; box-shadow: none; }
+  .pcats hr { border: 0; border-top: 1px solid var(--line); margin: 6px 12px; }
+  .pgrid { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 54px minmax(0, 1fr); min-width: 0; min-height: 0; padding: 0 16px; }
+  .phead { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .seg2 { display: flex; background: #0e1014; border: 1px solid var(--line); padding: 3px; border-radius: 9px; min-width: 0; overflow: hidden; }
+  .seg2 button { height: 26px; padding: 0 12px; border-radius: 6px; color: var(--dim); display: flex; gap: 7px; align-items: center; white-space: nowrap; }
+  .seg2 button b { font-weight: 400; color: var(--faint); font-size: 11.5px; }
+  .seg2 button:hover { color: var(--ink); }
+  .seg2 button.on { background: var(--raise2); color: var(--ink); }
+  .seg2 .led { --c: 176 112 224; }
+  .search { height: 30px; width: 190px; border-radius: 8px; background: var(--raise); display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--faint); flex: none; }
+  .search svg { width: 14px; height: 14px; flex: none; }
+  .search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--ink); font: inherit; outline: 0; user-select: text; -webkit-user-select: text; }
+  .search input::placeholder { color: var(--faint); }
+  .phead .room { margin-left: auto; color: var(--dim); white-space: nowrap; }
+  .phead .room b { color: var(--ink); font-weight: 600; margin-left: 4px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; align-content: start; overflow-y: auto; min-height: 0; padding-bottom: 14px;
+           scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .cards h6 { grid-column: 1 / -1; margin: 6px 2px 0; font-size: 12px; font-weight: 500; color: var(--dim); }
+  .cards p { grid-column: 1 / -1; color: var(--dim); margin: 8px 2px; }
+  .mc { position: relative; height: 104px; border-radius: 10px; background: #15181e; border: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: 1fr auto; justify-items: center; padding: 8px 8px 7px; min-width: 0; text-align: center; }
+  .mc:hover { border-color: rgb(var(--c) / .7); }
+  .mc .pic { width: 100%; height: 58px; filter: drop-shadow(0 6px 5px rgb(0 0 0 / .55)); }
+  .mc > span { width: 100%; font-size: 12px; font-stretch: 88%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mc > i { position: absolute; top: 6px; left: 8px; font-style: normal; color: var(--faint); font-size: 11px; }
+  .mc.on { border-color: rgb(var(--c)); box-shadow: 0 0 0 1px rgb(var(--c)), 0 8px 24px rgb(var(--c) / .2); background: linear-gradient(#1b1e26, #15181e); }
+  .mc.on > i { color: rgb(var(--c)); }
+  .mc.full { opacity: .5; }
+  .mc.full > i { color: #e2483c; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <header class="top" id="top">
+    <div class="logo"><i>X</i></div>
+    <div class="now">
+      <button class="step" id="presetPrev" title="Previous preset" aria-label="Previous preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg></button>
+      <button class="preset" id="presetButton" title="Choose a preset" aria-expanded="false"><small id="setlist">&nbsp;</small><strong><b class="num" id="presetNum"></b><span id="presetName">Waiting for HX Edit</span><i id="edited" title="Changed since it was loaded" hidden></i></strong></button>
+      <button class="step" id="presetNext" title="Next preset" aria-label="Next preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2l5 5-5 5"/></svg></button>
+    </div>
+    <button class="icon" id="save" title="Save the preset to the Floor (HX Edit's Save Preset, Ctrl+S)" aria-label="Save"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 2.5h8l2.5 2.5v8.5h-10.5z"/><path d="M5.5 2.5v3.5h4.5v-3.5M5.5 13.5v-4h5v4"/></svg></button>
+    <div class="snaps" id="snaps" hidden></div>
+    <div class="pair">
+      <button class="icon" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3 2.5 6l3 3"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/></svg></button>
+      <button class="icon" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3l3 3-3 3"/><path d="M13.5 6h-7a4 4 0 0 0 0 8H9"/></svg></button>
+    </div>
+    <span class="grow"></span>
+    <div class="tempo num" id="tempo" title="The preset's tempo" hidden><span id="tempoValue"></span><small>bpm</small></div>
+    <div class="view" role="group" aria-label="View"><button class="on" aria-pressed="true">Editor</button><button id="toFocus" aria-pressed="false" title="Focus Mode: the selected block, large, in its scene">Focus</button></div>
+    <button class="chip unbound" id="menuButton" aria-expanded="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" stroke-linecap="round"/></svg>Unbound</button>
+    <div class="drop" id="presetList" hidden></div>
+    <div class="drop menu" id="menu" hidden></div>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </header>
+
+  <section class="board" id="board" aria-label="Signal chain"></section>
+
+  <section class="insp" id="insp" aria-label="The selected block"></section>
+</div>
+
+<script src="pane_controls.js"></script>
+<script src="workbench_layout.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const host = window.chrome && window.chrome.webview;
+let catalog = null, state = null, dsp = null, options = {}, visible = !host;
+const ask = (name, value) => { if (host) host.postMessage(JSON.stringify({name, value: value === undefined ? null : value})); };
+const el = (tag, cls, words) => { const node = document.createElement(tag); if (cls) node.className = cls; if (words !== undefined) node.textContent = words; return node; };
+const svg = inner => '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+const ICON = {
+  swap: svg('<path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13"/>'),
+  power: svg('<path d="M8 2v6"/><path d="M4.5 4.2a5 5 0 1 0 7 0"/>'),
+  undo: svg('<path d="M5.5 3 2.5 6l3 3"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>'),
+  search: svg('<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/>'),
+  split: svg('<path d="M2 8h4l4-4h4M6 8l4 4h4"/>'),
+  mix: svg('<path d="M14 8h-4L6 4H2M10 8l-4 4H2"/>'),
+  // an input or an output: a jack and its lead
+  jack: '<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16h8"/><rect x="12" y="12" width="10" height="8" rx="2"/><path d="M22 14.5h4.5M22 17.5h4.5"/><path d="M4 16c0-6 4-9 9-9"/></svg>',
+};
+
+// ---- which block, and what it is (as Focus Mode's page has it) -------------------------------------------------
+const NEUTRAL = [152, 152, 152], NAM_TINT = [176, 112, 224];
+const model = block => catalog.models[block.model] || {name: block.model, category: '', key: '', tint: NEUTRAL, pictures: [], params: []};
+const isNam = block => catalog.nam.includes(block.model);
+const isChain = block => /^block\d{1,2}$/.test(block.id);
+const isEnd = block => /^(input|output)[AB]$/.test(block.id);
+const namKinds = () => (catalog.nam_kinds && catalog.nam_kinds.length ? catalog.nam_kinds : [{name: 'NAM', gears: []}]);
+function namKind(taken) {
+  const kinds = namKinds();
+  return (kinds.find(kind => kind.gears.includes((taken && taken.gear) || '')) || kinds[kinds.length - 1]).name;
+}
+function capture(block) {
+  if (!isNam(block) || !Number.isInteger(block.slot)) return null;
+  return (state.captures || []).find(c => c.slot === block.slot) || {slot: block.slot, name: 'IR slot ' + block.slot, icon: ''};
+}
+const captureUrls = c => c && c.icon ? catalog.captures.pictures.map(url => url.replace('{icon}', encodeURIComponent(c.icon))) : [];
+function pictures(block) {
+  const taken = capture(block);
+  return taken && taken.icon ? captureUrls(taken).concat(model(block).pictures) : model(block).pictures;
+}
+const tint = block => isNam(block) ? NAM_TINT : model(block).tint || NEUTRAL;
+function title(block) {
+  const taken = capture(block);
+  if (taken) return taken.name;
+  if (isEnd(block)) return endName(block) || model(block).name;
+  return model(block).name;
+}
+function kindOf(block) {
+  const taken = capture(block);
+  if (taken) return 'gear' in taken ? namKind(taken) : model(block).name;
+  if (block.id === 'split') return 'Split';
+  if (block.id === 'join') return 'Mixer';
+  if (isEnd(block)) return block.id.startsWith('input') ? 'Input' : 'Output';
+  return model(block).category || '';
+}
+function endName(block) {
+  if (block.id.startsWith('input')) return workbenchName(catalog.inputs, block.input);
+  return workbenchName(catalog.outputs, block.output);
+}
+function current() {
+  if (!state || !state.selected) return null;
+  return state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id) || null;
+}
+// A picture that tries each of its addresses in turn (the large render first where asked, else the small one).
+function image(urls, cls, small, lazy) {
+  const img = el('img', cls), list = (urls || []).slice();
+  if (small) list.reverse();
+  img.alt = ''; img.draggable = false;
+  if (lazy) img.loading = 'lazy';                               // (only the picker's many cards wait until they are in view)
+  img.onerror = () => { if (list.length) img.src = list.shift(); else img.style.visibility = 'hidden'; };
+  if (list.length) img.src = list.shift(); else img.style.visibility = 'hidden';
+  return img;
+}
+
+// ---- the chain --------------------------------------------------------------------------------------------------
+const YA = 52, YB = 166, X0 = 74, R = 14;
+let shownChain = '';
+function geometry(width) {
+  // Eight places between the input (left) and the output (right); a gap is where the split or the mixer sits.
+  const end = Math.max(X0 + 8 * 90, width - 74), step = (end - X0) / 8, tile = Math.min(105, step - 18);
+  return {width, end, step, tile, px: k => X0 + step * k + (step - tile) / 2, gap: k => X0 + step * k};
+}
+function drawChain(force) {
+  const board = $('board'), width = Math.max(800, board.clientWidth - 28 - 88);
+  const paths = workbenchPaths(state.blocks, catalog);
+  const now = current();
+  const key = JSON.stringify([width, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
+                              now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), dsp]);
+  if (!force && key === shownChain) return;
+  shownChain = key;
+  board.replaceChildren(...paths.map(p => drawPath(p, geometry(width), now)));
+}
+function drawPath(p, g, now) {
+  const two = !!p.b, out = [], wires = [`<path d="M32 ${YA}H${g.width - 32}"/>`];
+  const tileOf = (block, place, y) => {
+    const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (block === now ? ' on' : ''));
+    button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - 52}px;width:${g.tile}px`;
+    const led = el('span', 'led' + (block.enabled ? '' : ' off'));
+    const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
+    button.append(led, image(pictures(block), 'pic', true), strip);
+    button.title = title(block) + (capture(block) ? ' (' + model(block).name + ')' : '') + (block.enabled ? '' : ', bypassed');
+    button.onclick = () => ask('select', {dsp: block.dsp, id: block.id});
+    return button;
+  };
+  const slot = (place, y) => {
+    const plus = el('span', 'slot', '+');
+    plus.style.cssText = `left:${g.px(place) + g.tile / 2}px;top:${y}px`;
+    plus.title = 'An empty place. Adding a block here from the Workbench comes in the next stage; use the classic screen for now.';
+    return plus;
+  };
+  const io = (end, y, right) => {
+    const block = end.block, button = el('button', 'tile io' + (block === now ? ' on' : ''));
+    button.style.cssText = `left:${right ? g.width - 64 : 0}px;top:${y - 40}px`;
+    button.insertAdjacentHTML('beforeend', ICON.jack);
+    if (right) button.firstChild.style.transform = 'scaleX(-1)';
+    button.append(el('div', 'strip', end.name || '—'));
+    button.title = (block.id.startsWith('input') ? 'Input: ' : 'Output: ') + (end.name || 'none');
+    button.onclick = () => ask('select', {dsp: block.dsp, id: block.id});
+    return button;
+  };
+  if (two) {
+    const from = p.from, to = p.to;
+    wires.push(`<path class="b" d="${p.inputB ? `M32 ${YB}` : `M${g.gap(from)} ${YA}V${YB - R}Q${g.gap(from)} ${YB} ${g.gap(from) + R} ${YB}`}${p.outputB ? `H${g.width - 32}` : `H${g.gap(to) - R}Q${g.gap(to)} ${YB} ${g.gap(to)} ${YB - R}V${YA}`}"/>`);
+    for (let k = from; k < to; k++) out.push(p.b[k] ? tileOf(p.b[k], k, YB) : slot(k, YB));
+    if (p.inputB) out.push(io(p.inputB, YB, false));
+    else if (p.split) {
+      const node = el('span', 'node'); node.innerHTML = ICON.split; node.style.cssText = `left:${g.gap(from)}px;top:${YA}px`;
+      node.title = model(p.split).name + '. Its settings open here in the next stage.';
+      const note = el('div', 'note r'); note.append(el('b', '', model(p.split).name), el('small', '', workbenchSplitNote(p.split, splitFormat(p.split))));
+      note.style.cssText = `right:${g.width - g.gap(from) + 20}px;top:${YB}px`;
+      out.push(node, note);
+    }
+    if (p.outputB) out.push(io(p.outputB, YB, true));
+    else if (p.join) {
+      const node = el('span', 'node'); node.innerHTML = ICON.mix; node.style.cssText = `left:${g.gap(to)}px;top:${YA}px`;
+      node.title = 'Mixer. Its settings open here in the next stage.';
+      const note = el('div', 'note'); note.append(el('b', '', 'Mixer'), el('small', '', workbenchMixNote(p.join)));
+      note.style.cssText = `left:${g.gap(to) + 20}px;top:${YB}px`;
+      out.push(node, note);
+    }
+  }
+  p.a.forEach((block, k) => out.push(block ? tileOf(block, k, YA) : slot(k, YA)));
+  if (p.input) out.push(io(p.input, YA, false));
+  if (p.output) out.push(io(p.output, YA, true));
+  const row = el('div', 'path'), tag = el('div', 'tag'), grid = el('div', 'grid8');
+  const view = dsp && dsp[p.dsp], share = view && typeof view.used === 'number' ? Math.round(100 * view.used / view.budget) : null;
+  tag.append(el('b', '', 'Path ' + (p.dsp + 1)), el('small', 'num', 'DSP ' + (p.dsp + 1) + (share === null ? '' : ' · ' + share + '%')));
+  if (share !== null) { const meter = el('span', 'meter ' + (view.level || '')); meter.append(el('i')); meter.firstChild.style.width = Math.min(100, share) + '%'; tag.append(meter); }
+  tag.title = two ? 'Lanes ' + (p.dsp + 1) + 'A and ' + (p.dsp + 1) + 'B' : '';
+  grid.style.height = (two ? 218 : 104) + 'px';
+  grid.innerHTML = `<svg>${wires.join('')}</svg>`;
+  grid.append(...out);
+  row.append(tag, grid);
+  return row;
+}
+function splitFormat(split) {
+  const params = model(split).params;
+  return (key, value) => { const p = params.find(item => item.id === key); return p ? shown(p, value) : String(value); };
+}
+
+// ---- the panel under the chain: the selected block, its controls, its capture --------------------------------------
+let picking = false, shownPanel = '', pickedCategory = '', pickedTab = '', pickQuery = '';
+function controlsOf(block) {
+  return model(block).params.filter(p => !(isNam(block) && p.id === 'Index'));
+}
+const ARC_FROM = -225, ARC_TO = 45, RING = 38;
+function arc(from, to) {
+  const pt = deg => [46 + RING * Math.cos(deg * Math.PI / 180), 46 + RING * Math.sin(deg * Math.PI / 180)];
+  const [x0, y0] = pt(from), [x1, y1] = pt(to);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${RING} ${RING} 0 ${to - from > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+function control(p) {
+  let item;
+  if (p.kind === 'switch') {
+    item = el('div', 'sw');
+    item.append(el('button', 'lever'), el('div', 'val'), el('div', 'nm', p.name));
+    item.querySelector('.lever').setAttribute('role', 'switch');
+    item.querySelector('.lever').setAttribute('aria-label', p.name);
+  } else {
+    item = el('div', 'knob');
+    const dial = el('div', 'dial'); dial.tabIndex = 0; dial.setAttribute('role', 'slider'); dial.setAttribute('aria-label', p.name);
+    dial.innerHTML = `<svg viewBox="0 0 92 92"><path d="${arc(ARC_FROM, ARC_TO)}" fill="none" stroke="#2a2e38" stroke-width="5" stroke-linecap="round"/>` +
+      '<path class="fill" fill="none" stroke="rgb(var(--c))" stroke-width="5" stroke-linecap="round"/>' +
+      '<circle cx="46" cy="46" r="28" fill="url(#kg)" stroke="#0a0b0d" stroke-width="2"/><path class="hand" stroke="#f2f3f6" stroke-width="3.2" stroke-linecap="round"/></svg>';
+    item.append(dial, el('div', 'val num'), el('div', 'nm', p.name));
+    if (p.sync) item.append(el('button', 'sync', 'Sync'));
+  }
+  item.dataset.id = p.id;
+  return item;
+}
+function fill(item, p) {
+  item.querySelector('.val').textContent = text(p);
+  if (p.kind === 'switch') {
+    const value = valueOf(p.id), up = value === true || (typeof value === 'number' && value === p.max);
+    item.querySelector('.lever').classList.toggle('up', up);
+    item.querySelector('.lever').setAttribute('aria-checked', up);
+    return;
+  }
+  const t = position(p), angle = ARC_FROM + 270 * t;
+  item.querySelector('.fill').setAttribute('d', t > .004 ? arc(ARC_FROM, angle) : '');
+  const at = (r) => [46 + r * Math.cos(angle * Math.PI / 180), 46 + r * Math.sin(angle * Math.PI / 180)];
+  const [px, py] = at(22), [qx, qy] = at(10);
+  item.querySelector('.hand').setAttribute('d', `M${qx.toFixed(2)} ${qy.toFixed(2)}L${px.toFixed(2)} ${py.toFixed(2)}`);
+  item.querySelector('.dial').setAttribute('aria-valuetext', text(p));
+  const sync = item.querySelector('.sync'); if (sync) sync.classList.toggle('on', synced(p));
+}
+function card(block, picker) {
+  const box = el('div', 'card'), m = model(block), taken = capture(block);
+  if (isEnd(block)) { const pic = el('div', 'pic io'); pic.innerHTML = ICON.jack; box.append(pic); }
+  else if (block.id === 'split' || block.id === 'join') { const pic = el('div', 'pic io'); pic.innerHTML = block.id === 'split' ? ICON.split : ICON.mix; box.append(pic); }
+  else box.append(image(pictures(block), 'pic'));
+  const head = el('div'), line = el('p');
+  head.append(el('h4', '', title(block)));
+  line.append(el('span', 'led' + (block.enabled ? '' : ' off')), el('span', '', [taken ? m.name : kindOf(block), m.bypass ? (block.enabled ? 'on' : 'bypassed') : ''].filter(Boolean).join(' · ')));
+  head.append(line);
+  box.append(head);
+  if (picker) {
+    box.append(el('span', 'hint', 'Click a model to swap it in and hear it. Undo puts the old one back.'));
+    const row = el('div', 'btnrow'), done = el('button', 'btn pri', 'Done'), back = el('button', 'btn');
+    back.innerHTML = ICON.undo + 'Put it back'; back.title = "HX Edit's own Undo (Ctrl+Z)";
+    done.onclick = closePicker; back.onclick = () => ask('undo');
+    row.append(done, back); box.append(row);
+    return box;
+  }
+  const row = el('div', 'btnrow'), change = el('button', 'btn pri');
+  change.innerHTML = ICON.swap + 'Change model';
+  change.disabled = !isChain(block);
+  change.title = isChain(block) ? 'Choose another model or a capture for this block' : 'An input, an output, the split and the mixer keep their model';
+  change.onclick = () => openPicker();
+  row.append(change);
+  if (m.bypass) {
+    const power = el('button', 'btn power'); power.innerHTML = ICON.power;
+    power.setAttribute('aria-pressed', block.enabled); power.title = block.enabled ? 'On: click to bypass' : 'Bypassed: click to turn on';
+    power.onclick = () => ask('set', {dsp: block.dsp, id: block.id, key: '@enabled', value: !block.enabled, phase: 'single'});
+    row.append(power);
+  }
+  box.append(row);
+  return box;
+}
+function capturePanel(block) {
+  const taken = capture(block), box = el('aside', 'capt');
+  const h = el('h5', '', 'Capture on this block'); h.append(el('span', 'num', 'IR slot ' + block.slot)); box.append(h);
+  const who = el('div', 'who'), words = el('div');
+  words.append(el('b', '', taken.name), el('small', '', 'gear' in taken ? namKind(taken) : 'Not in the NAM library'));
+  who.append(image(captureUrls(taken).concat(model(block).pictures), 'pic', true), words); box.append(who);
+  const facts = el('dl', 'kv'), cost = Number((catalog.loads || {})[block.model]), view = dsp && dsp[block.dsp];
+  facts.append(el('dt', '', 'Engine'), el('dd', '', model(block).name));
+  if (Number.isFinite(cost) && view && view.budget) facts.append(el('dt', '', 'DSP'), el('dd', 'num', 'about ' + Math.round(100 * cost / view.budget) + '% of DSP ' + (block.dsp + 1)));
+  box.append(facts);
+  const row = el('div', 'btnrow'), change = el('button', 'btn pri');
+  change.innerHTML = ICON.swap + 'Change capture'; change.onclick = () => openPicker('captures');
+  row.append(change); box.append(row);
+  const later = el('p', 'later', "The capture's light version, its level and A/B compare are in the NAM library for now. "), open = el('button', '', 'Open the NAM library');
+  open.title = 'Opens on HX Edit\'s own screen (the Workbench steps aside)';
+  open.onclick = () => ask('menu', 'library');
+  later.append(open); box.append(later);
+  return box;
+}
+function drawPanel() {
+  const panel = $('insp'), block = current();
+  if (!block) {
+    picking = false;
+    const key = 'empty:' + (state.blocks.length ? 1 : 0);
+    if (shownPanel === key) return;
+    shownPanel = key;
+    panel.className = 'insp'; panel.style.removeProperty('--c');
+    const box = el('div', 'empty'); box.style.gridColumn = '1 / -1';
+    box.innerHTML = state.blocks.length ? '<span><b>Pick a block</b>Click a block in the chain above, or select one on the Floor.</span>'
+                                        : '<span><b>Workbench</b>Waiting for a preset from HX Edit.</span>';
+    panel.replaceChildren(box);
+    return;
+  }
+  if (picking) { drawPicker(block); return; }
+  const list = controlsOf(block), nam = !!capture(block);
+  const key = JSON.stringify(['block', block.dsp, block.id, block.model, block.enabled, block.slot ?? 0, title(block), nam && (state.captures || []).length, dsp && dsp[block.dsp]]);
+  panel.style.setProperty('--c', tint(block).join(' '));
+  panel.classList.toggle('off', !block.enabled);
+  if (key !== shownPanel) {
+    if (!shownPanel.startsWith('["block",' + block.dsp + ',"' + block.id + '","' + block.model + '"')) held.clear();
+    shownPanel = key;
+    panel.className = 'insp' + (nam ? ' nam' : '') + (block.enabled ? '' : ' off');
+    const ctl = el('div', 'ctl'), tabs = el('div', 'tabs'), knobs = el('div', 'knobs' + (list.length > 9 ? ' s' : ''));
+    const controls = el('button', 'on', 'Controls'), bypass = el('button', '', 'Bypass and controllers'), values = el('button', '', 'Snapshot values');
+    bypass.disabled = values.disabled = true;
+    bypass.title = values.title = 'Comes in a later stage. Use the classic screen for now.';
+    tabs.append(controls, bypass, values);
+    knobs.replaceChildren(...list.map(p => { const item = control(p); wireControl(item, p, block, () => fill(item, p)); return item; }));
+    if (!list.length) knobs.append(el('div', 'empty', 'This block has no controls.'));
+    ctl.append(tabs, knobs);
+    panel.replaceChildren(card(block, false), ctl, ...(nam ? [capturePanel(block)] : []));
+  }
+  const knobs = panel.querySelector('.knobs');
+  list.forEach((p, i) => { const item = knobs.children[i]; if (item) fill(item, p); });
+}
+
+// ---- the picker: another model or a capture for the selected block -------------------------------------------------
+function categoryOf(block) {
+  if (isNam(block)) return '';
+  const name = model(block).category;
+  return (catalog.lists || []).some(group => group.name === name) ? name : ((catalog.lists || [])[0] || {}).name || '';
+}
+function openPicker(tab) {
+  const block = current(); if (!block || !isChain(block)) return;
+  picking = true; pickQuery = '';
+  pickedCategory = tab === 'captures' || isNam(block) ? (captureHome(block) || '') : categoryOf(block);
+  pickedTab = tab === 'captures' || isNam(block) ? 'captures' : '';
+  shownPanel = '';
+  drawPanel();
+}
+function closePicker() { if (!picking) return; picking = false; shownPanel = ''; drawPanel(); }
+function captureHome(block) {
+  // A NAM block's picker opens on the category its capture's kind belongs to ("All captures" when none).
+  const taken = capture(block), kind = taken && 'gear' in taken ? namKind(taken) : null;
+  const tabs = catalog.captureTabs || {};
+  return Object.keys(tabs).find(name => kind && tabs[name].includes(kind)) || '';
+}
+function room(block) {
+  // What the selected block may cost on its DSP, in the units of the Floor's own meter: what is free plus its own.
+  const view = dsp && dsp[block.dsp], loads = catalog.loads || {};
+  if (!view || typeof view.used !== 'number') return null;
+  return {left: view.budget - view.used + (Number(loads[block.model]) || 0), budget: view.budget};
+}
+function drawPicker(block) {
+  const panel = $('insp'), lists = catalog.lists || [], captures = state.captures || [];
+  const space = room(block), loads = catalog.loads || {}, namCost = Number(loads[catalog.nam[0]]);
+  const key = JSON.stringify(['pick', block.dsp, block.id, block.model, block.slot ?? 0, pickedCategory, pickedTab, pickQuery, space, captures.map(c => [c.slot, c.name, c.icon])]);
+  panel.style.setProperty('--c', tint(block).join(' '));
+  if (key === shownPanel) return;
+  const typing = document.activeElement && document.activeElement.id === 'pickSearch';
+  const scrolled = panel.querySelector('.cards') && shownPanel.startsWith(JSON.stringify(['pick', block.dsp, block.id]).slice(0, -1)) ? panel.querySelector('.cards').scrollTop : 0;
+  shownPanel = key;
+  panel.className = 'insp pick';
+  // the categories, as HX Edit's own picker lists them, then every capture on the Floor
+  const cats = el('div', 'pcats');
+  for (const group of lists) {
+    const row = el('button', group.name === pickedCategory && pickedTab !== 'all' ? 'on' : '');
+    row.style.setProperty('--c', group.tint.join(' '));
+    row.append(el('span', 'led'), el('span', '', group.name));
+    row.onclick = () => { pickedCategory = group.name; pickedTab = ''; pickQuery = ''; drawPicker(block); };
+    cats.append(row);
+  }
+  cats.append(el('hr'));
+  const all = el('button', pickedTab === 'all' ? 'on' : ''); all.style.setProperty('--c', NAM_TINT.join(' '));
+  all.append(el('span', 'led'), el('span', '', 'All captures'));
+  all.onclick = () => { pickedCategory = ''; pickedTab = 'all'; pickQuery = ''; drawPicker(block); };
+  cats.append(all);
+  // the category's kinds as tabs, captures among them
+  const group = lists.find(g => g.name === pickedCategory);
+  const kinds = (catalog.captureTabs || {})[pickedCategory] || [];
+  const mine = pickedTab === 'all' ? captures : captures.filter(c => kinds.includes(namKind(c)));
+  if (!group && pickedTab !== 'all') pickedTab = kinds.length ? 'captures' : '';
+  const folders = group ? group.folders : [];
+  if (group && pickedTab !== 'captures' && pickedTab !== 'all' && !folders.some(f => f.name === pickedTab)) {
+    const own = folders.find(f => f.models.includes(block.model));
+    pickedTab = own ? own.name : folders.length ? folders[0].name : '';
+  }
+  const head = el('div', 'phead'), seg = el('div', 'seg2');
+  const tab = (name, count, words, led) => {
+    const button = el('button', pickedTab === name ? 'on' : '');
+    if (led) button.append(el('span', 'led'));
+    button.append(el('span', '', words), el('b', 'num', String(count)));
+    button.onclick = () => { pickedTab = name; pickQuery = ''; drawPicker(block); };
+    seg.append(button);
+  };
+  if (pickedTab === 'all') tab('all', captures.length, 'Captures on the Floor', true);
+  else {
+    for (const folder of folders) tab(folder.name, folder.models.length, folder.name || pickedCategory, false);
+    if (kinds.length) tab('captures', mine.length, 'Captures', true);
+  }
+  const search = el('label', 'search'); search.innerHTML = ICON.search;
+  const input = el('input'); input.id = 'pickSearch'; input.type = 'search'; input.placeholder = 'Search ' + (pickedTab === 'all' || pickedTab === 'captures' ? 'captures' : (pickedCategory || 'models').toLowerCase());
+  input.value = pickQuery; input.spellcheck = false; input.autocomplete = 'off';
+  input.oninput = () => { pickQuery = input.value; drawPicker(block); };
+  search.append(input);
+  const roomLine = el('span', 'room', 'Room on DSP ' + (block.dsp + 1) + ' for this block');
+  if (space) roomLine.append(el('b', 'num', Math.max(0, Math.round(100 * space.left / space.budget)) + '%')); else roomLine.append(el('b', '', '—'));
+  roomLine.title = space ? 'What this block may cost: the DSP’s free room plus what this block costs now (the Floor’s own figures).' : 'The Floor has not reported its DSP load yet.';
+  head.append(seg, search, roomLine);
+  // the cards
+  const cards = el('div', 'cards'), query = pickQuery.trim().toLowerCase();
+  const costText = cost => space && Number.isFinite(cost) ? Math.round(100 * cost / space.budget) + '%' : '';
+  const modelCard = symbol => {
+    const m = catalog.models[symbol], cost = Number(loads[symbol]), inUse = symbol === block.model;
+    const full = !inUse && space && Number.isFinite(cost) && cost > space.left + 1e-6;
+    const item = el('button', 'mc' + (inUse ? ' on' : '') + (full ? ' full' : ''));
+    item.style.setProperty('--c', m.tint.join(' '));
+    item.append(image(m.pictures, 'pic', true, true), el('i', 'num', inUse ? 'in use' : costText(cost)), el('span', '', m.name));
+    item.title = m.name + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
+    item.onclick = () => { if (!inUse) ask('model', {dsp: block.dsp, id: block.id, symbol}); };
+    return item;
+  };
+  const captureCard = c => {
+    const inUse = isNam(block) && block.slot === c.slot, cost = isNam(block) ? 0 : namCost;
+    const full = !inUse && space && Number.isFinite(cost) && cost > space.left + 1e-6;
+    const item = el('button', 'mc' + (inUse ? ' on' : '') + (full ? ' full' : ''));
+    item.style.setProperty('--c', NAM_TINT.join(' '));
+    item.append(image(captureUrls(c), 'pic', true, true), el('i', 'num', inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : costText(cost)), el('span', '', c.name));
+    item.title = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
+    item.onclick = () => { if (!inUse) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot}); };
+    return item;
+  };
+  let shownCards = [];
+  if (pickedTab === 'captures' || pickedTab === 'all') {
+    const list = (pickedTab === 'all' ? captures : mine).filter(c => !query || c.name.toLowerCase().includes(query));
+    if (pickedTab === 'all' && !query) {
+      for (const kind of namKinds()) {
+        const these = list.filter(c => namKind(c) === kind.name);
+        if (these.length) shownCards.push(el('h6', '', kind.name), ...these.map(captureCard));
+      }
+    } else shownCards = list.map(captureCard);
+    if (!list.length) shownCards = [el('p', '', captures.length ? 'No capture here matches.' : 'No capture on the Floor yet. Put one there from the NAM library.')];
+  } else {
+    const folder = folders.find(f => f.name === pickedTab);
+    const symbols = query ? lists.flatMap(g => g.folders.flatMap(f => f.models)).filter((s, i, a) => a.indexOf(s) === i && catalog.models[s].name.toLowerCase().includes(query))
+                          : folder ? folder.models : [];
+    shownCards = symbols.slice(0, 240).map(modelCard);
+    if (!symbols.length) shownCards = [el('p', '', 'Nothing matches that search.')];
+  }
+  cards.append(...shownCards);
+  const grid = el('div', 'pgrid'); grid.append(head, cards);
+  panel.replaceChildren(card(block, true), cats, grid);
+  cards.scrollTop = scrolled;
+  if (typing) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+}
+
+// ---- the top bar ---------------------------------------------------------------------------------------------------
+let snapGroup = null;                                         // which four snapshots show: 0 (1-4) or 1 (5-8)
+function drawBar() {
+  const preset = state.preset;
+  $('presetNum').textContent = preset ? String(preset.number).padStart(3, '0') : '';
+  $('presetName').textContent = preset ? preset.name || '' : 'Waiting for HX Edit';
+  $('setlist').textContent = preset && Number.isInteger(preset.setlist) ? 'Setlist ' + (preset.setlist + 1) : ' ';
+  $('edited').hidden = !state.undo;
+  const listed = !!preset && Array.isArray(state.presets) && state.presets.length > 0;
+  $('presetButton').disabled = !listed;
+  $('presetButton').title = listed ? 'Choose a preset' : '';
+  $('presetPrev').disabled = $('presetNext').disabled = !preset;
+  if (!listed) closePresets(); else if (!$('presetList').hidden) fillPresets();
+  $('undo').disabled = state.undo === false;
+  $('tempo').hidden = typeof state.tempo !== 'number';
+  if (typeof state.tempo === 'number') $('tempoValue').textContent = state.tempo.toFixed(1);
+  // the snapshots as buttons: four at a time, the other four behind one more
+  const names = state.snapshots || [], on = Number.isInteger(state.snapshot) ? state.snapshot : -1;
+  $('snaps').hidden = !names.length;
+  const group = snapGroup ?? (on >= 4 ? 1 : 0), first = group * 4;
+  const buttons = names.slice(first, first + 4).map((name, i) => {
+    const index = first + i, button = el('button', index === on ? 'on' : '');
+    button.append(el('b', 'num', String(index + 1)), el('span', '', name || 'Snapshot ' + (index + 1)));
+    button.title = 'Snapshot ' + (index + 1) + (name ? ': ' + name : '');
+    button.onclick = () => ask('snapshot', index);
+    return button;
+  });
+  if (names.length > 4) {
+    const other = el('button'); other.append(el('b', '', group ? '1–4' : '5–' + Math.min(8, names.length)));
+    other.title = 'Show snapshots ' + (group ? '1 to 4' : '5 to ' + Math.min(8, names.length));
+    other.onclick = () => { snapGroup = group ? 0 : 1; drawBar(); };
+    buttons.push(other);
+  }
+  $('snaps').replaceChildren(...buttons);
+}
+let shownPresets = '';
+function fillPresets() {
+  const list = $('presetList'), names = state.presets || [], at = state.preset ? state.preset.number : -1;
+  const key = at + '\n' + names.join('\n');
+  list.style.left = $('presetButton').offsetLeft + 'px';
+  if (key === shownPresets && list.childElementCount === names.length) return;
+  shownPresets = key;
+  list.replaceChildren(...names.map((name, index) => {
+    const row = el('button', index === at ? 'cur' : '');
+    row.append(el('span', 'num', String(index).padStart(3, '0')), el('span', '', name));
+    row.onclick = () => { if (index !== at) ask('preset', index); closePresets(); };
+    return row;
+  }));
+}
+function openPresets() {
+  closeMenu(); shownPresets = ''; fillPresets();
+  $('presetList').hidden = false; $('presetButton').setAttribute('aria-expanded', 'true');
+  const cur = $('presetList').querySelector('.cur'); if (cur) cur.scrollIntoView({block: 'center'});
+}
+function closePresets() { $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false'); }
+function openMenu() {
+  closePresets();
+  const menu = $('menu'), item = (words, note, choice) => {
+    const button = el('button'); button.append(el('span', '', words)); if (note) button.lastChild.append(el('small', '', note));
+    button.onclick = () => { closeMenu(); ask('menu', choice); };
+    return button;
+  };
+  menu.replaceChildren(
+    el('h6', '', 'View'),
+    item('Classic screen', "HX Edit's own screen, with everything the Workbench does not have yet. Back here: Unbound menu > Workbench.", 'classic'),
+    item('Focus Mode', 'The selected block, large, in its scene', 'focus'),
+    el('hr'), el('h6', '', 'Tools'),
+    ...(options.level ? [item('Level presets…', "Opens on HX Edit's own screen", 'level')] : []),
+    item('Floor look…', "Opens on HX Edit's own screen", 'look'),
+    item('NAM library…', "Opens on HX Edit's own screen", 'library'));
+  menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
+}
+function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
+let toastTimer = 0;
+function toast(words) {
+  const line = $('toast');
+  line.textContent = String(words || ''); line.hidden = !line.textContent;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { line.hidden = true; }, 6000);
+}
+
+// ---- everything together -----------------------------------------------------------------------------------------
+function render() {
+  if (!catalog || !state) return;
+  drawBar();
+  drawChain();
+  drawPanel();
+}
+function receive(message) {
+  if (!message || typeof message !== 'object') return;
+  if (message.type === 'catalog') { catalog = message.catalog; shownChain = ''; shownPanel = ''; }
+  else if (message.type === 'state') {
+    const before = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
+    state = message.state;
+    const after = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
+    if (before !== after) snapGroup = null;
+    if (picking && !(current() && isChain(current()))) picking = false;
+  }
+  else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
+  else if (message.type === 'options') { options = message.options || {}; return; }
+  else if (message.type === 'notice') { toast(message.text); return; }
+  else if (message.type === 'shown') { visible = message.shown === true; if (!visible) { closePresets(); closeMenu(); $('toast').hidden = true; } else render(); return; }
+  else return;
+  render();
+}
+if (host) host.addEventListener('message', event => receive(event.data));
+addEventListener('dragstart', event => event.preventDefault());
+window.workbenchReceive = receive;                              // (tests and the preview feed the page through this)
+document.body.insertAdjacentHTML('beforeend', '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><radialGradient id="kg" cx="35%" cy="28%" r="80%"><stop offset="0" stop-color="#4a4f5b"/><stop offset=".55" stop-color="#23262e"/><stop offset="1" stop-color="#15171c"/></radialGradient></defs></svg>');
+
+$('undo').onclick = () => ask('undo');
+$('redo').onclick = () => ask('redo');
+$('save').onclick = () => ask('save');
+$('toFocus').onclick = () => ask('menu', 'focus');
+$('presetPrev').onclick = () => { closePresets(); ask('preset', 'previous'); };
+$('presetNext').onclick = () => { closePresets(); ask('preset', 'next'); };
+$('presetButton').onclick = () => $('presetList').hidden ? openPresets() : closePresets();
+$('menuButton').onclick = () => $('menu').hidden ? openMenu() : closeMenu();
+addEventListener('pointerdown', e => {
+  if (!$('presetList').hidden && !e.target.closest('#presetList, #presetButton')) closePresets();
+  if (!$('menu').hidden && !e.target.closest('#menu, #menuButton')) closeMenu();
+});
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !visible) return;
+  if (!$('presetList').hidden) closePresets(); else if (!$('menu').hidden) closeMenu(); else if (picking) closePicker();
+});
+let resizing = 0;
+addEventListener('resize', () => { cancelAnimationFrame(resizing); resizing = requestAnimationFrame(() => { if (catalog && state) drawChain(); }); });
+</script>
+</body>
+</html>

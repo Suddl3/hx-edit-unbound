@@ -671,7 +671,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("targetBinding.recallSnapshot(editor, command.index)", script)
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@current_snapshot')", script)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        self.assertIn('focus.checked_snapshot(value)', launcher)
+        self.assertIn("'snapshot': view.checked_snapshot", launcher)          # (pane_request: Focus Mode's and the Workbench's)
 
     def test_a_preset_with_nothing_selected_shows_its_first_block_never_an_input(self):
         blocks = [{'dsp': 0, 'id': 'inputA', 'position': None, 'path': 0}, {'dsp': 0, 'id': 'split', 'position': 0, 'path': 0},
@@ -710,7 +710,7 @@ class ScriptTests(unittest.TestCase):
         self.assertLess(load.index("endDrag('a preset change')"), load.index("send({type: 'focusPreset', number: command.number})"))
         self.assertNotIn('targetBinding', load)                                      # nothing is written to load it
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        for piece in ('focus.checked_preset(value)', 'nam_level.load_preset(number)', 'Thread(target=focus_load, args=(value,), daemon=True).start()'):
+        for piece in ("'preset': view.checked_preset", 'nam_level.load_preset(number)', 'Thread(target=focus_load, args=(value, view), daemon=True).start()'):
             self.assertIn(piece, launcher)
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
         for piece in ("ask('preset', 'previous')", "ask('preset', 'next')", "ask('preset', index)", "message.type === 'notice'"):
@@ -878,8 +878,9 @@ class WiringTests(unittest.TestCase):
         self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("'action': 'select'", launcher)
-        self.assertIn('focus.checked_set(value)', launcher)             # a value from the page is checked before it is sent
-        self.assertIn("check = focus.checked_model if name == 'model' else focus.checked_capture", launcher)
+        # a value, a model or a capture from the page is checked before it is sent (pane_request, for either pane)
+        for piece in ("'set': view.checked_set", "'model': view.checked_model", "'capture': view.checked_capture", 'command = check(value) if shown else None'):
+            self.assertIn(piece, launcher)
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         peek = binding[binding.index('function peekValue'):binding.index("// Focus Mode's top bar: a value of the preset itself")]
         self.assertIn('parameter(', peek)
@@ -900,7 +901,9 @@ class WiringTests(unittest.TestCase):
         self.assertEqual(page.count('https://'), 0)                      # no font, script or picture from the internet
         self.assertIn("ask('exit')", page)
         self.assertIn("ask('select', {dsp: b.dsp, id: b.id})", page)
-        self.assertIn("ask('set', {dsp: block.dsp, id: block.id, key, value, phase})", page)
+        shared = (ROOT / 'pane_controls.js').read_text(encoding='utf-8')               # its controls' writes, shared with the Workbench
+        self.assertIn('<script src="pane_controls.js"></script>', page)
+        self.assertIn("ask('set', {dsp: block.dsp, id: block.id, key, value, phase})", shared)
         self.assertIn("ask('model', {dsp: block.dsp, id: block.id, symbol})", page)
         self.assertIn("ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot})", page)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')

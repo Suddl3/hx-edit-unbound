@@ -1,4 +1,5 @@
-// Focus Mode's pane: one WebView2 window, a child of HX Edit's main window, showing focus_view.html.
+// Focus Mode's pane, and the Workbench's: one WebView2 window, a child of HX Edit's main window, showing focus_view.html
+// (or workbench.html, the page it is given).
 // focus_view.py starts it and talks to it over its standard input and output:
 //
 //   FocusView.exe <parent window handle, 0 = its own window> <profile folder> <page url> <host=folder>...
@@ -31,7 +32,7 @@ sealed class FocusView : Form
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hwnd);
     [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 
-    // The page's undo and redo buttons: HX Edit's own Ctrl+Z and Ctrl+Shift+Z (its Edit menu's keys), typed into
+    // The page's undo, redo and save buttons: HX Edit's own Ctrl+Z, Ctrl+Shift+Z and Ctrl+S (its Edit and File menus' keys), typed into
     // HX Edit's window (the keyboard goes there first), so HX Edit undoes exactly as it does for the user. Nothing
     // for a pane with no HX Edit.
     void PressInEditor(byte key, bool shift)
@@ -242,6 +243,7 @@ sealed class FocusView : Form
                 message.TryGetValue("value", out value);
                 if ((string)name == "undo") { PressInEditor(0x5A, false); return; }      // Ctrl+Z
                 if ((string)name == "redo") { PressInEditor(0x5A, true); return; }       // Ctrl+Shift+Z
+                if ((string)name == "save") { PressInEditor(0x53, false); return; }      // Ctrl+S: HX Edit's File > Save Preset
                 Send(new { type = "action", name = (string)name, value = value });
             };
             core.Navigate(page);

@@ -164,6 +164,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     meter = None
     memory = None
     focus = None
+    workbench = None
+    after_resume = []           # what runs once HX Edit is running (the Workbench, when it was left on)
     pid = device.spawn([str(exe)], cwd=str(exe.parent))
     try:
         session = device.attach(pid)
@@ -214,6 +216,17 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             except Exception as error:
                 focus = None
                 trace({'type': 'focusView', 'event': 'unavailable', 'error': str(error)})
+            # The Workbench (workbench.py): a modern view of the regular editor in the same kind of pane, reading and
+            # writing through Focus Mode's script and checks; without Focus Mode it is not offered.
+            workbench_start = False
+            if focus is not None:
+                try:
+                    from workbench import WorkbenchView, setting_on
+                    workbench = WorkbenchView(exe.parent / 'res', settings=nam_catalog.load_settings(), trace=trace)
+                    workbench_start = setting_on(nam_catalog.load_settings())
+                except Exception as error:
+                    workbench = None
+                    trace({'type': 'workbench', 'event': 'unavailable', 'error': str(error)})
             # Read-only research probes: only in a copy prepared with this marker file.
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
@@ -286,6 +299,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         script.post({'type': 'chainOption', 'payload': {'name': name, 'on': on}})
                 elif name == 'focusMode':
                     focus_mode(not focus_on[0])
+                elif name == 'workbench':
+                    workbench_mode(True)
                 elif name == 'chainArt':
                     on = not chain_art[0]
                     chain_art[0] = on
@@ -297,6 +312,26 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # It starts off with every launch, and the page's own "Editor" button turns it off the same way.
             focus_on = [False]
             focus_missing = [False]     # its script did not install (a byte guard): the menu item says so
+            # The Workbench, on or off (settings.json "workbench", kept from one launch to the next). It is shown while
+            # it is on and Focus Mode is not: Focus Mode's "Editor" button comes back to it, and the two panes never
+            # stand over each other. HX Edit's own toolbar items (the meter, the Unbound button) step aside for either.
+            workbench_on = [False]
+            def workbench_show():
+                shown = workbench_on[0] and not focus_on[0]
+                if workbench is not None:
+                    workbench.set_on(shown)
+                meter.set_chain_option('focusMode', focus_on[0] or workbench_on[0])
+                if not detached.is_set():
+                    script.post({'type': 'focusMode', 'payload': {'pane': 'workbench', 'on': shown}})
+            def workbench_mode(on, notice=None, keep=True):
+                if on and (workbench is None or focus_missing[0]):
+                    on, notice = False, 'The Workbench is not available in this copy.'
+                workbench_on[0] = on
+                if keep:
+                    nam_catalog.save_setting('workbench', on)
+                workbench_show()
+                if notice:
+                    meter.receive({'type': 'dspNotice', 'text': notice})
             def focus_mode(on, notice=None):
                 if on and (focus is None or focus_missing[0]):
                     on, notice = False, 'Focus Mode is not available in this copy.'
@@ -310,22 +345,24 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.receive({'type': 'dspNotice', 'text': notice})
                 if not detached.is_set():
                     script.post({'type': 'focusMode', 'payload': {'on': on}})
-            def focus_load(number):
+                workbench_show()                         # back on the Workbench when it is on, or out of Focus Mode's way
+            def focus_load(number, view=None):
+                view = view or focus                     # the pane that asked (Focus Mode or the Workbench)
                 try:
                     import nam_level
                     nam_level.load_preset(number)
                 except Exception as error:               # no MIDI port, or it is busy: said in the pane
                     trace({'type': 'focusView', 'event': 'preset-load-failed', 'number': number, 'error': str(error)})
-                    focus.notice(f'Preset {number:03d} did not load. {error}')
+                    view.notice(f'Preset {number:03d} did not load. {error}')
                     return
                 for _ in range(30):                      # HX Edit follows within a moment when the Floor took it
                     time.sleep(.1)
-                    preset = (focus.state or {}).get('preset') if isinstance(focus.state, dict) else None
+                    preset = (view.state or {}).get('preset') if isinstance(view.state, dict) else None
                     if isinstance(preset, dict) and preset.get('number') == number:
                         return
-                if focus_on[0]:
+                if view.on:
                     trace({'type': 'focusView', 'event': 'preset-load-unseen', 'number': number})
-                    focus.notice(f'The Floor did not load preset {number:03d}. Check MIDI PC Receive in its Global Settings.')
+                    view.notice(f'The Floor did not load preset {number:03d}. Check MIDI PC Receive in its Global Settings.')
             def focus_look_save():
                 try:
                     import floor_store
@@ -339,38 +376,38 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 trace({'type': 'focusView', 'event': 'look-saved', 'slots': len(store['nam']['slots'])})
                 focus.notice(f"Saved for the Floor: the default backgrounds and {len(store['nam']['slots'])} capture pictures. "
                              "It goes onto the Floor with its next picture update.")
-            def focus_action(name, value):
-                if name == 'exit':
-                    focus_mode(False)
-                elif name == 'failed':
-                    focus_mode(False, 'Focus Mode could not start.')
-                elif name == 'select' and isinstance(value, dict) and value.get('dsp') in (0, 1) and isinstance(value.get('id'), str):
-                    # A block clicked in the pane's chain strip: HX Edit selects it, and the pane follows.
-                    if focus_on[0] and not detached.is_set():
+            def pane_request(view, shown, name, value):
+                # What either pane asks of HX Edit, each request checked by the pane's driver (focus_view.FocusView)
+                # and only while that pane is shown. True when it was one of these.
+                if name == 'select' and isinstance(value, dict) and value.get('dsp') in (0, 1) and isinstance(value.get('id'), str):
+                    # A block clicked in the pane's chain: HX Edit selects it, and the pane follows.
+                    if shown and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': {'action': 'select', 'dsp': value['dsp'], 'id': value['id'][:16]}})
-                elif name == 'set':
-                    # A knob, a switch or the bypass turned in the pane: one value of the block it shows, inside the
-                    # model's own range (focus_view.checked_set), written as HX Edit's own sliders write it.
-                    command = focus.checked_set(value) if focus is not None and focus_on[0] else None
-                    if command and not detached.is_set():
-                        script.post({'type': 'focusCommand', 'payload': command})
-                elif name == 'snapshot':
-                    # Another snapshot, chosen in the pane's top bar: recalled as HX Edit's own control does.
-                    command = focus.checked_snapshot(value) if focus is not None and focus_on[0] else None
-                    if command and not detached.is_set():
-                        script.post({'type': 'focusCommand', 'payload': command})
-                elif name == 'preset':
-                    # Another preset of the loaded setlist, from the pane's top bar (its arrows or its list).
-                    # focus_view.js first closes a drag left open on this preset, then asks back ('load').
-                    command = focus.checked_preset(value) if focus is not None and focus_on[0] else None
+                elif name in ('set', 'snapshot', 'preset', 'model', 'capture'):
+                    # A knob, a switch or the bypass (inside the model's own range: view.checked_set), another snapshot,
+                    # another preset of the loaded setlist (focus_view.js first closes a drag left open, then asks back:
+                    # 'load'), or another model or a capture for the block the pane shows.
+                    check = {'set': view.checked_set, 'snapshot': view.checked_snapshot, 'preset': view.checked_preset,
+                             'model': view.checked_model, 'capture': view.checked_capture}[name]
+                    command = check(value) if shown else None
                     if command and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': command})
                 elif name == 'load':
                     # The preset is loaded as a footswitch or the Level tool loads it (a MIDI Program Change over
                     # USB); HX Edit follows on its own. Nothing is saved; what was not saved in the preset left
                     # behind is lost, as with HX Edit's own preset list.
-                    if focus is not None and focus_on[0] and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
-                        Thread(target=focus_load, args=(value,), daemon=True).start()
+                    if shown and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
+                        Thread(target=focus_load, args=(value, view), daemon=True).start()
+                else:
+                    return False
+                return True
+            def focus_action(name, value):
+                if name == 'exit':
+                    focus_mode(False)
+                elif name == 'failed':
+                    focus_mode(False, 'Focus Mode could not start.')
+                elif focus is not None and pane_request(focus, focus_on[0], name, value):
+                    pass
                 elif name == 'look':
                     # Change look in the pane: a block's or a preset's own look (settings.json presetLooks), or a
                     # default (floorLook.assign, the same one the Floor look page edits). Checked by focus_view.
@@ -384,14 +421,29 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # "Save for the Floor": the file the Floor's picture tool reads, as Save on the Floor look page.
                     if focus is not None and focus_on[0]:
                         Thread(target=focus_look_save, daemon=True).start()
-                elif name in ('model', 'capture'):
-                    # Another model, or a capture, chosen from the pane's list for the block it shows.
-                    check = focus.checked_model if name == 'model' else focus.checked_capture
-                    command = check(value) if focus is not None and focus_on[0] else None
-                    if command and not detached.is_set():
-                        script.post({'type': 'focusCommand', 'payload': command})
+            def workbench_action(name, value):
+                if name == 'menu':
+                    # The page's Editor | Focus switch and its Unbound menu. The tools are panels of HX Edit's own
+                    # screen, which the pane would cover: the Workbench steps aside for them.
+                    choice = workbench.checked_menu(value)
+                    if choice == 'classic':
+                        workbench_mode(False)
+                    elif choice == 'focus':
+                        focus_mode(True)
+                    elif choice:
+                        workbench_mode(False)
+                        unbound_choice(choice)
+                elif name == 'failed':
+                    workbench_mode(False, 'The Workbench could not start.', keep=False)
+                else:
+                    pane_request(workbench, workbench_on[0] and not focus_on[0], name, value)
             if focus is not None:
                 focus.on_action = focus_action
+            if workbench is not None:
+                workbench.on_action = workbench_action
+                workbench.show_options({'level': bool(preview.level)})
+                if workbench_start:
+                    after_resume.append(lambda: workbench_mode(True, keep=False))
             ir_dots = [options.get('irDots') is not False]
             chain_art = [options.get('chainArt') is True]
             chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False,
@@ -419,6 +471,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 meter.receive(payload)
             if focus:
                 focus.receive(payload)
+            if workbench:
+                workbench.receive(payload)
                 if payload.get('reason') == 'focus-view' and payload.get('stage') == 'unavailable':
                     focus_missing[0] = True
             if host:
@@ -489,6 +543,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
         if host:
             host.start()
         device.resume(pid)
+        for step in after_resume:
+            step()
         detached.wait()
         if preview.thread:
             preview.thread.join(timeout=2)
@@ -510,6 +566,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.close()
                 if focus:
                     focus.close()
+                if workbench:
+                    workbench.close()
             finally:
                 if preview:
                     preview.close_diagnostics()

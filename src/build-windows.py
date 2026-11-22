@@ -32,6 +32,7 @@ APP_FILES = (
     'nam_sidebar.py', 'nam_sidebar.js', 'NamLibrary.cs', 'floor_memory.py', 'capture_icons.py',
     'dsp_meter.py', 'dsp_meter.js', 'window_keep.js', 'floor_store.py',
     'focus_view.py', 'focus_view.js', 'focus_view.cs', 'focus_view.html',
+    'pane_controls.js', 'workbench.py', 'workbench.html', 'workbench_layout.js',
 )
 # Pictures the app's patches and the library read at run time (capture_icons, nam_catalog, nav_resources).
 ASSET_FOLDERS = ('nam_capture_icons', 'nam_category_icons', 'nav_images')
