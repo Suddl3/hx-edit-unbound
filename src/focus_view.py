@@ -716,6 +716,56 @@ class FocusView:
             return None
         return {'action': 'capture', 'dsp': block['dsp'], 'id': block['id'], 'slot': slot}
 
+    def _empty(self, dsp, lane, place):
+        """Whether a place of a path's lane is empty in the state the page was shown."""
+        state = self.state if isinstance(self.state, dict) else {}
+        return not any(isinstance(b, dict) and b.get('dsp') == dsp and str(b.get('id', '')).startswith('block')
+                       and b.get('position') == place and b.get('path') == lane for b in state.get('blocks') or [])
+
+    @staticmethod
+    def _cell(value):
+        """(dsp, lane, place) of a request, or None: a path, its lane A or B, one of its eight places."""
+        if not isinstance(value, dict):
+            return None
+        found = tuple(value.get(key) for key in ('dsp', 'lane', 'place'))
+        if any(isinstance(x, bool) or not isinstance(x, int) for x in found):
+            return None
+        dsp, lane, place = found
+        return found if dsp in (0, 1) and lane in (0, 1) and 0 <= place <= 7 else None
+
+    def checked_add(self, value):
+        """The Workbench's request to add a block on an empty place, as the command for focus_view.js, or None: a model
+        HX Edit's picker offers, or a capture that is on the Floor (a NAM block with that capture)."""
+        where = self._cell(value)
+        if not where or not self._empty(*where):
+            return None
+        command = {'action': 'add', 'dsp': where[0], 'lane': where[1], 'place': where[2]}
+        symbol, slot = value.get('symbol'), value.get('slot')
+        if isinstance(symbol, str) and slot is None:
+            offered = {s for group in self.catalog()['lists'] for folder in group['folders'] for s in folder['models']}
+            return {**command, 'symbol': symbol} if symbol in offered else None
+        state = self.state if isinstance(self.state, dict) else {}
+        on_floor = {c.get('slot') for c in state.get('captures') or [] if isinstance(c, dict)}
+        if symbol is None and not isinstance(slot, bool) and isinstance(slot, int) and 1 <= slot <= 127 and slot in on_floor:
+            return {**command, 'slot': slot}
+        return None
+
+    def checked_remove(self, value):
+        """The Workbench's request to remove a block, or None: only a block of the chain the page was shown."""
+        block = self._block(value)
+        if not block or not str(block.get('id', '')).startswith('block'):
+            return None
+        return {'action': 'remove', 'dsp': block['dsp'], 'id': block['id']}
+
+    def checked_move(self, value):
+        """The Workbench's request to move a block to an empty place of its own path (lane A or B), or None."""
+        block, where = self._block(value), self._cell(value)
+        if not block or not str(block.get('id', '')).startswith('block') or not where or where[0] != block['dsp']:
+            return None
+        if (where[1], where[2]) == (block.get('path'), block.get('position')) or not self._empty(*where):
+            return None
+        return {'action': 'move', 'dsp': block['dsp'], 'id': block['id'], 'lane': where[1], 'place': where[2]}
+
     def checked_set(self, value):
         """The page's request to set a value, as the command for focus_view.js, or None when it is not one of the
         selected kind: a control of that block's model (kept inside its range), its tempo switch or note, or its

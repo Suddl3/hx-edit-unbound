@@ -706,7 +706,7 @@ class ScriptTests(unittest.TestCase):
         for write in ('write', 'selectRow', 'clearSelection', 'appendRow', 'postMessage'):   # reading only
             self.assertNotIn(write, names)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        load = script[script.index("} else if (command.action === 'preset') {"):script.index('} else if (command.action) swap(command)')]
+        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move'].includes(command.action)) change(command);")]
         self.assertLess(load.index("endDrag('a preset change')"), load.index("send({type: 'focusPreset', number: command.number})"))
         self.assertNotIn('targetBinding', load)                                      # nothing is written to load it
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
@@ -807,7 +807,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.setValue(target, dsp, id, key, value, 'refresh')", script)
-        self.assertEqual(script.count('finish('), 5)                       # defined once; after a single change, each way a drag ends, a capture
+        self.assertEqual(script.count('finish('), 6)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
 
     def test_the_pane_never_outlives_hx_edit(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
@@ -861,10 +861,15 @@ class WiringTests(unittest.TestCase):
 
     def test_the_script_writes_only_values_and_a_selection_is_a_click_on_the_chain(self):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        for other in ('addModel', 'writeValue', '.restore(', 'Interceptor.replace', 'writePointer', 'writeU32'):
+        for other in ('writeValue', '.restore(', 'Interceptor.replace', 'writePointer', 'writeU32'):
             self.assertNotIn(other, script)
+        # The Workbench's chain changes, each once, only inside change() (test_workbench has their checks).
+        body = script[script.index('function change(command)'):script.index('function followAdd(')]
+        for call in ('targetBinding.addModel(', 'targetBinding.removeBlock(', 'targetBinding.moveBlock('):
+            self.assertEqual(script.count(call), 1, call)
+            self.assertIn(call, body)
         # A model or a capture from the pane's list: HX Edit's own picker calls, on a block of the chain, room checked first.
-        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 1))
+        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 2))   # (a swap; a capture added)
         swap = script[script.index('function swap(command)'):script.index('function finish(') if script.index('function finish(') > script.index('function swap(command)') else script.index('function endDrag(')]
         self.assertLess(swap.index('focusRoom('), swap.index('targetBinding.setModel('))
         self.assertIn('!chainBlock.test(block.id)', swap)

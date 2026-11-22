@@ -240,6 +240,48 @@ function installFocusView(options, parts) {
     changed = true;
     send({type: 'toneTrace', reason: 'focus-view', stage: 'swap', action: command.action, to: next});
   }
+  // The Workbench changes the chain itself: a block added on an empty place, removed, or moved to an empty place of
+  // its own path (HX Edit's own entries: target_binding addModel, removeBlock, moveBlock; one undo step each). A capture
+  // added is a NAM block whose slot is set as soon as HX Edit has put the block in the chain (until then the place
+  // reads empty): left on slot 1, a plain IR, it would silence the Floor.
+  let addFollow = null;
+  const ADD_FOLLOW_MS = 3000;
+  const occupied = (dsp, lane, place) => (known || []).some(block => block.dsp === dsp && chainBlock.test(block.id) && block.position === place && block.path === lane);
+  function change(command) {
+    if (editor.isNull()) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
+    endDrag('a chain change');
+    if (command.action === 'add') {
+      if (occupied(command.dsp, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
+      const next = command.slot ? namEngines[0] : command.symbol;
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], loads, null, next, command.dsp);
+      if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'add-no-room'}); return; }
+      targetBinding.addModel(editor, command.dsp, command.lane, command.place, next);
+      if (command.slot) addFollow = {dsp: command.dsp, lane: command.lane, place: command.place, slot: command.slot, until: Date.now() + ADD_FOLLOW_MS};
+    } else {
+      const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
+      if (!block || !chainBlock.test(block.id)) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
+      if (command.action === 'remove') targetBinding.removeBlock(editor, block.dsp, block.id);
+      else {
+        if (occupied(block.dsp, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
+        targetBinding.moveBlock(editor, block.dsp, block.id, command.lane, command.place);
+      }
+    }
+    changed = true;
+    send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-' + command.action, dsp: command.dsp, lane: command.lane, place: command.place});
+  }
+  function followAdd(blocks) {
+    // The capture's slot on the block just added, once a full reading shows it at its place.
+    if (!addFollow) return;
+    if (Date.now() > addFollow.until) { send({type: 'toneTrace', reason: 'focus-view', stage: 'add-follow-lost'}); addFollow = null; return; }
+    const made = blocks.find(block => block.dsp === addFollow.dsp && chainBlock.test(block.id) && block.position === addFollow.place &&
+                                      block.path === addFollow.lane && namEngines.includes(block.model));
+    if (!made) return;
+    const follow = addFollow; addFollow = null;
+    targetBinding.setIndex(editor, made.dsp, made.id, follow.slot);
+    finish(editor, made.dsp, made.id, 'Index', follow.slot);
+    changed = true;
+    send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-set', slot: follow.slot});
+  }
   function finish(target, dsp, id, key, value) {
     // After a single change or a drag's end: the same value once more, for HX Edit's own views only.
     if (!notify) return;
@@ -313,7 +355,8 @@ function installFocusView(options, parts) {
           changed = true;
           send({type: 'focusPreset', number: command.number});
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
-        } else if (command.action) swap(command); else write(command);
+        } else if (['add', 'remove', 'move'].includes(command.action)) change(command);
+        else if (command.action) swap(command); else write(command);
       }
       catch (error) { drag = null; changed = true; send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)}); }
     }
@@ -330,6 +373,7 @@ function installFocusView(options, parts) {
       const full = !state;
       if (full) { state = focusSnapshot(peek, cursor, parameters, namEngines); knownAt = began; changed = false; }
       known = state.blocks;
+      if (full && addFollow) { try { followAdd(known); } catch (error) { addFollow = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'add-follow-failed', error: String(error.message)}); } }
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
       if (full) { onFloor = captures(); header = presetHeader(); }
       state.captures = onFloor;
@@ -385,7 +429,7 @@ function installFocusView(options, parts) {
     }
     on = value === true;
     if (timer) { clearInterval(timer); timer = null; }
-    lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = [];
+    lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null;
     pickKey = null; pickTries = 0;
     header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null]};
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }
@@ -448,6 +492,15 @@ function installFocusView(options, parts) {
                  ((value.action === 'model' && typeof value.symbol === 'string' && modelSymbol.test(value.symbol) && !namEngines.includes(value.symbol)) ||
                   (value.action === 'capture' && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127))) {
         writes.push({action: value.action, dsp: value.dsp, id: value.id, symbol: value.symbol, slot: value.slot});
+        queued = false; ask();
+      } else if (on && [0, 1].includes(value.dsp) && writes.length < 32 && (
+                 (value.action === 'add' && [0, 1].includes(value.lane) && Number.isInteger(value.place) && value.place >= 0 && value.place <= 7 &&
+                  ((typeof value.symbol === 'string' && modelSymbol.test(value.symbol) && !namEngines.includes(value.symbol) && value.slot === undefined) ||
+                   (value.symbol === undefined && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127))) ||
+                 (value.action === 'remove' && typeof value.id === 'string' && chainBlock.test(value.id)) ||
+                 (value.action === 'move' && typeof value.id === 'string' && chainBlock.test(value.id) && [0, 1].includes(value.lane) &&
+                  Number.isInteger(value.place) && value.place >= 0 && value.place <= 7))) {
+        writes.push({action: value.action, dsp: value.dsp, id: value.id, lane: value.lane, place: value.place, symbol: value.symbol, slot: value.slot});
         queued = false; ask();
       }
       commands();

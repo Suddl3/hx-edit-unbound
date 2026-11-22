@@ -119,7 +119,21 @@
   .tile.io .strip { background: none; border-top-color: transparent; color: var(--dim); font-size: 11px; width: 100%; margin: 0; padding: 2px 0 6px; }
   .tile.io.on { border-style: solid; }
   .slot { position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #101216; border: 1px dashed #4a505d; color: var(--faint);
-          display: grid; place-items: center; font-size: 16px; line-height: 1; cursor: default; }
+          display: grid; place-items: center; font-size: 16px; line-height: 1; transition: transform .12s, border-color .12s, color .12s, background .12s; }
+  .slot:hover { color: var(--ink); border-color: #8d93a0; border-style: solid; }
+  .slot.picking { color: var(--ink); border: 1.5px solid #f0c94a; background: rgb(240 201 74 / .12); }
+  .board.dragging .slot.spot { color: var(--ink); border: 1.5px solid #8d93a0; transform: scale(1.25); }
+  .board.dragging .slot.spot.over { border-color: #f0c94a; background: rgb(240 201 74 / .2); transform: scale(1.55); }
+  .board.dragging .slot.off-path { opacity: .25; }
+  .board.dragging .tile.lifted { opacity: .35; }
+  .laneb-hint { position: absolute; left: 70px; right: 70px; height: 0; border-top: 2px dashed #3a3f4b; }
+  .ghost { position: fixed; z-index: 20; pointer-events: none; width: 92px; height: 92px; border-radius: 11px; background: #1b1e26; border: 1px solid rgb(var(--c));
+           box-shadow: 0 16px 40px rgb(0 0 0 / .6); display: grid; place-items: center; transform: translate(-50%, -60%) rotate(-2deg); }
+  .ghost img { width: 60px; height: 60px; object-fit: contain; }
+  .btn.danger:hover:not(:disabled) { border-color: #e2483c; color: #ff8a80; }
+  .pcats button.remove { color: var(--faint); }
+  .pcats button.remove:hover { color: #ff8a80; }
+  .card .pic.place { display: grid; place-items: center; font-size: 64px; color: var(--faint); border: 2px dashed #3a3f4b; border-radius: 18px; width: 110px; height: 110px; }
   .node { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: #20242d; border: 1.5px solid #7b8394; color: var(--ink);
           display: grid; place-items: center; box-shadow: 0 4px 12px rgb(0 0 0 / .5); }
   .node svg { width: 16px; height: 16px; }
@@ -267,6 +281,7 @@ const ICON = {
   swap: svg('<path d="M3 5.5h9.5M10 3l2.5 2.5L10 8M13 10.5H3.5M6 8l-2.5 2.5L6 13"/>'),
   power: svg('<path d="M8 2v6"/><path d="M4.5 4.2a5 5 0 1 0 7 0"/>'),
   undo: svg('<path d="M5.5 3 2.5 6l3 3"/><path d="M2.5 6h7a4 4 0 0 1 0 8H7"/>'),
+  trash: svg('<path d="M2.5 4.5h11M6 4.5V3h4v1.5M4 4.5l.7 9h6.6l.7-9M6.7 7v4.5M9.3 7v4.5"/>'),
   search: svg('<circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/>'),
   split: svg('<path d="M2 8h4l4-4h4M6 8l4 4h4"/>'),
   mix: svg('<path d="M14 8h-4L6 4H2M10 8l-4 4H2"/>'),
@@ -343,6 +358,7 @@ function drawChain(force) {
   const key = JSON.stringify([width, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
                               now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), dsp]);
   if (!force && key === shownChain) return;
+  if (dragging) return;                                         // (redrawn when the drag ends)
   shownChain = key;
   board.replaceChildren(...paths.map(p => drawPath(p, geometry(width), now)));
 }
@@ -355,13 +371,19 @@ function drawPath(p, g, now) {
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
     button.append(led, image(pictures(block), 'pic', true), strip);
     button.title = title(block) + (capture(block) ? ' (' + model(block).name + ')' : '') + (block.enabled ? '' : ', bypassed');
-    button.onclick = () => ask('select', {dsp: block.dsp, id: block.id});
+    button.onclick = () => { if (!dragDone) ask('select', {dsp: block.dsp, id: block.id}); };
+    button.onpointerdown = event => liftBlock(event, block, button);
     return button;
   };
-  const slot = (place, y) => {
-    const plus = el('span', 'slot', '+');
-    plus.style.cssText = `left:${g.px(place) + g.tile / 2}px;top:${y}px`;
-    plus.title = 'An empty place. Adding a block here from the Workbench comes in the next stage; use the classic screen for now.';
+  const slot = (place, y, lane, offered) => {
+    // An empty place: click to add a block here; while a block is dragged, a place it can go.
+    const plus = el('button', 'slot spot' + (picking && picking.place && picking.dsp === p.dsp && picking.lane === lane && picking.place === place ? ' picking' : ''), '+');
+    plus.style.cssText = `left:${g.px(place) + g.tile / 2}px;top:${y}px` + (offered ? ';visibility:hidden' : '');
+    plus.dataset.dsp = p.dsp; plus.dataset.lane = lane; plus.dataset.place = place;
+    if (offered) plus.classList.add('offered');              // lane B on a path without one: shown only while dragging
+    plus.title = 'Add a block here (Path ' + (p.dsp + 1) + ', lane ' + (lane ? 'B' : 'A') + ', place ' + (place + 1) + ')';
+    plus.setAttribute('aria-label', plus.title);
+    plus.onclick = () => openPlacePicker(p.dsp, lane, place);
     return plus;
   };
   const io = (end, y, right) => {
@@ -377,7 +399,7 @@ function drawPath(p, g, now) {
   if (two) {
     const from = p.from, to = p.to;
     wires.push(`<path class="b" d="${p.inputB ? `M32 ${YB}` : `M${g.gap(from)} ${YA}V${YB - R}Q${g.gap(from)} ${YB} ${g.gap(from) + R} ${YB}`}${p.outputB ? `H${g.width - 32}` : `H${g.gap(to) - R}Q${g.gap(to)} ${YB} ${g.gap(to)} ${YB - R}V${YA}`}"/>`);
-    for (let k = from; k < to; k++) out.push(p.b[k] ? tileOf(p.b[k], k, YB) : slot(k, YB));
+    for (let k = from; k < to; k++) out.push(p.b[k] ? tileOf(p.b[k], k, YB) : slot(k, YB, 1));
     if (p.inputB) out.push(io(p.inputB, YB, false));
     else if (p.split) {
       const node = el('span', 'node'); node.innerHTML = ICON.split; node.style.cssText = `left:${g.gap(from)}px;top:${YA}px`;
@@ -395,7 +417,13 @@ function drawPath(p, g, now) {
       out.push(node, note);
     }
   }
-  p.a.forEach((block, k) => out.push(block ? tileOf(block, k, YA) : slot(k, YA)));
+  p.a.forEach((block, k) => out.push(block ? tileOf(block, k, YA) : slot(k, YA, 0)));
+  // A path with one lane: a block dragged below it opens lane B (HX Edit puts a split and a mixer round it).
+  if (!two) {
+    const hint = el('div', 'laneb-hint offered'); hint.style.cssText = `top:${YB}px;visibility:hidden`;
+    out.push(hint);
+    for (let k = 0; k < 8; k++) out.push(slot(k, YB, 1, true));
+  }
   if (p.input) out.push(io(p.input, YA, false));
   if (p.output) out.push(io(p.output, YA, true));
   const row = el('div', 'path'), tag = el('div', 'tag'), grid = el('div', 'grid8');
@@ -404,10 +432,58 @@ function drawPath(p, g, now) {
   if (share !== null) { const meter = el('span', 'meter ' + (view.level || '')); meter.append(el('i')); meter.firstChild.style.width = Math.min(100, share) + '%'; tag.append(meter); }
   tag.title = two ? 'Lanes ' + (p.dsp + 1) + 'A and ' + (p.dsp + 1) + 'B' : '';
   grid.style.height = (two ? 218 : 104) + 'px';
+  grid.dataset.two = two ? '1' : '';
   grid.innerHTML = `<svg>${wires.join('')}</svg>`;
   grid.append(...out);
   row.append(tag, grid);
   return row;
+}
+// ---- moving a block: drag it onto an empty place of its own path ----------------------------------------------------
+let dragging = null, dragDone = false;
+function liftBlock(event, block, tile) {
+  if (event.button !== 0) return;
+  const start = {x: event.clientX, y: event.clientY};
+  dragDone = false;
+  const move = e => {
+    if (!dragging) {
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 7) return;
+      dragging = {block, over: null};
+      const board = $('board'); board.classList.add('dragging'); tile.classList.add('lifted');
+      // Only the block's own path takes it (moving to the other path comes later); a one-lane path offers lane B.
+      for (const target of board.querySelectorAll('.slot.spot')) {
+        const mine = Number(target.dataset.dsp) === block.dsp;
+        target.classList.toggle('off-path', !mine);
+        if (target.classList.contains('offered') && mine) target.style.visibility = 'visible';
+      }
+      for (const grid of board.querySelectorAll('.grid8')) {
+        const path = Number(grid.querySelector('.slot')?.dataset.dsp);
+        if (path === block.dsp && !grid.dataset.two) { grid.style.height = '218px'; grid.querySelector('.laneb-hint').style.visibility = 'visible'; }
+      }
+      const ghost = el('div', 'ghost'); ghost.style.setProperty('--c', tint(block).join(' '));
+      ghost.append(image(pictures(block), '', true));
+      document.body.append(ghost); dragging.ghost = ghost;
+    }
+    dragging.ghost.style.left = e.clientX + 'px'; dragging.ghost.style.top = e.clientY + 'px';
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const target = under && under.closest('.slot.spot:not(.off-path)');
+    // a little room round each place, so a drop need not hit the small circle
+    const near = target || [...$('board').querySelectorAll('.slot.spot:not(.off-path)')].find(slot => {
+      if (slot.style.visibility === 'hidden') return false;
+      const r = slot.getBoundingClientRect(); return Math.abs(e.clientX - (r.left + r.width / 2)) < 44 && Math.abs(e.clientY - (r.top + r.height / 2)) < 44;
+    });
+    if (dragging.over !== near) { if (dragging.over) dragging.over.classList.remove('over'); dragging.over = near || null; if (near) near.classList.add('over'); }
+  };
+  const up = () => {
+    removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+    if (!dragging) return;
+    const target = dragging.over;
+    dragging.ghost.remove();
+    dragging = null; dragDone = true; setTimeout(() => { dragDone = false; }, 0);
+    $('board').classList.remove('dragging');
+    if (target) ask('move', {dsp: block.dsp, id: block.id, lane: Number(target.dataset.lane), place: Number(target.dataset.place)});
+    drawChain(true);
+  };
+  addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
 }
 function splitFormat(split) {
   const params = model(split).params;
@@ -462,6 +538,15 @@ function fill(item, p) {
 }
 function card(block, picker) {
   const box = el('div', 'card'), m = model(block), taken = capture(block);
+  if (block.isPlace) {
+    // The picker for an empty place: what is being added, and where.
+    const pic = el('div', 'pic place', '+'), head = el('div');
+    head.append(el('h4', '', 'New block'), el('p', '', 'Path ' + (block.dsp + 1) + ' \u00b7 lane ' + (block.lane ? 'B' : 'A') + ' \u00b7 place ' + (block.place + 1)));
+    head.lastChild.style.color = 'var(--dim)';
+    const row = el('div', 'btnrow'), cancel = el('button', 'btn', 'Cancel'); cancel.onclick = closePicker; row.append(cancel);
+    box.append(pic, head, el('span', 'hint', 'Click a model or a capture to add it here. Undo takes it away again.'), row);
+    return box;
+  }
   if (isEnd(block)) { const pic = el('div', 'pic io'); pic.innerHTML = ICON.jack; box.append(pic); }
   else if (block.id === 'split' || block.id === 'join') { const pic = el('div', 'pic io'); pic.innerHTML = block.id === 'split' ? ICON.split : ICON.mix; box.append(pic); }
   else box.append(image(pictures(block), 'pic'));
@@ -490,6 +575,12 @@ function card(block, picker) {
     power.onclick = () => ask('set', {dsp: block.dsp, id: block.id, key: '@enabled', value: !block.enabled, phase: 'single'});
     row.append(power);
   }
+  if (isChain(block)) {
+    const remove = el('button', 'btn danger'); remove.innerHTML = ICON.trash;
+    remove.title = 'Remove this block (Delete). Undo puts it back.'; remove.setAttribute('aria-label', 'Remove this block');
+    remove.onclick = () => removeBlock(block);
+    row.append(remove);
+  }
   box.append(row);
   return box;
 }
@@ -512,8 +603,18 @@ function capturePanel(block) {
   later.append(open); box.append(later);
   return box;
 }
+function removeBlock(block) {
+  if (!block || !isChain(block)) return;
+  ask('remove', {dsp: block.dsp, id: block.id});
+  if (picking) closePicker();
+}
+function placeTarget() {
+  // The empty place the picker fills, drawn as a block that is not there yet.
+  return {dsp: picking.dsp, id: '', model: '', enabled: true, isPlace: true, lane: picking.lane, place: picking.place};
+}
 function drawPanel() {
   const panel = $('insp'), block = current();
+  if (picking && picking.place) { drawPicker(placeTarget()); return; }
   if (!block) {
     picking = false;
     const key = 'empty:' + (state.blocks.length ? 1 : 0);
@@ -555,15 +656,27 @@ function categoryOf(block) {
   const name = model(block).category;
   return (catalog.lists || []).some(group => group.name === name) ? name : ((catalog.lists || [])[0] || {}).name || '';
 }
+let lastCategory = '';
+function openPlacePicker(dsp, lane, place) {
+  picking = {place: true, dsp, lane, place}; pickQuery = '';
+  pickedCategory = lastCategory || ((catalog.lists || [])[0] || {}).name || ''; pickedTab = '';
+  shownPanel = ''; shownChain = '';
+  drawChain(true); drawPanel();
+}
 function openPicker(tab) {
   const block = current(); if (!block || !isChain(block)) return;
-  picking = true; pickQuery = '';
+  picking = {block: true}; pickQuery = '';
   pickedCategory = tab === 'captures' || isNam(block) ? (captureHome(block) || '') : categoryOf(block);
   pickedTab = tab === 'captures' || isNam(block) ? 'captures' : '';
   shownPanel = '';
   drawPanel();
 }
-function closePicker() { if (!picking) return; picking = false; shownPanel = ''; drawPanel(); }
+function closePicker() {
+  if (!picking) return;
+  const place = picking.place;
+  picking = false; shownPanel = ''; drawPanel();
+  if (place) drawChain(true);
+}
 function captureHome(block) {
   // A NAM block's picker opens on the category its capture's kind belongs to ("All captures" when none).
   const taken = capture(block), kind = taken && 'gear' in taken ? namKind(taken) : null;
@@ -579,7 +692,7 @@ function room(block) {
 function drawPicker(block) {
   const panel = $('insp'), lists = catalog.lists || [], captures = state.captures || [];
   const space = room(block), loads = catalog.loads || {}, namCost = Number(loads[catalog.nam[0]]);
-  const key = JSON.stringify(['pick', block.dsp, block.id, block.model, block.slot ?? 0, pickedCategory, pickedTab, pickQuery, space, captures.map(c => [c.slot, c.name, c.icon])]);
+  const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickQuery, space, captures.map(c => [c.slot, c.name, c.icon])]);
   panel.style.setProperty('--c', tint(block).join(' '));
   if (key === shownPanel) return;
   const typing = document.activeElement && document.activeElement.id === 'pickSearch';
@@ -592,7 +705,7 @@ function drawPicker(block) {
     const row = el('button', group.name === pickedCategory && pickedTab !== 'all' ? 'on' : '');
     row.style.setProperty('--c', group.tint.join(' '));
     row.append(el('span', 'led'), el('span', '', group.name));
-    row.onclick = () => { pickedCategory = group.name; pickedTab = ''; pickQuery = ''; drawPicker(block); };
+    row.onclick = () => { pickedCategory = lastCategory = group.name; pickedTab = ''; pickQuery = ''; drawPicker(block); };
     cats.append(row);
   }
   cats.append(el('hr'));
@@ -600,11 +713,20 @@ function drawPicker(block) {
   all.append(el('span', 'led'), el('span', '', 'All captures'));
   all.onclick = () => { pickedCategory = ''; pickedTab = 'all'; pickQuery = ''; drawPicker(block); };
   cats.append(all);
+  if (!block.isPlace) {                                          // (as the mock-up: the last row of the list)
+    cats.append(el('hr'));
+    const gone = el('button', 'remove'); gone.style.setProperty('--c', '90 96 108');
+    gone.append(el('span', 'led'), el('span', '', 'Remove block'));
+    gone.title = 'Remove this block. Undo puts it back.';
+    gone.onclick = () => removeBlock(block);
+    cats.append(gone);
+  }
   // the category's kinds as tabs, captures among them
   const group = lists.find(g => g.name === pickedCategory);
   const kinds = (catalog.captureTabs || {})[pickedCategory] || [];
   const mine = pickedTab === 'all' ? captures : captures.filter(c => kinds.includes(namKind(c)));
   if (!group && pickedTab !== 'all') pickedTab = kinds.length ? 'captures' : '';
+  if (block.isPlace && !group && pickedTab !== 'all' && !kinds.length) pickedTab = 'all';
   const folders = group ? group.folders : [];
   if (group && pickedTab !== 'captures' && pickedTab !== 'all' && !folders.some(f => f.name === pickedTab)) {
     const own = folders.find(f => f.models.includes(block.model));
@@ -628,7 +750,7 @@ function drawPicker(block) {
   input.value = pickQuery; input.spellcheck = false; input.autocomplete = 'off';
   input.oninput = () => { pickQuery = input.value; drawPicker(block); };
   search.append(input);
-  const roomLine = el('span', 'room', 'Room on DSP ' + (block.dsp + 1) + ' for this block');
+  const roomLine = el('span', 'room', 'Room on DSP ' + (block.dsp + 1) + (block.isPlace ? '' : ' for this block'));
   if (space) roomLine.append(el('b', 'num', Math.max(0, Math.round(100 * space.left / space.budget)) + '%')); else roomLine.append(el('b', '', '—'));
   roomLine.title = space ? 'What this block may cost: the DSP’s free room plus what this block costs now (the Floor’s own figures).' : 'The Floor has not reported its DSP load yet.';
   head.append(seg, search, roomLine);
@@ -642,7 +764,10 @@ function drawPicker(block) {
     item.style.setProperty('--c', m.tint.join(' '));
     item.append(image(m.pictures, 'pic', true, true), el('i', 'num', inUse ? 'in use' : costText(cost)), el('span', '', m.name));
     item.title = m.name + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
-    item.onclick = () => { if (!inUse) ask('model', {dsp: block.dsp, id: block.id, symbol}); };
+    item.onclick = () => {
+      if (block.isPlace) { ask('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol}); closePicker(); }
+      else if (!inUse) ask('model', {dsp: block.dsp, id: block.id, symbol});
+    };
     return item;
   };
   const captureCard = c => {
@@ -652,7 +777,10 @@ function drawPicker(block) {
     item.style.setProperty('--c', NAM_TINT.join(' '));
     item.append(image(captureUrls(c), 'pic', true, true), el('i', 'num', inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : costText(cost)), el('span', '', c.name));
     item.title = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
-    item.onclick = () => { if (!inUse) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot}); };
+    item.onclick = () => {
+      if (block.isPlace) { ask('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot}); closePicker(); }
+      else if (!inUse) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
+    };
     return item;
   };
   let shownCards = [];
@@ -774,7 +902,8 @@ function receive(message) {
     state = message.state;
     const after = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
     if (before !== after) snapGroup = null;
-    if (picking && !(current() && isChain(current()))) picking = false;
+    if (picking && picking.block && !(current() && isChain(current()))) picking = false;
+    if (picking && picking.place && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
   }
   else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
   else if (message.type === 'options') { options = message.options || {}; return; }
@@ -801,6 +930,11 @@ addEventListener('pointerdown', e => {
   if (!$('menu').hidden && !e.target.closest('#menu, #menuButton')) closeMenu();
 });
 addEventListener('keydown', e => {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && visible && !e.target.closest('input')) {
+    const block = current();
+    if (block && isChain(block)) { e.preventDefault(); removeBlock(block); }
+    return;
+  }
   if (e.key !== 'Escape' || !visible) return;
   if (!$('presetList').hidden) closePresets(); else if (!$('menu').hidden) closeMenu(); else if (picking) closePicker();
 });

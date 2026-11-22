@@ -348,7 +348,48 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel };
+  // The Workbench: a block removed or moved as HX Edit itself does it, through the edit buffer's own entries beside
+  // add (research/modern-ui/STAGE2-FINDINGS.md, read from HX Edit.exe 3.82 on disk). Remove is vtbl+0xb0 = 0x514bc0
+  // (dsp, &Variant(block name), flags): what HX Edit's block picker calls when "None" is chosen (0x21a565). Move is
+  // vtbl+0xa0 = 0x5123c0 (dsp, &Variant(block name), &Variant{5, (lane<<16)|place}, flags): what its chain's drag
+  // calls (0x412932). Flags 0x80000000, a user's action: one undo step each. Only a block of the chain, never an
+  // input, an output, the split or the join, and only when the entry is the one studied.
+  function editorEntry(editor, slot, rva, what) {
+    const entry = editor.readPointer().add(slot).readPointer();
+    if (!entry.equals(base.add(rva))) fail(`unexpected editor ${what} entry`);
+    return entry;
+  }
+  function removeBlock(editor, dsp, blockName) {
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName)) fail('unsupported block');
+    const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    try {
+      name = string(blockName);
+      const result = remove(editor, dsp, name, 0x80000000);
+      if (result < 0) fail(`removing the block was rejected (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  function moveBlock(editor, dsp, blockName, row, col) {
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName) || ![0, 1].includes(row) ||
+        !Number.isInteger(col) || col < 0 || col > 7) fail('unsupported block or place');
+    const move = new NativeFunction(editorEntry(editor, 0xa0, 0x5123c0, 'move-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    const cell = emptyVariant();
+    try {
+      name = string(blockName);
+      cell.writeU32(5); cell.add(8).writeU32(((row << 16) | col) >>> 0);
+      const result = move(editor, dsp, name, cell, 0x80000000);
+      if (result < 0) fail(`moving the block was rejected (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel,
+           removeBlock, moveBlock };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

@@ -252,6 +252,74 @@ class PaneDriverTests(unittest.TestCase):
         self.assertEqual(self.view.checked_model({'dsp': 0, 'id': 'block0', 'symbol': 'HD2_DelayOther'})['symbol'], 'HD2_DelayOther')
 
 
+class ChainChangeTests(unittest.TestCase):
+    """Stage 2: a block added on an empty place, removed, or moved to an empty place of its own path."""
+
+    def setUp(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe')
+        self.addCleanup(self.view.close)
+        self.view.state = {'blocks': [{'dsp': 0, 'id': 'inputA', 'model': 'HD2_In', 'enabled': True},
+                                      {'dsp': 0, 'id': 'block0', 'model': 'HD2_DelayTest', 'position': 0, 'path': 0, 'enabled': True},
+                                      {'dsp': 0, 'id': 'block1', 'model': 'HD2_DelayOther', 'position': 3, 'path': 1, 'enabled': True},
+                                      {'dsp': 1, 'id': 'block0', 'model': 'HD2_DelayWide', 'position': 0, 'path': 0, 'enabled': True}],
+                           'captures': [{'slot': 17, 'name': 'Klon', 'icon': ''}]}
+
+    def test_a_block_is_added_only_on_an_empty_place_with_a_model_of_the_picker_or_a_capture_on_the_floor(self):
+        add = self.view.checked_add
+        self.assertEqual(add({'dsp': 0, 'lane': 0, 'place': 1, 'symbol': 'HD2_DelayWide'}),
+                         {'action': 'add', 'dsp': 0, 'lane': 0, 'place': 1, 'symbol': 'HD2_DelayWide'})
+        self.assertEqual(add({'dsp': 1, 'lane': 1, 'place': 7, 'slot': 17}), {'action': 'add', 'dsp': 1, 'lane': 1, 'place': 7, 'slot': 17})
+        for refused in ({'dsp': 0, 'lane': 0, 'place': 0, 'symbol': 'HD2_DelayWide'},          # taken
+                        {'dsp': 0, 'lane': 1, 'place': 3, 'slot': 17},                          # taken (lane B)
+                        {'dsp': 0, 'lane': 0, 'place': 1, 'symbol': 'HD2_In'},                  # not a model of the picker
+                        {'dsp': 0, 'lane': 0, 'place': 1, 'symbol': 'HD2_AmpNAMLite'},          # the NAM engine comes with a capture
+                        {'dsp': 0, 'lane': 0, 'place': 1, 'slot': 18},                          # not on the Floor
+                        {'dsp': 0, 'lane': 0, 'place': 1, 'slot': 17, 'symbol': 'HD2_DelayWide'},
+                        {'dsp': 0, 'lane': 2, 'place': 1, 'slot': 17}, {'dsp': 0, 'lane': 0, 'place': 8, 'slot': 17},
+                        {'dsp': True, 'lane': 0, 'place': 1, 'slot': 17}, {'dsp': 2, 'lane': 0, 'place': 1, 'slot': 17}, None):
+            self.assertIsNone(add(refused), refused)
+
+    def test_only_a_block_of_the_chain_is_removed(self):
+        self.assertEqual(self.view.checked_remove({'dsp': 0, 'id': 'block1'}), {'action': 'remove', 'dsp': 0, 'id': 'block1'})
+        for refused in ({'dsp': 0, 'id': 'inputA'}, {'dsp': 1, 'id': 'block1'}, {'dsp': 0}, None):
+            self.assertIsNone(self.view.checked_remove(refused))
+
+    def test_a_block_moves_only_to_an_empty_place_of_its_own_path(self):
+        move = self.view.checked_move
+        self.assertEqual(move({'dsp': 0, 'id': 'block0', 'lane': 1, 'place': 0}), {'action': 'move', 'dsp': 0, 'id': 'block0', 'lane': 1, 'place': 0})
+        self.assertEqual(move({'dsp': 0, 'id': 'block1', 'lane': 0, 'place': 7})['place'], 7)
+        for refused in ({'dsp': 0, 'id': 'block0', 'lane': 0, 'place': 0},     # where it is
+                        {'dsp': 0, 'id': 'block0', 'lane': 1, 'place': 3},     # taken
+                        {'dsp': 1, 'id': 'block0', 'lane': 0, 'place': 0},     # taken, other path's block
+                        {'dsp': 0, 'id': 'inputA', 'lane': 0, 'place': 2},
+                        {'dsp': 0, 'id': 'block0', 'lane': 0, 'place': -1}):
+            self.assertIsNone(move(refused), refused)
+        other_path = dict(self.view.state)
+        self.assertIsNone(move({'dsp': 1, 'id': 'block0', 'lane': 0, 'place': 0}))
+
+    def test_the_native_calls_are_hx_edits_own_entries_and_only_for_a_block_of_the_chain(self):
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        remove = binding[binding.index('function removeBlock'):binding.index('function moveBlock')]
+        move = binding[binding.index('function moveBlock'):binding.index('return { capture, read')]
+        self.assertIn("editorEntry(editor, 0xb0, 0x514bc0, 'remove-block')", remove)
+        self.assertIn("editorEntry(editor, 0xa0, 0x5123c0, 'move-block')", move)
+        for body in (remove, move):
+            self.assertIn('/^block\d{1,2}$/.test(blockName)', body)
+            self.assertIn('0x80000000', body)
+        self.assertIn('col < 0 || col > 7', move)
+        self.assertIn('if (!entry.equals(base.add(rva)))', binding)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        change = script[script.index('function change(command)'):script.index('function followAdd(')]
+        self.assertLess(change.index('focusRoom('), change.index('targetBinding.addModel('))          # room checked first
+        self.assertLess(change.rindex('occupied('), change.index('targetBinding.moveBlock('))         # still empty
+        self.assertIn('targetBinding.setIndex(editor, made.dsp, made.id, follow.slot)', script)         # a capture is never left on slot 1
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("'add': view.checked_add, 'remove': view.checked_remove, 'move': view.checked_move", launcher)
+
+
 @unittest.skipUnless(NODE, 'node is not installed')
 class ScriptTests(unittest.TestCase):
     def test_the_script_reads_while_either_pane_is_shown(self):
@@ -262,7 +330,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@tempo')", script)
         # Still only values, a model, a capture, a snapshot and a click on the chain are ever written.
         self.assertEqual(script.count('targetBinding.setValue('), 4)
-        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 1))
+        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 2))   # (a swap; a capture added)
 
 
 class WiringTests(unittest.TestCase):
@@ -309,7 +377,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"ask\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move'})
 
 
 if __name__ == '__main__':
