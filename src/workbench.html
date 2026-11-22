@@ -123,13 +123,19 @@
           display: grid; place-items: center; font-size: 16px; line-height: 1; transition: transform .12s, border-color .12s, color .12s, background .12s; }
   .slot:hover { color: var(--ink); border-color: #8d93a0; border-style: solid; }
   .slot.picking { color: var(--ink); border: 1.5px solid #f0c94a; background: rgb(240 201 74 / .12); }
-  .board.dragging .slot.spot { color: var(--ink); border: 1.5px solid #8d93a0; transform: scale(1.25); }
-  .board.dragging .slot.spot.over { border-color: #f0c94a; background: rgb(240 201 74 / .2); transform: scale(1.55); }
-  .board.dragging .slot.off-path { opacity: .25; }
+  /* while a block is dragged nothing opens: the places are faint dots, the one it would go to lights up */
+  .board.dragging .slot.spot { color: transparent; border: 1.5px solid #6b7180; background: #101216; transform: scale(.5); opacity: .55; transition: transform .12s, opacity .12s; }
+  .board.dragging .slot.spot.over { color: var(--ink); border-color: #f0c94a; background: rgb(240 201 74 / .2); transform: scale(1.45); opacity: 1; }
+  .board.dragging .slot.off-path { opacity: .12; }
+  /* under the lit place of a one-lane path: drop here for a parallel lane (lane B) at that place */
+  .lane-tab { position: absolute; z-index: 4; transform: translateX(-50%); white-space: nowrap; font: 600 11px/1 inherit; font-family: inherit;
+              color: #e9e1ff; background: #4b34ad; border: 1px solid #7a5cf0; border-radius: 0 0 8px 8px; padding: 5px 10px 6px; cursor: default; }
+  .lane-tab.over { background: #6a4be0; border-color: #c4b2ff; box-shadow: 0 4px 16px rgb(122 92 240 / .45); }
   .board.dragging .tile.lifted { opacity: .35; }
   .laneb-hint { position: absolute; left: 70px; right: 70px; height: 0; border-top: 2px dashed #3a3f4b; }
   .ghost { position: fixed; z-index: 20; pointer-events: none; width: 92px; height: 92px; border-radius: 11px; background: #1b1e26; border: 1px solid rgb(var(--c));
-           box-shadow: 0 16px 40px rgb(0 0 0 / .6); display: grid; place-items: center; transform: translate(-50%, -60%) rotate(-2deg); }
+           box-shadow: 0 16px 40px rgb(0 0 0 / .6); display: grid; place-items: center; transform: translate(18px, calc(-100% - 10px)) rotate(-2deg); opacity: .92; }
+  /* (up and to the right of the pointer: the place it would go to and the parallel-lane tab stay in sight) */
   .ghost img { width: 60px; height: 60px; object-fit: contain; }
   .btn.danger:hover:not(:disabled) { border-color: #e2483c; color: #ff8a80; }
   .pcats button.remove { color: var(--faint); }
@@ -489,35 +495,30 @@ function liftBlock(event, block, tile) {
       if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 7) return;
       dragging = {block, over: null};
       const board = $('board'); board.classList.add('dragging'); tile.classList.add('lifted');
-      // Either path takes it when it has room; a one-lane path offers lane B.
-      for (const target of board.querySelectorAll('.slot.spot')) {
-        const fits = fitsOn(block, Number(target.dataset.dsp));
-        target.classList.toggle('off-path', !fits);
-        if (target.classList.contains('offered') && fits) target.style.visibility = 'visible';
-      }
-      for (const grid of board.querySelectorAll('.grid8')) {
-        const path = Number(grid.querySelector('.slot')?.dataset.dsp);
-        if (fitsOn(block, path) && !grid.dataset.two) { grid.style.height = '218px'; grid.querySelector('.laneb-hint').style.visibility = 'visible'; }
-      }
+      // Either path takes it when it has room. Nothing opens: a one-lane path offers lane B by a tab under the lit place.
+      for (const target of board.querySelectorAll('.slot.spot')) target.classList.toggle('off-path', !fitsOn(block, Number(target.dataset.dsp)));
       const ghost = el('div', 'ghost'); ghost.style.setProperty('--c', tint(block).join(' '));
       ghost.append(image(pictures(block), '', true));
       document.body.append(ghost); dragging.ghost = ghost;
     }
     dragging.ghost.style.left = e.clientX + 'px'; dragging.ghost.style.top = e.clientY + 'px';
     const under = document.elementFromPoint(e.clientX, e.clientY);
-    const target = under && under.closest('.slot.spot:not(.off-path)');
+    const onTab = under && under.closest('.lane-tab');
+    const target = !onTab && under && under.closest('.slot.spot:not(.off-path)');
     // a little room round each place, so a drop need not hit the small circle
-    const near = target || [...$('board').querySelectorAll('.slot.spot:not(.off-path)')].find(slot => {
+    const near = onTab || target || [...$('board').querySelectorAll('.slot.spot:not(.off-path)')].find(slot => {
       if (slot.style.visibility === 'hidden') return false;
       const r = slot.getBoundingClientRect(); return Math.abs(e.clientX - (r.left + r.width / 2)) < 44 && Math.abs(e.clientY - (r.top + r.height / 2)) < 44;
     });
     if (dragging.over !== near) { if (dragging.over) dragging.over.classList.remove('over'); dragging.over = near || null; if (near) near.classList.add('over'); }
+    if (!onTab) laneTab(near && near.dataset.lane === '0' && !near.closest('.grid8').dataset.two ? near : null);
   };
   const up = () => {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
     if (!dragging) return;
     const target = dragging.over;
     dragging.ghost.remove();
+    laneTab(null);
     dragging = null; dragDone = true; setTimeout(() => { dragDone = false; }, 0);
     $('board').classList.remove('dragging');
     const to = target ? Number(target.dataset.dsp) : block.dsp;
@@ -525,6 +526,17 @@ function liftBlock(event, block, tile) {
     drawChain(true);
   };
   addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+}
+// The tab under a lit place of a one-lane path: dropped on, the block goes to lane B at that place (a parallel lane).
+function laneTab(spot) {
+  let tab = document.querySelector('.lane-tab');
+  if (!spot) { if (tab) tab.remove(); return; }
+  if (tab && tab.parentNode === spot.parentNode && tab.dataset.place === spot.dataset.place) return;
+  if (!tab) { tab = el('div', 'lane-tab', '\u2935 Parallel lane'); tab.title = 'Drop here to put the block on a parallel lane (lane B) of this path'; }
+  tab.classList.remove('over');
+  tab.dataset.dsp = spot.dataset.dsp; tab.dataset.lane = '1'; tab.dataset.place = spot.dataset.place;
+  tab.style.left = spot.style.left; tab.style.top = (parseFloat(spot.style.top) + 20) + 'px';
+  spot.parentNode.append(tab);
 }
 function splitFormat(split) {
   const params = model(split).params;
