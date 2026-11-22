@@ -131,6 +131,7 @@
   /* under the lit place of a one-lane path: a dotted branch, the shape a split would take, ending in a small circle:
      dropped there, the block goes on a parallel lane (lane B) at that place */
   .lane-branch { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 1; }
+  .lane-branch.behind { z-index: auto; }
   .lane-branch path { fill: none; stroke: #9a80ff; stroke-width: 1.6; stroke-dasharray: 4 5; opacity: .85; }
   .board.dragging .slot.spot.lane-drop { z-index: 2; color: #9a80ff; border-color: #9a80ff; transform: scale(.8); opacity: .95; }
   .board.dragging .slot.spot.lane-drop.over { color: var(--ink); border-color: #f0c94a; background: rgb(240 201 74 / .2); transform: scale(1.35); opacity: 1; }
@@ -414,6 +415,7 @@ function drawPath(p, g, now) {
   const tileOf = (block, place, y) => {
     const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (same(block, now) ? ' on' : '') + (block.id === 'pending' ? ' coming' : ''));
     button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - 52}px;width:${g.tile}px`;
+    button.dataset.dsp = p.dsp; button.dataset.lane = y === YA ? 0 : 1; button.dataset.place = place;   // (laneBranch)
     const led = el('span', 'led' + (block.enabled ? '' : ' off'));
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
     button.append(led, image(pictures(block), 'pic', true), strip);
@@ -525,8 +527,13 @@ function liftBlock(event, block, tile) {
     }
     if (dragging.over !== near) { if (dragging.over) dragging.over.classList.remove('over'); dragging.over = near || null; if (near) near.classList.add('over'); }
     dragging.ghost.classList.toggle('aimed', !!near);
-    // over a place of a one-lane path, the dotted branch under it (kept while the pointer is on its circle)
-    if (!(near && near.classList.contains('lane-drop'))) laneBranch(near && near.dataset.lane === '0' && !near.closest('.grid8').dataset.two ? near : null);
+    // over a place of a one-lane path, the dotted branch under it (kept while the pointer is on its circle); over a
+    // block of such a path's lane A, the dragged one too, the same branch dips under that block
+    const oneLane = item => item.dataset.lane === '0' && !item.closest('.grid8').dataset.two;
+    if (!(near && near.classList.contains('lane-drop'))) {
+      const over = !near && under && under.closest('.tile[data-place]');
+      laneBranch(near ? (oneLane(near) ? near : null) : over && oneLane(over) && fitsOn(block, Number(over.dataset.dsp)) ? over : null);
+    }
   };
   const up = () => {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
@@ -544,14 +551,16 @@ function liftBlock(event, block, tile) {
 }
 // The dotted branch under a lit place of a one-lane path: from the line before the place, down under it to a small
 // circle and back up after it (the shape a split there would take). Dropped on the circle, the block goes to lane B at
-// that place: a parallel lane. Nothing else moves.
+// that place: a parallel lane. Nothing else moves. Under a block (spot: its tile) the branch passes behind it and the
+// circle sits on its bottom edge (a block fills the row's height: there is no room below it).
 const BRANCH_DROP = 44;
 function laneBranch(spot) {
   const shown = document.querySelector('.lane-branch'), circle = document.querySelector('.lane-drop');
   if (!spot) { if (shown) shown.remove(); if (circle) circle.remove(); return; }
   if (circle && circle.parentNode === spot.parentNode && circle.dataset.place === spot.dataset.place) return;
   if (shown) shown.remove(); if (circle) circle.remove();
-  const grid = spot.parentNode, x = parseFloat(spot.style.left), y = parseFloat(spot.style.top), d = BRANCH_DROP;
+  const tile = spot.classList.contains('tile'), grid = spot.parentNode;
+  const x = parseFloat(spot.style.left) + (tile ? spot.offsetWidth / 2 : 0), y = parseFloat(spot.style.top) + (tile ? 52 : 0), d = tile ? 52 : BRANCH_DROP;
   const half = (Number(grid.dataset.step) || 167) / 2, bend = Math.min(30, half / 2.5);
   const holder = el('div');                                    // (parsed as the chain's own wires are)
   holder.innerHTML = `<svg class="lane-branch"><path d="M ${x - half} ${y} C ${x - half + bend} ${y}, ${x - half + bend} ${y + d}, ` +
@@ -561,7 +570,8 @@ function laneBranch(spot) {
   drop.style.cssText = `left:${x}px;top:${y + d}px`;
   drop.dataset.dsp = spot.dataset.dsp; drop.dataset.lane = '1'; drop.dataset.place = spot.dataset.place;
   drop.title = 'Drop here for a parallel lane (lane B) at this place';
-  grid.append(svg, drop);
+  if (tile) { svg.classList.add('behind'); grid.insertBefore(svg, grid.firstChild.nextSibling); grid.append(drop); }   // (after the wires, before the blocks)
+  else grid.append(svg, drop);
 }
 function splitFormat(split) {
   const params = model(split).params;

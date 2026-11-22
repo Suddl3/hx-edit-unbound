@@ -213,8 +213,13 @@ class ChainTests(unittest.TestCase):
         lift = page[page.index('function liftBlock('):page.index('const BRANCH_DROP')]
         self.assertNotIn("style.height = '218px'", lift)                        # no path opens a second row
         self.assertNotIn("style.visibility = 'visible'", lift)
-        self.assertIn("laneBranch(near && near.dataset.lane === '0' && !near.closest('.grid8').dataset.two ? near : null)", lift)
+        self.assertIn("const oneLane = item => item.dataset.lane === '0' && !item.closest('.grid8').dataset.two;", lift)
+        # an empty place of a one-lane path, or a block of its lane A (the dragged one too) where its model fits
+        self.assertIn("laneBranch(near ? (oneLane(near) ? near : null) : over && oneLane(over) && fitsOn(block, Number(over.dataset.dsp)) ? over : null);", lift)
+        self.assertIn("button.dataset.dsp = p.dsp; button.dataset.lane = y === YA ? 0 : 1; button.dataset.place = place;", page)
         branch = page[page.index('function laneBranch('):page.index('function splitFormat(')]
+        self.assertIn("y = parseFloat(spot.style.top) + (tile ? 52 : 0), d = tile ? 52 : BRANCH_DROP", branch)   # on its bottom edge
+        self.assertIn("svg.classList.add('behind')", branch)                     # the branch passes behind the block
         self.assertIn("el('div', 'slot spot lane-drop', '+')", branch)          # its circle is a place like the others
         self.assertIn("drop.dataset.lane = '1'", branch)                         # dropped on: lane B at that place
         self.assertIn('laneBranch(null);', lift)                                 # gone when the drag ends
