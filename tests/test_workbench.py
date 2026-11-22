@@ -208,15 +208,17 @@ class ChainTests(unittest.TestCase):
         self.assertTrue(self.pending(early[:2] + [dict(early[2], model='HD2_X')], model)['settled'])
         self.assertTrue(self.pending(chain, None)['settled'])
 
-    def test_a_drag_opens_nothing_and_offers_a_parallel_lane_by_a_tab(self):
+    def test_a_drag_opens_nothing_and_offers_a_parallel_lane_by_a_dotted_branch(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
-        lift = page[page.index('function liftBlock('):page.index('function laneTab(')]
+        lift = page[page.index('function liftBlock('):page.index('const BRANCH_DROP')]
         self.assertNotIn("style.height = '218px'", lift)                        # no path opens a second row
         self.assertNotIn("style.visibility = 'visible'", lift)
-        self.assertIn("laneTab(near && near.dataset.lane === '0' && !near.closest('.grid8').dataset.two ? near : null)", lift)
-        tab = page[page.index('function laneTab('):page.index('function splitFormat(')]
-        self.assertIn("tab.dataset.lane = '1'", tab)                             # dropped on: lane B at that place
-        self.assertIn('laneTab(null);', lift)                                    # gone when the drag ends
+        self.assertIn("laneBranch(near && near.dataset.lane === '0' && !near.closest('.grid8').dataset.two ? near : null)", lift)
+        branch = page[page.index('function laneBranch('):page.index('function splitFormat(')]
+        self.assertIn("el('div', 'slot spot lane-drop', '+')", branch)          # its circle is a place like the others
+        self.assertIn("drop.dataset.lane = '1'", branch)                         # dropped on: lane B at that place
+        self.assertIn('laneBranch(null);', lift)                                 # gone when the drag ends
+        self.assertNotIn('lane-tab', page)
 
     def test_a_redraw_moves_the_pictures_already_showing(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
