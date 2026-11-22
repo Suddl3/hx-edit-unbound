@@ -115,7 +115,7 @@ function installNamSidebar(namView) {
     });
   }
   function chainOption() {
-    // HX Unbound menu: "Large pictures in the signal chain" (chainLarge), "Block names under large pictures" (chainNames).
+    // HX Unbound options: "Large pictures" (chainLarge), "Block names under them" (chainNames), "Glow behind them" (chainGlow).
     recv('chainOption', message => {
       const name = message.payload?.name, on = message.payload?.on === true;
       namView.queueSidebarAction(() => toneView.setChainOption?.(name, on));

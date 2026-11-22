@@ -64,6 +64,7 @@ function installTargetBinding(options = {}) {
     if (type === 5) return { type, value: value.add(8).readU32() };
     if (type === 8) return { type, value: value.add(8).readFloat() };
     if (type === 10) return { type, value: nativeString(value.add(8).readPointer()) };
+    if (type === 11) return { type, value: value.add(8).readU8() !== 0 };   // a switch (@enabled, Polarity, …)
     fail('unsupported native parameter type');
   }
   function editorReady(editor) {
@@ -205,6 +206,83 @@ function installTargetBinding(options = {}) {
       return {model: model.value, index};
     } catch (_) { return null; }
   }
+  // Focus Mode: any value of a block, an input, an output, the split or the join, read from the edit
+  // buffer by its name in HX Edit's model definitions ("Drive", "@enabled", "@model", …). Read-only.
+  // A number, a string or a boolean; undefined when the block or the value is not there.
+  const placePattern = /^(?:block\d{1,2}|input[AB]|output[AB]|split|join)$/, keyPattern = /^@?[A-Za-z0-9_ ]{1,48}$/;
+  function peekValue(editor, dsp, blockName, key) {
+    try {
+      if (!editorReady(editor) || ![0, 1].includes(dsp) || !placePattern.test(blockName) || !keyPattern.test(key)) return undefined;
+      return parameter({editor, dsp, blockName}, key).value;
+    } catch (_) { return undefined; }
+  }
+  // Focus Mode's top bar: a value of the preset itself, read as Level presets reads it (dsp -1): the group
+  // "global" ("@current_snapshot") or "snapshot0".."snapshot7" ("@name"). Read-only; undefined when it is not there.
+  const groupPattern = /^(?:global|snapshot[0-7])$/;
+  function peekGlobal(editor, group, key) {
+    try {
+      if (!editorReady(editor) || !groupPattern.test(group) || !keyPattern.test(key)) return undefined;
+      return parameter({editor, dsp: -1, blockName: group}, key).value;
+    } catch (_) { return undefined; }
+  }
+  // Recalls a snapshot (0..7) as HX Edit's own snapshot control and Level presets do: "@current_snapshot" of
+  // "global", one write with the single-change flag. Nothing is saved.
+  function recallSnapshot(editor, index) {
+    if (!editorReady(editor) || !Number.isInteger(index) || index < 0 || index > 7) fail('unsupported snapshot');
+    const current = parameter({editor, dsp: -1, blockName: 'global'}, '@current_snapshot');
+    if (![4, 5].includes(current.type)) fail('unexpected snapshot value');
+    let group = null, name = null;
+    const variant = emptyVariant();
+    try {
+      group = string('global'); name = string('@current_snapshot');
+      variant.writeU32(current.type); variant.add(8).writeU32(index);
+      const result = writeValue(editor, -1, group, name, variant, WRITE_FLAGS.single);
+      if (result < 0) fail(`snapshot recall was rejected (${result})`);
+    } finally {
+      destroyVariant(variant);
+      if (name) destroyVariant(name);
+      if (group) destroyVariant(group);
+    }
+    return true;
+  }
+  // Focus Mode: a value of a block written as HX Edit's own parameter view writes it (0x229c47 -> the setter
+  // 0x5178c0). The flags are the ones seen on a stock slider (listened to on the Floor editor, 2026-11-20):
+  // a single change 0x80000000; a drag = begin 0x80000001 (the value as it is), each change 0x80000003,
+  // end 0x80000002 (the last value): HX Edit keeps a whole drag as one step of its undo.
+  // A slider's own write leaves HX Edit's parameter views as they are (the slider already shows the value), so
+  // after a write from elsewhere they showed the old value. HX Edit's undo writes with 0x40000000: the views
+  // follow such a write, and it is not kept for undo (both seen on the Floor editor, 2026-11-20; with both bits
+  // set nothing was kept for undo either). So "refresh" is a second write of the value just set, with that flag
+  // alone: HX Edit's own sliders show it, and the step kept for undo is the slider-style write before it.
+  // The stored value's own type is kept (a float, a whole number or a switch). Never a model, a place or a name.
+  const WRITE_FLAGS = Object.freeze({single: 0x80000000, begin: 0x80000001, move: 0x80000003, end: 0x80000002,
+                                     refresh: 0x40000000});
+  const fixedKeys = new Set(['@model', '@position', '@path', '@type', '@stereo']);
+  function setValue(editor, dsp, blockName, key, value, phase) {
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !placePattern.test(blockName) || !keyPattern.test(key) ||
+        fixedKeys.has(key) || !Object.hasOwn(WRITE_FLAGS, phase)) fail('unsupported value write');
+    const current = parameter({editor, dsp, blockName}, key);
+    if (current.type === 11 ? typeof value !== 'boolean' : !([4, 5, 8].includes(current.type) && Number.isFinite(value))) {
+      fail('value does not fit the stored type');
+    }
+    let block = null, name = null;
+    const variant = emptyVariant();
+    try {
+      block = string(blockName); name = string(key);
+      variant.writeU32(current.type);
+      if (current.type === 8) variant.add(8).writeFloat(value);
+      else if (current.type === 11) variant.add(8).writeU8(value ? 1 : 0);
+      else if (current.type === 4) variant.add(8).writeS32(Math.round(value));
+      else variant.add(8).writeU32(Math.max(0, Math.round(value)));
+      const result = writeValue(editor, dsp, block, name, variant, WRITE_FLAGS[phase]);
+      if (result < 0) fail(`write was rejected (${result})`);
+    } finally {
+      destroyVariant(variant);
+      if (name) destroyVariant(name);
+      if (block) destroyVariant(block);
+    }
+    return true;
+  }
   function setIndex(editor, dsp, blockName, slot) {
     // A NAM block's capture slot, written as restore() writes it (one undo step), keeping the
     // stored value's own type. Only for a supported NAM engine and a permanent slot.
@@ -270,7 +348,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, setIndex, setModel, addModel };
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

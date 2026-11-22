@@ -7,7 +7,8 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from threading import Event
+from threading import Event, Thread
+import time
 
 
 ROOT = Path(__file__).resolve().parent
@@ -162,6 +163,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     sidebar = None
     meter = None
     memory = None
+    focus = None
     pid = device.spawn([str(exe)], cwd=str(exe.parent))
     try:
         session = device.attach(pid)
@@ -192,18 +194,32 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                            dragFavorite=str(drag_favorite_path()))
             # HX Unbound menu: "Mark NAM slots in the IR list" (on unless turned off).
             options.update(irDots=nam_catalog.load_settings().get('irNamDots') is not False)
-            # HX Unbound menu: "3D pictures in the signal chain" (off unless turned on), and the pictures it has.
-            options.update(chainArt=nam_catalog.load_settings().get('chainModelArt') is True,
+            # HX Unbound options, as a first launch has them: 3D pictures on, large, with block names, no glow. A choice
+            # made in the menu is kept in settings.json and wins from then on.
+            options.update(chainArt=nam_catalog.load_settings().get('chainModelArt') is not False,
                            chainArtFiles=nam_catalog.chain_art_files(exe.parent / 'res'),
                            # HX Unbound menu: "Large pictures in the signal chain" (off unless turned on).
-                           chainLarge=nam_catalog.load_settings().get('chainLarge') is True,
+                           chainLarge=nam_catalog.load_settings().get('chainLarge') is not False,
                            # HX Unbound menu: "Block names under large pictures" (on unless turned off).
-                           chainNames=nam_catalog.load_settings().get('chainNames') is not False)
+                           chainNames=nam_catalog.load_settings().get('chainNames') is not False,
+                           # HX Unbound options: "Glow behind them" (off unless turned on).
+                           chainGlow=nam_catalog.load_settings().get('chainGlow') is True)
+            # HX Unbound menu: "Focus Mode" (focus_view.py). What its script reads for each model comes from this
+            # copy's own model files; without them the editor starts as usual and the menu item says so.
+            focus_options = {}
+            try:
+                from focus_view import FocusView
+                focus = FocusView(exe.parent / 'res', settings=nam_catalog.load_settings(), trace=trace)
+                focus_options = focus.frida_options()
+            except Exception as error:
+                focus = None
+                trace({'type': 'focusView', 'event': 'unavailable', 'error': str(error)})
             # Read-only research probes: only in a copy prepared with this marker file.
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
                 ('library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
-                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js')) + '\n'
+                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js',
+                 'focus_view.js')) + '\n'
             config = dict(request=uuid4().hex, repeat=True, automatic=True, requireHostMonitor=True)
             # Validate original native bytes before namView attaches to shared
             # entry points. The callback runs only after toneView exists and the
@@ -215,7 +231,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                           "try { installWindowKeeper(); } catch (error) { send({type: 'windowKeeper', event: 'unavailable', error: String(error.message)}); }\n")
             after = (f'\nconnectNativeExportLibrary({json.dumps(config)}, namView);'
                      '\nnamView.setLibraryOpener(window => toneView.openBrowser(window, {library:true, dockPanel:navigationBanner.dockPanel()}));'
-                     '\ninstallNamSidebar(namView);')
+                     '\ninstallNamSidebar(namView);'
+                     # Focus Mode is optional: a failed byte guard leaves the editor as it was.
+                     f"\ntry {{ installFocusView({json.dumps(focus_options)}, {{targetBinding, namView, toneView}}); }}"
+                     " catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'unavailable', error: String(error.message)}); }")
         script = session.create_script(
             f"{before}{view}\n{imports}\n{tone}\n{initialize}const namView = installNamView({json.dumps(profiles)}, {sidebar_width()}, {json.dumps(ir_parameters(exe.parent / 'res'))}, {json.dumps(options)});"
             f"\nconst targetBinding = {'installTargetBinding()' if navigation else 'null'};"
@@ -258,13 +277,15 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.set_ir_dots(on)
                     if not detached.is_set():
                         script.post({'type': 'irDots', 'payload': {'on': on}})
-                elif name in ('chainLarge', 'chainNames'):
+                elif name in ('chainLarge', 'chainNames', 'chainGlow'):
                     on = not chain_options[name]
                     chain_options[name] = on
                     nam_catalog.save_setting(name, on)
                     meter.set_chain_option(name, on)
                     if not detached.is_set():
                         script.post({'type': 'chainOption', 'payload': {'name': name, 'on': on}})
+                elif name == 'focusMode':
+                    focus_mode(not focus_on[0])
                 elif name == 'chainArt':
                     on = not chain_art[0]
                     chain_art[0] = on
@@ -272,14 +293,115 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.set_chain_art(on)
                     if not detached.is_set():
                         script.post({'type': 'chainArt', 'payload': {'on': on}})
+            # Focus Mode, on or off: the pane, the script that reads the blocks for it, and the menu's tick.
+            # It starts off with every launch, and the page's own "Editor" button turns it off the same way.
+            focus_on = [False]
+            focus_missing = [False]     # its script did not install (a byte guard): the menu item says so
+            def focus_mode(on, notice=None):
+                if on and (focus is None or focus_missing[0]):
+                    on, notice = False, 'Focus Mode is not available in this copy.'
+                focus_on[0] = on
+                if focus is not None:
+                    if on:                               # the defaults may have been changed on the Floor look page meanwhile
+                        focus.show_look(nam_catalog.load_settings())
+                    focus.set_on(on)
+                meter.set_chain_option('focusMode', on)
+                if notice:
+                    meter.receive({'type': 'dspNotice', 'text': notice})
+                if not detached.is_set():
+                    script.post({'type': 'focusMode', 'payload': {'on': on}})
+            def focus_load(number):
+                try:
+                    import nam_level
+                    nam_level.load_preset(number)
+                except Exception as error:               # no MIDI port, or it is busy: said in the pane
+                    trace({'type': 'focusView', 'event': 'preset-load-failed', 'number': number, 'error': str(error)})
+                    focus.notice(f'Preset {number:03d} did not load. {error}')
+                    return
+                for _ in range(30):                      # HX Edit follows within a moment when the Floor took it
+                    time.sleep(.1)
+                    preset = (focus.state or {}).get('preset') if isinstance(focus.state, dict) else None
+                    if isinstance(preset, dict) and preset.get('number') == number:
+                        return
+                if focus_on[0]:
+                    trace({'type': 'focusView', 'event': 'preset-load-unseen', 'number': number})
+                    focus.notice(f'The Floor did not load preset {number:03d}. Check MIDI PC Receive in its Global Settings.')
+            def focus_look_save():
+                try:
+                    import floor_store
+                    from floor_memory import FloorMemory
+                    path, store = floor_store.write_for(library, FloorMemory(library.folder),
+                                                        nam_catalog.load_settings().get('floorLook'))
+                except Exception as error:               # no library folder, a picture folder that has gone
+                    trace({'type': 'focusView', 'event': 'look-save-failed', 'error': str(error)})
+                    focus.notice(f'The file for the Floor was not saved. {error}')
+                    return
+                trace({'type': 'focusView', 'event': 'look-saved', 'slots': len(store['nam']['slots'])})
+                focus.notice(f"Saved for the Floor: the default backgrounds and {len(store['nam']['slots'])} capture pictures. "
+                             "It goes onto the Floor with its next picture update.")
+            def focus_action(name, value):
+                if name == 'exit':
+                    focus_mode(False)
+                elif name == 'failed':
+                    focus_mode(False, 'Focus Mode could not start.')
+                elif name == 'select' and isinstance(value, dict) and value.get('dsp') in (0, 1) and isinstance(value.get('id'), str):
+                    # A block clicked in the pane's chain strip: HX Edit selects it, and the pane follows.
+                    if focus_on[0] and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': {'action': 'select', 'dsp': value['dsp'], 'id': value['id'][:16]}})
+                elif name == 'set':
+                    # A knob, a switch or the bypass turned in the pane: one value of the block it shows, inside the
+                    # model's own range (focus_view.checked_set), written as HX Edit's own sliders write it.
+                    command = focus.checked_set(value) if focus is not None and focus_on[0] else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
+                elif name == 'snapshot':
+                    # Another snapshot, chosen in the pane's top bar: recalled as HX Edit's own control does.
+                    command = focus.checked_snapshot(value) if focus is not None and focus_on[0] else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
+                elif name == 'preset':
+                    # Another preset of the loaded setlist, from the pane's top bar (its arrows or its list).
+                    # focus_view.js first closes a drag left open on this preset, then asks back ('load').
+                    command = focus.checked_preset(value) if focus is not None and focus_on[0] else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
+                elif name == 'load':
+                    # The preset is loaded as a footswitch or the Level tool loads it (a MIDI Program Change over
+                    # USB); HX Edit follows on its own. Nothing is saved; what was not saved in the preset left
+                    # behind is lost, as with HX Edit's own preset list.
+                    if focus is not None and focus_on[0] and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
+                        Thread(target=focus_load, args=(value,), daemon=True).start()
+                elif name == 'look':
+                    # Change look in the pane: a block's or a preset's own look (settings.json presetLooks), or a
+                    # default (floorLook.assign, the same one the Floor look page edits). Checked by focus_view.
+                    if focus is not None and focus_on[0]:
+                        changed = focus.changed_look(value, nam_catalog.load_settings())
+                        for key, kept in changed.items():
+                            nam_catalog.save_setting(key, kept)
+                        if changed:
+                            focus.show_look(nam_catalog.load_settings())
+                elif name == 'lookSave':
+                    # "Save for the Floor": the file the Floor's picture tool reads, as Save on the Floor look page.
+                    if focus is not None and focus_on[0]:
+                        Thread(target=focus_look_save, daemon=True).start()
+                elif name in ('model', 'capture'):
+                    # Another model, or a capture, chosen from the pane's list for the block it shows.
+                    check = focus.checked_model if name == 'model' else focus.checked_capture
+                    command = check(value) if focus is not None and focus_on[0] else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
+            if focus is not None:
+                focus.on_action = focus_action
             ir_dots = [options.get('irDots') is not False]
             chain_art = [options.get('chainArt') is True]
-            chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False}
+            chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False,
+                             'chainGlow': options.get('chainGlow') is True}
             meter = DspMeter(trace=trace, on_choice=unbound_choice, icons=exe.parent / 'res' / 'icons_models')
             meter.set_ir_dots(ir_dots[0])
             meter.set_chain_art(chain_art[0])
             for name, on in chain_options.items():
                 meter.set_chain_option(name, on)
+            meter.set_chain_option('focusMode', False)
 
         def on_message(event, _data):
             if event['type'] == 'error':
@@ -295,6 +417,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 sidebar.receive(payload)
             if meter:
                 meter.receive(payload)
+            if focus:
+                focus.receive(payload)
+                if payload.get('reason') == 'focus-view' and payload.get('stage') == 'unavailable':
+                    focus_missing[0] = True
             if host:
                 host.receive(payload)
                 if payload.get('type') == 'floorInventory':
@@ -302,6 +428,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if payload.get('type') == 'ready':
                 ready.set()
             if payload.get('type') in {'toneTrace', 'navigationBanner', 'automaticSlotStatus', 'floorInventoryPresentation',
+                                       'focusBounds',
                                        'dspMeterLayout', 'windowKeeper', 'presetUsage', 'pickerSide', 'favoritesRemoved',
                                        'libraryConnectionGuard', 'librarySlotEvidenceResult'}:
                 trace(payload)
@@ -381,6 +508,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     sidebar.close()
                 if meter:
                     meter.close()
+                if focus:
+                    focus.close()
             finally:
                 if preview:
                     preview.close_diagnostics()
@@ -442,8 +571,13 @@ def main():
             patch_navigation_resources(exe.parent)
             patch_library_navigation(exe.parent)
         if args.nam_category:
-            from nam_catalog import patch_nam_category
+            from nam_catalog import load_settings, patch_model_art, patch_nam_category
             patch_nam_category(exe.parent / 'res')
+            # "3D pictures of the gear" (on unless turned off): HX Edit's block list and grid show the renders too. HX Edit
+            # reads those from its own picture files, so they go into this launch's copy; turning the option on or off
+            # changes the signal chain at once and the block list at the next start.
+            if load_settings().get('chainModelArt') is not False:
+                patch_model_art(exe.parent / 'res')
         run_editor(exe, workspace, device, profiles, firmware, floor_reference=args.floor_reference,
                    tone_window=args.tone_window, navigation=args.navigation)
 

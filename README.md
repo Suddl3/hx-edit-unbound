@@ -13,7 +13,7 @@ Some of HX Edit's own controls work differently here. None of this changes your 
 **Every launch**
 
 - **The IR list drags differently.** Drop a slot on the middle of a block to replace that block (stock HX Edit only inserts). Drop on a block's edge to insert beside it, as before. The block that would be replaced dims while you hover, and blocks slide aside a little faster.
-- **NAM slots become NAM blocks.** A NAM capture slot dragged or double-clicked from the IR list makes a NAM block on that slot, not an IR block. NAM slots show in violet in the IR list (switch this off in the HX Unbound menu).
+- **NAM slots become NAM blocks.** A NAM capture slot dragged or double-clicked from the IR list makes a NAM block on that slot, not an IR block. NAM slots show in violet in the IR list (switch this off in the options, the gear beside the HX Unbound button).
 - **Drag captures onto the chain** from the NAM tab or the library window. On a NAM block, it changes the capture. On an empty cell or another block, that cell becomes a NAM block.
 - **A NAM block is only added where the DSP has room.** Drag a capture over a DSP that cannot fit another NAM block and its picture goes grey with a red outline and "Not enough DSP room here". A drop there changes nothing, and the DSP meter says which DSP is full.
 - **Clearing an IR slot asks first** when presets you have opened still use it.
@@ -39,6 +39,16 @@ Don't like a picture? **Change icon…** picks another from the built-in set, or
 
 <p align="center"><img src="docs/screenshots/icon-picker.png" alt="Choosing a capture's picture" width="420"></p>
 
+### Focus Mode
+
+The **Focus** button on the toolbar swaps HX Edit's signal flow and sliders for a single view of the selected block: its gear, large, standing in its category's scene, with its own controls as knobs and switches. Turn a knob, flip a switch or press the stomp switch to bypass: the block changes as it does from HX Edit's own sliders, and a drag is one step of undo. A strip of the chain on top picks another block. The block's title opens a list to change its model; on a NAM block the line under it lists the captures on the Floor. **Editor** (or the same menu item) brings the normal editor back as it was. **Change look** there sets the background and the picture of the block you are looking at for the loaded preset, one background for the whole preset, or the defaults for every preset.
+
+![Focus Mode on a NAM block](docs/screenshots/focus-mode.jpg)
+
+The small frame in the corner shows what the Floor's own Focus View draws for the same block (with the [HX Unbound Floor](https://github.com/Suddl3/hx-unbound-floor) firmware): the same scene and the same picture. The scenes are the ones chosen on the **Floor look** page. Focus Mode is modelled on that Focus View, which is savedadodo's work.
+
+![Choosing a capture in Focus Mode](docs/screenshots/focus-mode-list.jpg)
+
 ### Level presets
 
 Brings presets and snapshots to one output level, silently. Level plays two seconds of your own recorded playing through each snapshot over USB (nothing comes out of your amp), measures the loudness, and suggests a change to each output block's Level. Keep a lead louder on purpose with an offset, then Apply, with Undo. Recordings are saved per guitar ("Strat · neck"), so you record once. Only output levels change; tone and drive are never touched.
@@ -47,7 +57,7 @@ Brings presets and snapshots to one output level, silently. Level plays two seco
 
 ### In HX Edit's toolbar
 
-**Browse TONE3000** opens TONE3000 inside HX Edit, to preview captures on the Floor and save the ones you like. The **HX Unbound** menu opens Level presets and the NAM library, and the **DSP meter** shows how full each DSP is, as the Floor reports it.
+**Browse TONE3000** opens TONE3000 inside HX Edit, to preview captures on the Floor and save the ones you like. **Focus** opens Focus Mode, the **HX Unbound** menu opens the tools (Level presets, Floor look, the NAM library), the gear beside it holds the options, and the **DSP meter** shows how full each DSP is, as the Floor reports it.
 
 ![The TONE3000 button, the HX Unbound menu and the DSP meter](docs/screenshots/toolbar.png)
 

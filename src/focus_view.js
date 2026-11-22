@@ -1,0 +1,437 @@
+'use strict';
+
+// Focus Mode (HX Unbound menu): the selected block shown large in its scene, in a WebView2 pane
+// over HX Edit's signal flow and edit panel (focus_view.py, focus_view.cs, focus_view.html).
+// This script is the pane's eyes inside HX Edit 3.82 x86: while Focus Mode is on it reads the
+// preset's blocks and the selected block's values from the edit buffer by name (target_binding
+// peekValue: HX Edit's own getter, the one its parameter views use) and sends what changed.
+// A block picked in the pane's chain strip is selected by a click on that block in HX Edit's own
+// chain (under the pane). A knob, a switch or the bypass turned in the pane is one value of the
+// selected block, written as HX Edit's own sliders write it (target_binding setValue): a drag is a
+// begin, its changes and an end, so HX Edit undoes it in one step. A model or a capture chosen from
+// the pane's list is set as HX Edit's own block picker sets it (target_binding setModel, setIndex),
+// after checking the DSP has room. Nothing else is ever written.
+// (The notification handler 0x218a00 is hooked by nam_view and tone_view before this script installs, so its
+// first bytes are already Frida's jump: it is guarded there, and by the launcher's check of the whole exe.)
+const focusViewGuards = Object.freeze({
+  '3b7e00': '558bec83ec08568b7508578bf9c70600',   // a widget's origin in the window (as nav_banner uses it)
+});
+
+// Where things sit on a DSP, in signal order. A block's place on its path is @position; @path 1 is the lower path.
+const FOCUS_ENDS = Object.freeze(['inputA', 'inputB', 'split', 'join', 'outputA', 'outputB']);
+const FOCUS_BLOCKS = 16;
+
+// The preset as the pane draws it, from a reader peek(dsp, place, key). Pure: tests run it on a fake reader.
+//   blocks: [{dsp, id, model, position, path, enabled, slot}] (slot: a NAM block's capture slot)
+//   selected: {dsp, id} or null; values: the selected block's {parameter: value}
+function focusSnapshot(peek, cursor, parameters, namEngines) {
+  const blocks = [];
+  for (const dsp of [0, 1]) {
+    const places = [...FOCUS_ENDS, ...Array.from({length: FOCUS_BLOCKS}, (_, index) => 'block' + index)];
+    for (const id of places) {
+      const model = peek(dsp, id, '@model');
+      if (typeof model !== 'string' || !model) continue;
+      const block = {dsp, id, model};
+      const position = peek(dsp, id, '@position'), path = peek(dsp, id, '@path');
+      block.position = Number.isInteger(position) ? position : null;
+      block.path = path === 1 ? 1 : 0;
+      block.enabled = peek(dsp, id, '@enabled') !== false;
+      if (namEngines.includes(model)) {
+        const slot = peek(dsp, id, 'Index');
+        block.slot = Number.isInteger(slot) ? slot : null;
+      }
+      blocks.push(block);
+    }
+  }
+  let selected = null, values = {};
+  const at = cursor && blocks.find(block => block.dsp === cursor.dsp && block.id === cursor.block);
+  if (at) {
+    selected = {dsp: at.dsp, id: at.id};
+    for (const key of parameters[at.model] || []) {
+      const value = peek(at.dsp, at.id, key);
+      if (typeof value === 'number' || typeof value === 'boolean') values[key] = value;
+    }
+  }
+  return {blocks, selected, values};
+}
+
+// Between full readings, only what a knob, a switch or a footswitch changes: each block's bypass (and a NAM
+// block's capture slot) and the selected block's values. null when the blocks themselves are no longer the same
+// (the selected block's model changed, or the cursor is on a block not seen yet): read everything again.
+function focusValues(peek, blocks, cursor, parameters, namEngines) {
+  const next = blocks.map(block => {
+    const copy = {...block, enabled: peek(block.dsp, block.id, '@enabled') !== false};
+    if (namEngines.includes(block.model)) {
+      const slot = peek(block.dsp, block.id, 'Index');
+      copy.slot = Number.isInteger(slot) ? slot : null;
+    }
+    return copy;
+  });
+  let selected = null, values = {};
+  if (cursor && cursor.block) {
+    const at = next.find(block => block.dsp === cursor.dsp && block.id === cursor.block);
+    if (!at || peek(at.dsp, at.id, '@model') !== at.model) return null;
+    selected = {dsp: at.dsp, id: at.id};
+    for (const key of parameters[at.model] || []) {
+      const value = peek(at.dsp, at.id, key);
+      if (typeof value === 'number' || typeof value === 'boolean') values[key] = value;
+    }
+  }
+  return {blocks: next, selected, values};
+}
+
+// Where to click HX Edit's own chain to select a block: its cell in the DSP's chain panel, low in the cell (on
+// the name, clear of the bypass and delete buttons that show over the picture). A panel is ten cells wide
+// (the input, eight blocks, the output) and two paths high. null for what has no cell of its own.
+function focusChainPoint(box, block) {
+  if (!box || !block || ![box.x, box.y, box.w, box.h].every(Number.isFinite)) return null;
+  let column, row;
+  if (block.id === 'inputA' || block.id === 'inputB') { column = 0; row = block.id === 'inputB' ? 1 : 0; }
+  else if (block.id === 'outputA' || block.id === 'outputB') { column = 9; row = block.id === 'outputB' ? 1 : 0; }
+  else if (/^block\d{1,2}$/.test(block.id) && Number.isInteger(block.position) && block.position >= 0 && block.position < 8) {
+    column = block.position + 1; row = block.path === 1 ? 1 : 0;
+  } else return null;
+  return {x: Math.round(box.x + (column + .5) * box.w / 10), y: Math.round(box.y + (row + .8) * box.h / 2)};
+}
+
+// Requests from the pane wait here until HX Edit's UI thread takes them. Of a drag's many changes to one
+// value only the newest waits; a begin or an end is never dropped. Pure: tests run it.
+function focusQueue(queue, command, limit = 32) {
+  const same = item => item.dsp === command.dsp && item.id === command.id && item.key === command.key;
+  if (command.phase === 'move') {
+    const last = queue[queue.length - 1];
+    if (last && last.phase === 'move' && same(last)) { queue[queue.length - 1] = command; return queue; }
+  }
+  if (queue.length >= limit) {
+    const drop = queue.findIndex(item => item.phase === 'move');
+    if (drop < 0) return queue;                                          // full of begins and ends: the new one is refused
+    queue.splice(drop, 1);
+  }
+  queue.push(command);
+  return queue;
+}
+
+// Whether a DSP has room for model `next` in place of model `now`, by the Floor's own figures (dsp_meter.js: what
+// its blocks use of what they may). null when it fits or cannot be known; else the words for the user.
+function focusRoom(view, loads, now, next, dsp) {
+  if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
+  const cost = Number(loads[next]);
+  if (!Number.isFinite(cost)) return null;
+  const after = Math.round((view.used - (Number(loads[now]) || 0) + cost) * 10) / 10;
+  return after <= view.budget ? null : `DSP ${dsp + 1} has no room for that model (${after} of ${view.budget}).`;
+}
+
+// The pane's place: the main window from its top (over HX Edit's own toolbar: the pane has its own, with the
+// preset, the snapshot, undo and the DSP meters) down to the edit panel's bottom, across the whole window; HX
+// Edit's status bar stays. sf/ed/main: {x, y, w, h} of the signal flow view ('sfvc'), the editor view ('edvw')
+// and the window's root view ('main'), in client coordinates.
+function focusFirstBlock(blocks) {
+  // The block shown when a preset comes up with nothing selected: the first block of the chain in signal order
+  // (path 1 before path 2; at the same place the upper lane first). Never an input, an output, the split or the
+  // join. null for a preset with no blocks.
+  const chain = (blocks || []).filter(block => /^block\d+$/.test(block.id) && Number.isInteger(block.position));
+  chain.sort((a, b) => a.dsp - b.dsp || a.position - b.position || a.path - b.path);
+  return chain.length ? {dsp: chain[0].dsp, id: chain[0].id} : null;
+}
+function focusPresetNames(names, preset) {
+  // The setlist's preset names for the bar's list, only when HX Edit's list is the loaded preset's own setlist:
+  // its row for the loaded preset must carry that preset's name (the sidebar can show another setlist, and a
+  // name changed but not saved differs too). Otherwise null: the bar keeps its arrows and offers no list.
+  if (!Array.isArray(names) || names.length !== 128 || !names.every(name => typeof name === 'string')) return null;
+  if (!preset || !Number.isInteger(preset.number) || preset.number < 0 || preset.number > 127) return null;
+  const clean = names.map(name => name.trim().slice(0, 32));
+  return clean[preset.number] === String(preset.name || '').trim() ? clean : null;
+}
+function focusPaneBounds(sf, ed, main) {
+  if (![sf, ed, main].every(box => box && [box.x, box.y, box.w, box.h].every(Number.isFinite))) return null;
+  const top = Math.max(0, main.y), bottom = Math.min(main.y + main.h, ed.y + ed.h);
+  if (bottom - top < 300 || main.w < 600) return null;                 // a window too small for the pane
+  return {x: main.x, y: top, w: main.w, h: bottom - top};
+}
+
+function installFocusView(options, parts) {
+  if (Process.arch !== 'ia32' || Process.pointerSize !== 4) throw new Error('Focus Mode requires HX Edit x86');
+  const base = Process.mainModule.base;
+  for (const [rva, hex] of Object.entries(focusViewGuards)) {
+    const bytes = new Uint8Array(base.add(parseInt(rva, 16)).readByteArray(hex.length / 2));
+    const actual = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    if (actual !== hex) throw new Error(`Focus Mode native byte guard failed at ${rva}`);
+  }
+  const {targetBinding, namView, toneView} = parts;
+  const parameters = options.focusParameters || {}, namEngines = options.focusNamEngines || ['HD2_AmpNAMLite'];
+  const widgetOrigin = new NativeFunction(base.add(0x3b7e00), 'pointer', ['pointer', 'pointer'], 'thiscall');
+  const point = Memory.alloc(8);
+  const SFVC = 0x73667663, EDVW = 0x65647677, MAIN = 0x6d61696e;
+  // Values are read four times a second; the blocks themselves when HX Edit says something other than a value
+  // changed, and every two seconds in any case.
+  const POLL_MS = 250, FULL_MS = 2000;
+  let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
+  let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [];
+  let header = {preset: null, snapshots: [], presets: null};   // the top bar's preset, snapshot names and preset list (full readings)
+  let namesWord = '';                                        // the last outcome of reading the preset list, for the trace
+  // A preset that comes up with nothing selected gets its first block selected, a few tries per preset load and
+  // never again once something has been selected in it (a cursor moved to an empty cell on purpose stays there).
+  let pickKey = null, pickTries = 0;
+  const PICK_TRIES = 3;
+  function presetHeader() {
+    // The loaded preset's number and name (nam_view reads HX Edit's own header) and its snapshots' names.
+    let preset = null;
+    try { const read = namView.presetHeader?.(); if (read) preset = {setlist: read.setlist, number: read.preset, name: read.name}; } catch (_) { preset = null; }
+    const snapshots = [];
+    for (let index = 0; index < 8; index++) {
+      const name = targetBinding.peekGlobal(editor, 'snapshot' + index, '@name');
+      if (typeof name !== 'string') break;
+      snapshots.push(name);
+    }
+    // The setlist's names, from HX Edit's own preset list (nam_view), when that list is this preset's setlist.
+    let names = null;
+    try { names = namView.presetNames?.() ?? 'no-reader'; } catch (error) { names = 'failed: ' + String(error.message).slice(0, 80); }
+    const presets = focusPresetNames(names, preset);
+    const word = presets ? 'ok' : Array.isArray(names) ? 'differs-' + names.length : String(names);
+    if (word !== namesWord) {
+      namesWord = word;
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-names', result: word,
+            ...(Array.isArray(names) && !presets && preset ? {row: String(names[preset.number]).slice(0, 40), name: preset.name} : {})});
+    }
+    return {preset, snapshots, presets};
+  }
+  // Value writes from the pane, and the drag HX Edit has been told has begun (ended by us if the pane never does).
+  const writes = [];
+  let drag = null;
+  const DRAG_IDLE_MS = 4000;
+  // HX Edit's own sliders are shown what the pane has set (target_binding "refresh"), unless turned off.
+  const notify = options.focusWriteNotify !== false;
+  const loads = options.focusLoads || {};
+  const chainBlock = /^block\d{1,2}$/, modelSymbol = /^[A-Za-z0-9_]{3,64}$/;
+  function swap(command) {
+    // Another model, or a capture, for a block of the chain: refused with a word by the DSP meter when the DSP
+    // has no room (HX Edit itself would answer with an error box).
+    const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
+    if (!block || !chainBlock.test(block.id) || editor.isNull()) { send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-skipped'}); return; }
+    endDrag('a model change');
+    const isNam = namEngines.includes(block.model);
+    const next = command.action === 'capture' ? (isNam ? block.model : namEngines[0]) : command.symbol;
+    if (next !== block.model) {
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], loads, block.model, next, block.dsp);
+      if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-no-room'}); return; }
+      targetBinding.setModel(editor, block.dsp, block.id, next);
+    }
+    // A NAM block's capture at once: left on slot 1 (a plain IR) it would silence the Floor (tone_view drop-replace).
+    if (command.action === 'capture') {
+      targetBinding.setIndex(editor, block.dsp, block.id, command.slot);
+      finish(editor, block.dsp, block.id, 'Index', command.slot);
+    }
+    changed = true;
+    send({type: 'toneTrace', reason: 'focus-view', stage: 'swap', action: command.action, to: next});
+  }
+  function finish(target, dsp, id, key, value) {
+    // After a single change or a drag's end: the same value once more, for HX Edit's own views only.
+    if (!notify) return;
+    try { targetBinding.setValue(target, dsp, id, key, value, 'refresh'); }
+    catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'refresh-failed', error: String(error.message)}); }
+  }
+
+  function box(widget) {
+    const geometry = widget.add(0x54).readPointer();
+    widgetOrigin(widget, point);
+    return {x: point.readS32(), y: point.add(4).readS32(),
+            w: geometry.add(12).readS32() - geometry.add(4).readS32(), h: geometry.add(16).readS32() - geometry.add(8).readS32()};
+  }
+  function paneBounds() {
+    // From the chain's own view up to the window's root view, by each view's id.
+    let widget = namView.chainPanel(), sf = null, ed = null, main = null;
+    for (let depth = 0; depth < 12 && widget && !widget.isNull(); depth++) {
+      const geometry = widget.add(0x54).readPointer();
+      if (geometry.isNull()) break;
+      const id = geometry.readU32();
+      if (id === SFVC) sf = box(widget);
+      else if (id === EDVW) ed = box(widget);
+      else if (id === MAIN) { main = box(widget); break; }
+      widget = geometry.add(0x14).readPointer();
+    }
+    return focusPaneBounds(sf, ed, main);
+  }
+  function captures() {
+    // The captures on the Floor, by slot: a NAM block's name and picture come from its slot.
+    try { return namView.installedCaptures().map(capture => ({slot: capture.slot, name: capture.name, icon: capture.icon, gear: capture.gear})); }
+    catch (_) { return []; }
+  }
+  function endDrag(why) {
+    if (!drag) return;
+    const open = drag; drag = null;
+    try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end'); finish(open.editor, open.dsp, open.id, open.key, open.value); }
+    catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'drag-end-failed', why, error: String(error.message)}); }
+  }
+  function write(command) {
+    // One value of one block the pane shows, never anything else. A drag left open is closed first.
+    const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
+    const allowed = block && (command.key === '@enabled' || (parameters[block.model] || []).includes(command.key));
+    if (!allowed || editor.isNull()) { send({type: 'toneTrace', reason: 'focus-view', stage: 'write-skipped', key: String(command.key).slice(0, 32)}); return; }
+    const same = drag && drag.dsp === command.dsp && drag.id === command.id && drag.key === command.key;
+    if (drag && !same) endDrag('another value');
+    let phase = command.phase;
+    if (phase === 'move' && !drag) phase = 'begin';                     // a change with no begin: begin with it
+    if (phase === 'end' && !drag) phase = 'single';
+    if (phase === 'begin' && same) phase = 'move';
+    targetBinding.setValue(editor, command.dsp, command.id, command.key, command.value, phase);
+    if (phase === 'begin' || phase === 'move') drag = {editor, dsp: command.dsp, id: command.id, key: command.key, value: command.value, at: Date.now()};
+    else { drag = null; finish(editor, command.dsp, command.id, command.key, command.value); }
+    if (writeReports > 0) { writeReports--; send({type: 'toneTrace', reason: 'focus-view', stage: 'write', key: command.key, phase}); }
+  }
+  function refresh(window) {
+    queued = false;
+    if (!on) return;
+    while (writes.length) {
+      const command = writes.shift();
+      try {
+        if (command.action === 'snapshot') {
+          // Another snapshot: every value may differ after it.
+          endDrag('a snapshot change');
+          if (!editor.isNull()) targetBinding.recallSnapshot(editor, command.index);
+          changed = true;
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'snapshot', index: command.index});
+        } else if (command.action === 'preset') {
+          // Another preset: a drag left open is closed on this preset first, then the launcher asks the Floor
+          // for it (a Program Change, as a footswitch; HX Edit follows on its own).
+          endDrag('a preset change');
+          changed = true;
+          send({type: 'focusPreset', number: command.number});
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
+        } else if (command.action) swap(command); else write(command);
+      }
+      catch (error) { drag = null; changed = true; send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)}); }
+    }
+    if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
+    try {
+      const bounds = paneBounds();
+      const place = JSON.stringify(bounds);
+      if (place !== lastBounds) { lastBounds = place; send({type: 'focusBounds', window: window.toUInt32(), bounds}); }
+      const cursor = toneView.cursorBlock();
+      if (cursor && !cursor.editor.isNull()) editor = cursor.editor;
+      if (editor.isNull()) { publish({blocks: [], selected: null, values: {}, captures: [], preset: null, presets: null, snapshots: [], snapshot: null, undo: null}); return; }
+      const began = Date.now(), peek = (dsp, place, key) => targetBinding.peekValue(editor, dsp, place, key);
+      let state = !changed && known && began - knownAt < FULL_MS ? focusValues(peek, known, cursor, parameters, namEngines) : null;
+      const full = !state;
+      if (full) { state = focusSnapshot(peek, cursor, parameters, namEngines); knownAt = began; changed = false; }
+      known = state.blocks;
+      // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
+      if (full) { onFloor = captures(); header = presetHeader(); }
+      state.captures = onFloor;
+      state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots;
+      const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
+      state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
+      // Something to undo: HX Edit's own undo position (as tone_view reads it).
+      try { state.undo = editor.add(0x294).readS32() > 0; } catch (_) { state.undo = null; }
+      if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: full ? 'read' : 'read-values', ms: Date.now() - began, blocks: state.blocks.length, selected: !!state.selected}); }
+      if (full) {
+        const key = state.preset ? state.preset.setlist + ':' + state.preset.number : '';
+        if (key !== pickKey) { pickKey = key; pickTries = 0; }
+        if (state.selected) pickTries = PICK_TRIES;
+        else if (key && !wanted && pickTries < PICK_TRIES) {
+          const first = focusFirstBlock(state.blocks);
+          if (first) { pickTries++; wanted = first; send({type: 'toneTrace', reason: 'focus-view', stage: 'first-block', dsp: first.dsp, block: first.id, attempt: pickTries}); }
+        }
+      }
+      publish(state);
+      if (wanted) select(wanted);
+    } catch (error) {
+      if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: 'read-failed', error: String(error.message)}); }
+    }
+  }
+  function select(target) {
+    // A block picked in the pane's chain strip: a click on that block in HX Edit's own chain.
+    wanted = null;
+    const block = (known || []).find(item => item.dsp === target.dsp && item.id === target.id);
+    const spot = block && focusChainPoint(namView.chainBox(block.dsp), block);
+    const clicked = !!spot && namView.clickChainPoint(spot.x, spot.y);
+    send({type: 'toneTrace', reason: 'focus-view', stage: clicked ? 'select' : 'select-skipped', dsp: target.dsp, block: target.id});
+  }
+  function publish(state) {
+    const text = JSON.stringify(state);
+    if (text === lastState) return;
+    lastState = text;
+    send({type: 'focusState', state});
+  }
+  function ask() {
+    // Reads run on HX Edit's UI thread, one at a time.
+    // (A request HX Edit has not run after two seconds, a busy or closing window, is asked again.)
+    if (!on || (queued && Date.now() - queuedAt < 2000)) return;
+    queued = namView.queueSidebarAction(refresh) === true;
+    queuedAt = Date.now();
+  }
+  function set(value) {
+    if (on && value !== true && drag) {
+      // Turned off in the middle of a drag: HX Edit is told the drag has ended, on its own thread.
+      const open = drag; drag = null; writes.length = 0;
+      namView.queueSidebarAction(() => {
+        try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end'); finish(open.editor, open.dsp, open.id, open.key, open.value); } catch (_) { /* the block is gone */ }
+      });
+    }
+    on = value === true;
+    if (timer) { clearInterval(timer); timer = null; }
+    lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = [];
+    pickKey = null; pickTries = 0;
+    header = {preset: null, snapshots: [], presets: null};
+    if (on) { timer = setInterval(ask, POLL_MS); ask(); }
+    send({type: 'toneTrace', reason: 'focus-view', stage: on ? 'on' : 'off'});
+  }
+  // A change in the editor (a knob turned here or on the Floor, another block picked, a preset loaded)
+  // is read at once rather than at the next poll.
+  // Anything but a plain value change (a block added, moved or replaced, a preset or snapshot loaded) means
+  // the blocks are read again; a value change only the values.
+  function eventName(value) {
+    const data = value.add(4).readPointer();
+    return data.isNull() ? '' : data.add(0x10).readPointer().readUtf8String();
+  }
+  const hook = Interceptor.attach(base.add(0x218a00), {
+    onEnter(args) {
+      if (!on) return;
+      try {
+        const name = eventName(args[0]);
+        if (name !== 'EditBuffer_ParamChanged') changed = true;
+        if (name === 'EditBuffer_DevicePresetChanged' || name === 'EditBuffer_TargetDeviceChanged') pickKey = null;   // a preset loaded, the same one too
+      } catch (_) { changed = true; }
+    },
+    onLeave() { if (on) ask(); },
+  });
+  function listen() {
+    recv('focusMode', message => {
+      const value = message.payload || {};
+      if (value.resend) { lastState = ''; lastBounds = ''; ask(); }
+      else set(value.on === true);
+      listen();
+    });
+  }
+  function commands() {
+    recv('focusCommand', message => {
+      const value = message.payload || {};
+      if (on && value.action === 'select' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16) {
+        wanted = {dsp: value.dsp, id: value.id};
+        queued = false; ask();
+      } else if (on && value.action === 'set' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16 &&
+                 typeof value.key === 'string' && value.key.length < 49 && ['single', 'begin', 'move', 'end'].includes(value.phase) &&
+                 (typeof value.value === 'boolean' || Number.isFinite(value.value))) {
+        focusQueue(writes, {dsp: value.dsp, id: value.id, key: value.key, value: value.value, phase: value.phase});
+        queued = false; ask();
+      } else if (on && value.action === 'snapshot' && Number.isInteger(value.index) && value.index >= 0 && value.index <= 7 && writes.length < 32) {
+        writes.push({action: 'snapshot', index: value.index});
+        queued = false; ask();
+      } else if (on && value.action === 'preset' && Number.isInteger(value.number) && value.number >= 0 && value.number <= 127 && writes.length < 32) {
+        writes.push({action: 'preset', number: value.number});
+        queued = false; ask();
+      } else if (on && [0, 1].includes(value.dsp) && typeof value.id === 'string' && chainBlock.test(value.id) && writes.length < 32 &&
+                 ((value.action === 'model' && typeof value.symbol === 'string' && modelSymbol.test(value.symbol) && !namEngines.includes(value.symbol)) ||
+                  (value.action === 'capture' && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127))) {
+        writes.push({action: value.action, dsp: value.dsp, id: value.id, symbol: value.symbol, slot: value.slot});
+        queued = false; ask();
+      }
+      commands();
+    });
+  }
+  listen(); commands();
+  return { set, dispose() { set(false); hook.detach(); } };
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, installFocusView };
+}

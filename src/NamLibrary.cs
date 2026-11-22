@@ -1371,77 +1371,100 @@ class NamLibrary : Form
     }
 }
 
-// The HX Unbound menu button: HX Unbound's own tools (and later its looks) in one place, beside
-// HX Edit's TONE3000 button. A child window of HX Edit like the meter; a choice is written to the
-// helper's output for dsp_meter.py.
+// The HX Unbound buttons, beside HX Edit's TONE3000 button: FOCUS (one click into Focus Mode), UNBOUND (its
+// tools: each opens a window) and a gear (its options: ticks the editor keeps in its settings). One child window
+// of HX Edit like the meter, drawn as three buttons; a choice is written to the helper's output for dsp_meter.py.
 class UnboundButton : Form
 {
     [DllImport("user32.dll")] static extern IntPtr SetParent(IntPtr child, IntPtr parent);
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
-    public const int Width = 104;
-    // Menu: (label, output) pairs; a null output is a section heading.
+    // Full: the three buttons, two with their names. Compact (a narrow window): the three marks only.
+    public const int Gap = 4, FocusWidth = 72, ToolsWidth = 104, GearWidth = 30, MarkWidth = 28;
+    public const int Width = FocusWidth + ToolsWidth + GearWidth + 2 * Gap, CompactWidth = 3 * MarkWidth + 2 * Gap;
+    // The three buttons in a window this wide, left to right: Focus, tools, options.
+    public static Rectangle[] Parts(int width,int height){
+        bool full=width>=Width;
+        int focus=full?FocusWidth:MarkWidth, tools=full?ToolsWidth:MarkWidth, gear=full?GearWidth:MarkWidth;
+        return new[]{ new Rectangle(0,0,focus,height), new Rectangle(focus+Gap,0,tools,height), new Rectangle(focus+tools+2*Gap,0,gear,height) };
+    }
+    // The tools menu: (label, output) pairs.
     public static readonly Tuple<string,string>[] Choices = {
         Tuple.Create("Level presets…", "level"),
         Tuple.Create("Floor look…", "look"),
         Tuple.Create("NAM library…", "library"),
     };
+    static readonly string[] Tips = { "Focus Mode: the selected block, large, with its own controls", "HX Unbound tools", "HX Unbound options" };
     static readonly Color Back = Color.FromArgb(29, 29, 29), Face = Color.FromArgb(48, 48, 48), Hover = Color.FromArgb(66, 66, 66),
-        Ink = Color.FromArgb(225, 225, 225);
+        Ink = Color.FromArgb(225, 225, 225), Dim = Color.FromArgb(112, 112, 112);
     readonly IntPtr parent;
-    readonly ContextMenuStrip menu = new ContextMenuStrip();
-    // The menu belongs to this helper, not to HX Edit, so a click in HX Edit does not close it on its
-    // own: while it is open, a mouse press anywhere outside it (or outside this button) closes it.
+    readonly ContextMenuStrip tools = NewMenu(), options = NewMenu();
+    readonly ToolTip tip = new ToolTip();
+    // The menus belong to this helper, not to HX Edit, so a click in HX Edit does not close them on its
+    // own: while one is open, a mouse press anywhere outside it (or outside these buttons) closes it.
     readonly Timer outside = new Timer { Interval = 40 };
-    bool over, placed;
-    ToolStripMenuItem irDots;
-    // The menu has no image margin, so the tick is part of the label (a fixed-width space when off).
-    public void SetIrDots(bool on){ if(irDots!=null)irDots.Text=(on?"\u2713":"\u2003")+"  Mark NAM slots in the IR list"; }
-    ToolStripMenuItem chainArt;
-    public void SetChainArt(bool on){ if(chainArt!=null)chainArt.Text=(on?"\u2713":"\u2003")+"  3D pictures in the signal chain"; }
-    ToolStripMenuItem chainLarge;
-    public void SetChainLarge(bool on){ if(chainLarge!=null)chainLarge.Text=(on?"\u2713":"\u2003")+"  Large pictures in the signal chain"; }
-    ToolStripMenuItem chainNames;
-    public void SetChainNames(bool on){ if(chainNames!=null)chainNames.Text=(on?"✓":" ")+"  Block names under large pictures"; }
+    int over = -1;      // the button under the pointer: 0 Focus, 1 tools, 2 options
+    bool placed;
+    // The options: a tick is part of the label (the menus have no image margin). An option that only matters while
+    // another is on sits indented under it and is dimmed while that one is off; it keeps its own tick meanwhile.
+    ToolStripMenuItem irDots, chainArt, chainLarge, chainNames, chainGlow;
+    bool dots = true, art = true, large = true, names = true, glow;   // as a first launch has them
+    public void SetIrDots(bool on){ dots=on; Ticks(); }
+    public void SetChainArt(bool on){ art=on; Ticks(); }
+    public void SetChainLarge(bool on){ large=on; Ticks(); }
+    public void SetChainNames(bool on){ names=on; Ticks(); }
+    public void SetChainGlow(bool on){ glow=on; Ticks(); }
+    public static string Tick(int level,bool on,string text){ return new string('\u2003',level*2)+(on?"\u2713":"\u2003")+"  "+text; }
+    void Ticks(){
+        if(chainArt==null)return;
+        chainArt.Text=Tick(0,art,"3D pictures of the gear");
+        chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;
+        chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;
+        chainGlow.Text=Tick(2,glow,"Glow behind them"); chainGlow.Enabled=art&&large;
+        irDots.Text=Tick(0,dots,"Mark NAM slots");
+    }
+    static ContextMenuStrip NewMenu(){
+        var menu=new ContextMenuStrip();
+        menu.ShowImageMargin=false; menu.BackColor=Color.FromArgb(37,37,37); menu.ForeColor=Ink; menu.Renderer=new MenuRenderer();
+        return menu;
+    }
+    static void Heading(ContextMenuStrip menu,string text){
+        menu.Items.Add(new ToolStripLabel(text){ForeColor=Color.FromArgb(150,150,150),Font=new Font("Segoe UI",7.5f)});
+    }
+    static void Say(string output){ try{Console.Out.WriteLine(output);Console.Out.Flush();}catch(Exception){} }
+    static ToolStripMenuItem Item(ContextMenuStrip menu,string text,string output){
+        var item=new ToolStripMenuItem(text){ForeColor=Ink};
+        item.Click+=(sender,e)=>Say(output);
+        menu.Items.Add(item);
+        return item;
+    }
     public UnboundButton(IntPtr parent){
         this.parent=parent;
         FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
         BackColor=Back; DoubleBuffered=true; Font=new Font("Segoe UI", 8.25f, FontStyle.Bold); Bounds=new Rectangle(0,0,1,1);
         Cursor=Cursors.Hand;
-        menu.ShowImageMargin=false; menu.BackColor=Color.FromArgb(37,37,37); menu.ForeColor=Ink;
-        menu.Renderer=new MenuRenderer();
-        var heading=new ToolStripLabel("TOOLS"){ForeColor=Color.FromArgb(150,150,150),Font=new Font("Segoe UI",7.5f)};
-        menu.Items.Add(heading);
-        foreach(var choice in Choices){
-            var output=choice.Item2;
-            var item=new ToolStripMenuItem(choice.Item1){ForeColor=Ink};
-            item.Click+=(sender,e)=>{try{Console.Out.WriteLine(output);Console.Out.Flush();}catch(Exception){}};
-            menu.Items.Add(item);
-        }
-        // Options: ticked items the editor keeps in its settings; the tick comes back in the meter's state.
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripLabel("OPTIONS"){ForeColor=Color.FromArgb(150,150,150),Font=new Font("Segoe UI",7.5f)});
-        irDots=new ToolStripMenuItem("\u2713  Mark NAM slots in the IR list"){ForeColor=Ink};
-        irDots.Click+=(sender,e)=>{try{Console.Out.WriteLine("irDots");Console.Out.Flush();}catch(Exception){}};
-        menu.Items.Add(irDots);
-        SetIrDots(true);
-        chainArt=new ToolStripMenuItem("\u2003  3D pictures in the signal chain"){ForeColor=Ink};
-        chainArt.Click+=(sender,e)=>{try{Console.Out.WriteLine("chainArt");Console.Out.Flush();}catch(Exception){}};
-        menu.Items.Add(chainArt);
-        chainLarge=new ToolStripMenuItem("\u2003  Large pictures in the signal chain"){ForeColor=Ink};
-        chainLarge.Click+=(sender,e)=>{try{Console.Out.WriteLine("chainLarge");Console.Out.Flush();}catch(Exception){}};
-        menu.Items.Add(chainLarge);
-        chainNames=new ToolStripMenuItem("✓  Block names under large pictures"){ForeColor=Ink};
-        chainNames.Click+=(sender,e)=>{try{Console.Out.WriteLine("chainNames");Console.Out.Flush();}catch(Exception){}};
-        menu.Items.Add(chainNames);
+        Heading(tools,"TOOLS");
+        foreach(var choice in Choices)Item(tools,choice.Item1,choice.Item2);
+        Heading(options,"SIGNAL CHAIN");
+        chainArt=Item(options,"","chainArt");
+        chainLarge=Item(options,"","chainLarge");
+        chainNames=Item(options,"","chainNames");
+        chainGlow=Item(options,"","chainGlow");
+        options.Items.Add(new ToolStripSeparator());
+        Heading(options,"IR LIST");
+        irDots=Item(options,"","irDots");
+        Ticks();
         outside.Tick+=(sender,e)=>{
-            if(!menu.Visible){outside.Stop();return;}
-            if(Control.MouseButtons!=MouseButtons.None&&!menu.Bounds.Contains(Cursor.Position)&&
-               !RectangleToScreen(ClientRectangle).Contains(Cursor.Position))menu.Close();
+            if(!tools.Visible&&!options.Visible){outside.Stop();return;}
+            if(Control.MouseButtons==MouseButtons.None||RectangleToScreen(ClientRectangle).Contains(Cursor.Position))return;
+            foreach(var menu in new[]{tools,options})
+                if(menu.Visible&&!menu.Bounds.Contains(Cursor.Position))menu.Close();
         };
-        menu.Opened+=(sender,e)=>outside.Start();
-        menu.Closed+=(sender,e)=>{outside.Stop();Invalidate();};
+        foreach(var menu in new[]{tools,options}){
+            menu.Opened+=(sender,e)=>{outside.Start();Invalidate();};
+            menu.Closed+=(sender,e)=>Invalidate();
+        }
         var handle=Handle;
     }
     // The highlight is painted here rather than left to the colour table: on this system the
@@ -1457,6 +1480,11 @@ class UnboundButton : Form
                     args.Graphics.FillRectangle(edge,0,2,2,item.Height-4);
         }
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs args){
+            // An option that depends on one that is off: drawn dim here (the stock disabled look is for light menus).
+            if(args.Item is ToolStripMenuItem&&!args.Item.Enabled){
+                TextRenderer.DrawText(args.Graphics,args.Text,args.TextFont,args.TextRectangle,Dim,args.TextFormat);
+                return;
+            }
             if(args.Item is ToolStripMenuItem)args.TextColor=Ink;
             base.OnRenderItemText(args);
         }
@@ -1484,15 +1512,28 @@ class UnboundButton : Form
         placed=!place.IsEmpty;
         if(GetParent(Handle)!=parent)SetParent(Handle,parent);
         if(placed)SetWindowPos(Handle,IntPtr.Zero,place.X,place.Y,place.Width,place.Height,0x0010|0x0040);
-        else ShowWindow(Handle,0);
+        else { tools.Close(); options.Close(); ShowWindow(Handle,0); }
         Invalidate();
     }
-    protected override void OnMouseEnter(EventArgs args){ over=true; Invalidate(); base.OnMouseEnter(args); }
-    protected override void OnMouseLeave(EventArgs args){ over=false; Invalidate(); base.OnMouseLeave(args); }
+    int At(Point point){
+        var parts=Parts(ClientSize.Width,ClientSize.Height);
+        for(int index=0;index<parts.Length;index++)if(parts[index].Contains(point))return index;
+        return -1;
+    }
+    protected override void OnMouseMove(MouseEventArgs args){
+        int now=At(args.Location);
+        if(now!=over){ over=now; tip.SetToolTip(this,now<0?"":Tips[now]); Invalidate(); }
+        base.OnMouseMove(args);
+    }
+    protected override void OnMouseLeave(EventArgs args){ over=-1; Invalidate(); base.OnMouseLeave(args); }
     protected override void OnMouseClick(MouseEventArgs args){
-        if(args.Button==MouseButtons.Left){
+        int at=args.Button==MouseButtons.Left?At(args.Location):-1;
+        if(at==0){ tools.Close(); options.Close(); Say("focusMode"); }   // one click into Focus Mode
+        else if(at>0){
+            var menu=at==1?tools:options;
+            (at==1?options:tools).Close();
             if(menu.Visible)menu.Close();
-            else menu.Show(this,new Point(0,ClientSize.Height));
+            else menu.Show(this,new Point(Parts(ClientSize.Width,ClientSize.Height)[at].X,ClientSize.Height));
         }
         base.OnMouseClick(args);
     }
@@ -1503,38 +1544,73 @@ class UnboundButton : Form
         path.CloseFigure();return path;
     }
     static readonly Color Violet = Color.FromArgb(150, 110, 250), Teal = Color.FromArgb(45, 212, 191), Rest = Color.FromArgb(78, 78, 78);
+    const float MarkSize = 11f;
+    // A button's name, letter-spaced, centred in the room right of its mark.
+    static void DrawName(Graphics g,RectangleF box,float start,string text){
+        using(var font=new Font("Segoe UI Semibold",7.5f))
+        using(var ink=new SolidBrush(Ink)){
+            float width=0f;
+            foreach(char letter in text)
+                width+=g.MeasureString(letter.ToString(),font,PointF.Empty,StringFormat.GenericTypographic).Width+1.3f;
+            width-=1.3f;
+            float x=start+(box.Right-start-width)/2f, y=box.Y+(box.Height-font.GetHeight(g))/2f;
+            foreach(char letter in text){
+                g.DrawString(letter.ToString(),font,ink,x,y,StringFormat.GenericTypographic);
+                x+=g.MeasureString(letter.ToString(),font,PointF.Empty,StringFormat.GenericTypographic).Width+1.3f;
+            }
+        }
+    }
     protected override void OnPaint(PaintEventArgs args){
         var g=args.Graphics;g.Clear(Back);
         g.SmoothingMode=System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-        var box=new RectangleF(0.5f,1.5f,ClientSize.Width-1.5f,ClientSize.Height-3.5f);
-        bool open=menu.Visible;
-        // Square-cornered like HX Edit's own buttons (TONE3000, the preset bar), with the violet-to-teal edge.
-        using(var path=Rounded(box,2f)){
-            using(var brush=new SolidBrush(over||open?Hover:Face))g.FillPath(brush,path);
-            // The violet-to-teal edge only while it is pointed at or open; at rest a plain grey like HX Edit's.
-            if(over||open)
-                using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(box,Violet,Teal,0f))
-                using(var pen=new Pen(edge,1f))g.DrawPath(pen,path);
-            else using(var pen=new Pen(Rest,1f))g.DrawPath(pen,path);
-        }
-        // The mark: three stacked lines (a menu), in the same violet-to-teal.
-        float lineWidth=11f, cx=box.X+9f, cy=box.Y+box.Height/2f;
-        var marks=new RectangleF(cx,cy-4f,lineWidth,8f);
-        using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(marks,Violet,Teal,0f))
-        using(var pen=new Pen(edge,1.6f){StartCap=System.Drawing.Drawing2D.LineCap.Round,EndCap=System.Drawing.Drawing2D.LineCap.Round})
-            for(int i=-1;i<=1;i++)g.DrawLine(pen,cx,cy+i*3.5f,cx+lineWidth,cy+i*3.5f);
-        // The name, letter-spaced, centred in the room right of the mark.
-        using(var font=new Font("Segoe UI Semibold",7.5f))
-        using(var ink=new SolidBrush(Ink)){
-            float width=0f;
-            foreach(char letter in "UNBOUND")
-                width+=g.MeasureString(letter.ToString(),font,PointF.Empty,StringFormat.GenericTypographic).Width+1.3f;
-            width-=1.3f;
-            float start=cx+lineWidth, x=start+(box.Right-start-width)/2f, y=box.Y+(box.Height-font.GetHeight(g))/2f;
-            foreach(char letter in "UNBOUND"){
-                g.DrawString(letter.ToString(),font,ink,x,y,StringFormat.GenericTypographic);
-                x+=g.MeasureString(letter.ToString(),font,PointF.Empty,StringFormat.GenericTypographic).Width+1.3f;
+        var parts=Parts(ClientSize.Width,ClientSize.Height);
+        bool full=ClientSize.Width>=Width;
+        for(int index=0;index<parts.Length;index++){
+            var box=new RectangleF(parts[index].X+0.5f,1.5f,parts[index].Width-1.5f,ClientSize.Height-3.5f);
+            bool lit=over==index||(index==1&&tools.Visible)||(index==2&&options.Visible);
+            // Square-cornered like HX Edit's own buttons (TONE3000, the preset bar).
+            using(var path=Rounded(box,2f)){
+                using(var brush=new SolidBrush(lit?Hover:Face))g.FillPath(brush,path);
+                // The violet-to-teal edge only while it is pointed at or open; at rest a plain grey like HX Edit's.
+                if(lit)
+                    using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(box,Violet,Teal,0f))
+                    using(var pen=new Pen(edge,1f))g.DrawPath(pen,path);
+                else using(var pen=new Pen(Rest,1f))g.DrawPath(pen,path);
+            }
+            bool named=full&&index<2;
+            float cx=named?box.X+9f:box.X+(box.Width-MarkSize)/2f, cy=box.Y+box.Height/2f;
+            if(index==0){
+                // Focus: a frame with the block in its middle.
+                using(var pen=new Pen(Ink,1.3f))
+                using(var frame=Rounded(new RectangleF(cx,cy-4f,MarkSize,8f),1.5f))g.DrawPath(pen,frame);
+                using(var dot=new SolidBrush(Ink))g.FillEllipse(dot,cx+MarkSize/2f-1.7f,cy-1.7f,3.4f,3.4f);
+                if(named)DrawName(g,box,cx+MarkSize,"FOCUS");
+            }else if(index==1){
+                // Tools: three stacked lines (a menu), in the violet-to-teal.
+                var marks=new RectangleF(cx,cy-4f,MarkSize,8f);
+                using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(marks,Violet,Teal,0f))
+                using(var pen=new Pen(edge,1.6f){StartCap=System.Drawing.Drawing2D.LineCap.Round,EndCap=System.Drawing.Drawing2D.LineCap.Round})
+                    for(int i=-1;i<=1;i++)g.DrawLine(pen,cx,cy+i*3.5f,cx+MarkSize,cy+i*3.5f);
+                if(named)DrawName(g,box,cx+MarkSize,"UNBOUND");
+            }else{
+                // Options: a cog (a toothed wheel with a hole), not a sun: eight square teeth on a solid ring.
+                float mx=cx+MarkSize/2f;
+                using(var cog=new System.Drawing.Drawing2D.GraphicsPath(System.Drawing.Drawing2D.FillMode.Alternate)){
+                    const int Teeth=8; const float Outer=5.6f, Root=4.1f, Hole=1.8f;
+                    var points=new PointF[Teeth*4];
+                    double step=2*Math.PI/Teeth, half=step*0.24, slope=step*0.10;      // a tooth's half width at its tip, and its flank
+                    for(int tooth=0;tooth<Teeth;tooth++){
+                        double mid=tooth*step-Math.PI/2;
+                        double[] angles={mid-half-slope,mid-half,mid+half,mid+half+slope};
+                        float[] radii={Root,Outer,Outer,Root};
+                        for(int corner=0;corner<4;corner++)
+                            points[tooth*4+corner]=new PointF(mx+(float)Math.Cos(angles[corner])*radii[corner],cy+(float)Math.Sin(angles[corner])*radii[corner]);
+                    }
+                    cog.AddPolygon(points);
+                    cog.AddEllipse(mx-Hole,cy-Hole,2*Hole,2*Hole);
+                    using(var fill=new SolidBrush(Ink))g.FillPath(fill,cog);
+                }
             }
         }
     }
@@ -1757,6 +1833,9 @@ class DspMeter : Form
         if(unboundButton!=null&&state.TryGetValue("chainArt",out value)&&value is bool)unboundButton.SetChainArt((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainLarge",out value)&&value is bool)unboundButton.SetChainLarge((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainNames",out value)&&value is bool)unboundButton.SetChainNames((bool)value);
+        if(unboundButton!=null&&state.TryGetValue("chainGlow",out value)&&value is bool)unboundButton.SetChainGlow((bool)value);
+        // Focus Mode covers HX Edit's toolbar and has meters of its own: the meter and the menu button are hidden meanwhile.
+        focusMode=state.TryGetValue("focusMode",out value)&&value is bool&&(bool)value;
         if(state.ContainsKey("ghost"))ApplyGhost(state["ghost"] as Dictionary<string,object>);
         if(state.TryGetValue("notice",out value)&&value is string&&((string)value).Length>0){
             notice=(string)value;noticeUntil=Environment.TickCount+NoticeMs;}
@@ -1802,18 +1881,21 @@ class DspMeter : Form
         return widthThen<=0||widthNow<=0||width==0||height<=0?Rectangle.Empty:new Rectangle(end-width,top,width,height);
     }
     public static bool IsCompact(Rectangle place){ return !place.IsEmpty&&place.Width<MeterMin; }
-    // The HX Unbound button: at the start of the span (it does not move with the window's right edge),
-    // when the span has room for it; the meter then starts after it.
+    // The HX Unbound buttons: at the start of the span (they do not move with the window's right edge). With
+    // their names while the full meter still fits after them, as marks only in a narrower span, hidden when even
+    // those do not fit; the meter then starts after them.
     public static Rectangle ButtonPlacement(int left,int right,int top,int height,int widthThen,int widthNow){
-        int end=right+(widthNow-widthThen);
-        return widthThen<=0||widthNow<=0||height<=0||end-left<UnboundButton.Width?Rectangle.Empty:
-            new Rectangle(left,top,UnboundButton.Width,height);
+        int end=right+(widthNow-widthThen), room=end-left;
+        if(widthThen<=0||widthNow<=0||height<=0||room<UnboundButton.CompactWidth)return Rectangle.Empty;
+        return new Rectangle(left,top,room>=UnboundButton.Width+UnboundGap+MeterMin?UnboundButton.Width:UnboundButton.CompactWidth,height);
     }
     // The width a span is anchored to: HX Edit's client width, or 0 (wait) while it has none, e.g. minimized.
     public static int AnchorWidth(int parentWidth){ return parentWidth>0?parentWidth:0; }
     public static bool HasReading(object[] dsp){ return dsp!=null&&(dsp[0] is Dictionary<string,object>||dsp[1] is Dictionary<string,object>); }
+    bool focusMode;
     void Place(){
         placedWidth=ParentWidth();
+        if(focusMode){ if(unboundButton!=null)unboundButton.Show(Rectangle.Empty); shown=false; ShowWindow(Handle,0); return; }
         var button=!unbound||spanWidth<0?Rectangle.Empty:ButtonPlacement(spanLeft,spanRight,spanTop,spanHeight,spanWidth,placedWidth);
         if(unboundButton!=null)unboundButton.Show(button);
         int left=button.IsEmpty?spanLeft:button.Right+UnboundGap;
@@ -1912,7 +1994,13 @@ class DspMeter : Form
         // The HX Unbound button sits at the span's start and stays there as the window narrows.
         if(ButtonPlacement(310,1388,9,24,1920,1420)!=new Rectangle(310,9,UnboundButton.Width,24))throw new Exception("Unbound button placement");
         if(!ButtonPlacement(310,1388,9,24,1920,850).IsEmpty)throw new Exception("Unbound button hides without room");
+        if(ButtonPlacement(310,1388,9,24,1920,1100)!=new Rectangle(310,9,UnboundButton.CompactWidth,24))throw new Exception("Unbound buttons as marks in a narrow span");
         if(UnboundButton.Choices.Length<1||UnboundButton.Choices[0].Item2!="level")throw new Exception("Unbound menu");
+        // Three buttons, left to right, inside the window they are drawn in, named or as marks.
+        var named=UnboundButton.Parts(UnboundButton.Width,24); var marks=UnboundButton.Parts(UnboundButton.CompactWidth,24);
+        if(named.Length!=3||named[0].X!=0||named[1].X!=named[0].Right+UnboundButton.Gap||named[2].Right!=UnboundButton.Width||
+           named[0].Width!=UnboundButton.FocusWidth||marks[2].Right!=UnboundButton.CompactWidth||marks[1].Width!=UnboundButton.MarkWidth)throw new Exception("Unbound button parts");
+        if(UnboundButton.Tick(0,true,"A")!="\u2713  A"||UnboundButton.Tick(1,false,"B")!="\u2003\u2003\u2003  B")throw new Exception("Unbound option labels");
         // HX Edit Unbound's title and icon colours on HX Edit's window.
         if(UnboundLook.Retitled("HX Edit - Helix Floor")!="HX Edit Unbound - Helix Floor"||UnboundLook.Retitled("HX Edit Unbound - Helix Floor")!="HX Edit Unbound - Helix Floor"||
            UnboundLook.Retitled("HX Edit")!="HX Edit Unbound"||UnboundLook.Retitled("HX Editor")!="HX Editor")throw new Exception("Unbound title");

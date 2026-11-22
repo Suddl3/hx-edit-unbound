@@ -295,12 +295,16 @@ CHAIN_LARGE_SETS = ((ROOT / 'helix_model_icons' / 'chain_large', ROOT / 'helix_m
                     (CAPTURE_ICONS / 'chain_large', CAPTURE_ICONS / 'chain_large_off', 'NAMCAP_'))
 
 
+# The large ones without the glow ("Glow behind them" turned off), copied as CHAINP_.
+CHAIN_PLAIN_SETS = ((ROOT / 'helix_model_icons' / 'chain_large_plain', ''), (CAPTURE_ICONS / 'chain_large_plain', 'NAMCAP_'))
+
+
 def patch_chain_art(resources):
     """The signal-chain pictures (HX Unbound menu, Options: "3D pictures in the signal chain"): each stock model's
     3D render and each NAM capture picture at the chain icon's size, as res/icons_models/CHAIN_<stock file> and
     CHAIN_NAMCAP_<id>.png, and CHAIN_OFF_... dimmed for bypassed blocks; the large set ("Large pictures in the
-    signal chain") as CHAINL_ / CHAINL_OFF_. tone_view shows them only while the option is on. Returns how many
-    were added."""
+    signal chain") as CHAINL_ / CHAINL_OFF_, and the large ones without their glow as CHAINP_. tone_view shows them
+    only while the option is on. Returns how many were added."""
     models = resources / 'icons_models'
     added = 0
     for sets, tag in ((CHAIN_SETS, 'CHAIN'), (CHAIN_LARGE_SETS, 'CHAINL')):
@@ -313,6 +317,12 @@ def patch_chain_art(resources):
                 if (off / picture.name).is_file():
                     shutil.copyfile(off / picture.name, models / f'{tag}_OFF_{prefix}{picture.name}')
                     added += 1
+    for plain, prefix in CHAIN_PLAIN_SETS:
+        for picture in sorted(plain.glob('*.png')):
+            if not prefix and not (models / picture.name).is_file():
+                continue
+            shutil.copyfile(picture, models / f'CHAINP_{prefix}{picture.name}')
+            added += 1
     return added
 
 

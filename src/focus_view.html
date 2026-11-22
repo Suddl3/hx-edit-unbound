@@ -1,0 +1,1354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Focus Mode</title>
+<!--
+  Focus Mode's page (focus_view.py serves it in the pane of focus_view.cs). It draws the selected block
+  large in its scene, with its own controls, from two messages:
+    {type: "catalog", catalog}  once: every model's name, picture, colour, scene and controls (HX Edit's own files)
+    {type: "state", state}      whenever something changes: the preset's blocks, the selected one and its values,
+                                the preset's number and name, its snapshots and the one that is on
+    {type: "dsp", dsp}          each DSP's load as the Floor reports it ({used, budget, level}), for the bar's meters
+  It asks for things with {name, value} messages: "exit" (back to the normal editor), "select" (a block of the
+  chain strip), "set" (a value of the selected block: {dsp, id, key, value, phase}; a drag is "begin",
+  "move"..., "end", so that HX Edit keeps it as one step of its undo; anything else is "single"), "model"
+  (another model for the block: {dsp, id, symbol}), "capture" (a capture on the Floor: {dsp, id, slot}),
+  "snapshot" (recall one: its place, 0 = snapshot 1), "preset" ("previous", "next" or a number of the list
+  it was given), "undo" / "redo" (HX Edit's own), "look" (one change of the look: a block's or the preset's own, or a
+  default; focus_view.look_change has the shapes) and "lookSave" (write the file the Floor reads).
+  {type: "look", look} brings the looks back as they are kept: the page draws only from that.
+  The page has HX Edit's toolbar under it, so it carries its own: preset, snapshot, undo, the DSP meters.
+  The layout keeps to what the Floor's own Focus View draws: title on top, the gear standing in its
+  category's scene, the parameters below on black, each with its value above its name.
+-->
+<style>
+  :root {
+    --tint: 152 152 152;               /* the selected block's category colour (R G B), HX Edit's own */
+    --ink: #f3f1ea;
+    --dim: #96948f;
+    --faint: rgb(255 255 255 / .09);
+    --din: Bahnschrift, 'DIN Alternate', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  img, canvas { -webkit-user-drag: none; }       /* never picked up by a press-and-drag (see dragstart below) */
+  html, body { height: 100%; margin: 0; background: #000; color: var(--ink); font-family: var(--din); overflow: hidden;
+               user-select: none; -webkit-user-select: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:focus-visible, [tabindex]:focus-visible { outline: 2px solid #fff; outline-offset: 3px; border-radius: 6px; }
+  [hidden] { display: none !important; }
+
+  .app { --lit: color-mix(in srgb, rgb(var(--tint)) 70%, white); height: 100%; display: grid;
+         grid-template-rows: auto minmax(220px, 1fr) auto; }
+
+  /* ---- top bar: back to the editor, preset, snapshot, undo, DSP; the signal chain under it ---------- */
+  .bar { position: relative; z-index: 5; padding: 8px 22px 6px; background: #000; }
+  .row1 { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 40px; }
+  .bar-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .back { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 10px; border-radius: 18px;
+          background: rgb(255 255 255 / .07); font-size: 15px; white-space: nowrap; transition: background .15s; }
+  .back:hover { background: rgb(255 255 255 / .14); }
+  .back svg { width: 14px; height: 14px; }
+  .switch { display: flex; align-items: center; height: 36px; border-radius: 18px; background: rgb(255 255 255 / .07); min-width: 0; }
+  .switch[hidden] { display: none; }
+  .switch .step { width: 32px; height: 36px; display: grid; place-items: center; color: var(--dim); border-radius: 18px; flex: none; }
+  .switch .step:hover { color: var(--ink); background: rgb(255 255 255 / .1); }
+  .switch .step svg { width: 12px; height: 12px; }
+  .switch .name { height: 36px; padding: 0 8px; font-size: 18px; display: inline-flex; align-items: center; gap: 9px; max-width: 380px;
+                  white-space: nowrap; min-width: 0; }
+  .switch .name .num { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .switch .name span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; }
+  .switch .name svg { width: 10px; height: 10px; opacity: .55; flex: none; }
+  .switch .name:hover svg { opacity: 1; }
+  .switch .name:disabled { cursor: default; }
+  .switch .name:disabled svg { display: none; }
+  .snap { height: 36px; padding: 0 14px 0 6px; border-radius: 18px; display: inline-flex; align-items: center; gap: 9px; font-size: 16px;
+          box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16); max-width: 300px; white-space: nowrap; }
+  .snap i { font-style: normal; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; flex: none;
+            background: rgb(255 255 255 / .12); font-variant-numeric: tabular-nums; }
+  .snap span { overflow: hidden; text-overflow: ellipsis; }
+  .snap svg { width: 10px; height: 10px; opacity: .55; flex: none; }
+  .snap:hover svg { opacity: 1; }
+  .bar-right { display: flex; align-items: center; justify-content: flex-end; gap: 18px; }
+  .pair { display: flex; gap: 2px; }
+  .icon { width: 34px; height: 34px; border-radius: 17px; display: grid; place-items: center; color: var(--ink); }
+  .icon svg { width: 17px; height: 17px; }
+  .icon:hover { background: rgb(255 255 255 / .1); }
+  .icon:disabled { color: #55544f; cursor: default; background: none; }
+  .dsp { display: flex; gap: 16px; font-size: 12.5px; color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dsp div { display: grid; grid-template-columns: auto 72px auto; align-items: center; gap: 7px; }
+  .dsp i { height: 4px; border-radius: 2px; background: var(--faint); overflow: hidden; display: block; }
+  .dsp i b { display: block; height: 100%; border-radius: 2px; background: #3fc56b; }
+  .dsp .yellow b { background: #e3b63a; } .dsp .red b { background: #e2483c; }
+  .dsp .yellow span:last-child, .dsp .red span:last-child { color: var(--ink); }
+  .pill { height: 32px; padding: 0 13px; border-radius: 16px; font-size: 14px; color: var(--dim);
+          box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16); white-space: nowrap; transition: color .15s, box-shadow .15s; }
+  .pill:hover { color: var(--ink); }
+  .pill[aria-pressed=true] { color: var(--ink); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .5); }
+  .drop { position: absolute; top: 50px; z-index: 8; width: 240px; max-height: 420px; overflow-y: auto; padding: 8px; border-radius: 12px;
+          background: rgb(8 8 10 / .94); backdrop-filter: blur(22px); box-shadow: 0 0 0 1px rgb(255 255 255 / .12), 0 24px 60px rgb(0 0 0 / .8); }
+  .drop button { width: 100%; display: grid; grid-template-columns: 30px 1fr; align-items: center; height: 32px; padding: 0 8px; border-radius: 8px;
+                 font-size: 15.5px; text-align: left; }
+  .drop button span:first-child { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .drop button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drop button:hover { background: rgb(255 255 255 / .08); }
+  .drop button.cur { background: rgb(255 255 255 / .1); box-shadow: inset 3px 0 0 #fff; }
+  .drop.presets { width: 330px; max-height: min(480px, 100vh - 70px); scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .drop.presets button { grid-template-columns: 42px 1fr; }
+  .toast { position: absolute; left: 50%; top: 112px; z-index: 9; transform: translateX(-50%); max-width: 560px; padding: 10px 16px;
+           border-radius: 10px; background: rgb(8 8 10 / .94); box-shadow: 0 0 0 1px rgb(255 255 255 / .16), 0 18px 40px rgb(0 0 0 / .7);
+           font-size: 15px; line-height: 1.35; text-align: center; }
+  .toast[hidden] { display: none; }
+
+  .chain { display: flex; align-items: flex-start; justify-content: center; gap: 6px; position: relative; padding-top: 2px; margin-top: 8px; min-height: 66px; }
+  .run { display: flex; align-items: flex-start; gap: 6px; position: relative; }
+  .run::before { content: ''; position: absolute; left: 30px; right: 30px; top: 22px; height: 2px;
+                 background: linear-gradient(90deg, #3a3a3d, #56565a 50%, #3a3a3d); }
+  .blk { position: relative; width: 74px; display: grid; justify-items: center; gap: 6px; cursor: default; }
+  button.blk { cursor: pointer; }
+  button.blk:hover .pic { transform: translateY(-1px); box-shadow: 0 0 0 1.5px rgb(var(--c)); }
+  button.blk.sel:hover .pic { transform: none; box-shadow: 0 0 0 2px #000, 0 0 0 4px #fff, 0 0 18px 2px rgb(var(--c) / .6); }
+  .blk .pic { width: 44px; height: 44px; border-radius: 11px; background: #0d0d0f; display: grid; place-items: center;
+              box-shadow: 0 0 0 1.5px rgb(var(--c) / .55); transition: box-shadow .15s, transform .15s; }
+  .blk .pic img { width: 36px; height: 36px; object-fit: contain; }
+  .blk .nm { font-size: 11.5px; line-height: 1.1; color: var(--dim); max-width: 72px; white-space: nowrap; overflow: hidden;
+             text-overflow: ellipsis; font-stretch: 87%; }
+  .blk.sel .pic { box-shadow: 0 0 0 2px #000, 0 0 0 4px #fff, 0 0 18px 2px rgb(var(--c) / .6); }
+  .blk.sel .nm { color: var(--ink); }
+  .blk.off .pic img { opacity: .38; filter: grayscale(.8); }
+  .blk.off .pic { box-shadow: 0 0 0 1.5px rgb(var(--c) / .22); }
+  .blk.off.sel .pic { box-shadow: 0 0 0 2px #000, 0 0 0 4px #fff; }
+  .blk.low .pic { margin-top: 0; }
+  .blk.low::after { content: 'B'; position: absolute; right: 9px; top: -3px; font-size: 10px; line-height: 13px; width: 13px; text-align: center;
+                    border-radius: 7px; background: #2a2a2d; color: var(--ink); }
+  .mark { align-self: flex-start; margin: 12px 4px 0; padding: 2px 8px; font-size: 11px; color: var(--dim);
+          border-radius: 8px; box-shadow: inset 0 0 0 1px #3a3a3d; white-space: nowrap; }
+
+  /* ---- the scene: the block's gear standing in its scene ------------------------------------ */
+  .scene { position: relative; overflow: hidden; background: #000; isolation: isolate; }
+  .plate { position: absolute; inset: 0; opacity: 0; transition: opacity .55s ease; }
+  .plate.on { opacity: 1; }
+  /* the scene leans a little with the pointer (--px / --py are eased by the page: see lean) */
+  .plate img { position: absolute; max-width: none; transform: translate(calc(var(--px, 0) * -5px), calc(var(--py, 0) * -3px));
+               transition: filter .4s; filter: brightness(var(--gain, 1)); }
+  .app.off .plate img { filter: brightness(calc(var(--gain, 1) * .42)) saturate(.25); }
+  .veil { position: absolute; inset: 0; pointer-events: none;
+          background: linear-gradient(180deg, #000 0, rgb(0 0 0 / 0) 11%, rgb(0 0 0 / 0) 72%, rgb(0 0 0 / .8) 91%, #000 100%),
+                      radial-gradient(120% 90% at 50% 55%, rgb(0 0 0 / 0) 45%, rgb(0 0 0 / .7) 100%); }
+  .gear { position: absolute; transform: translate(calc(var(--px, 0) * 3px), calc(var(--py, 0) * 1.5px));
+          transition: left .28s cubic-bezier(.2, .8, .2, 1), width .28s cubic-bezier(.2, .8, .2, 1); }
+  @media (prefers-reduced-motion: reduce) { .plate img, .gear { transform: none; } }
+  .gear .halo { position: absolute; left: 50%; bottom: 8%; width: 170%; height: 120%; translate: -50% 0; pointer-events: none;
+                background: radial-gradient(closest-side, rgb(var(--tint) / .2), rgb(var(--tint) / 0) 70%); transition: opacity .4s; }
+  .gear .shadow { position: absolute; left: 50%; bottom: -3%; height: 13%; translate: -50% 0; border-radius: 50%;
+                  background: radial-gradient(closest-side, rgb(0 0 0 / .85), rgb(0 0 0 / 0)); filter: blur(4px); }
+  /* the contact shadow: a tighter, darker band right along the gear's base (the pictures carry no shadow of their
+     own); the wide haze above reaches the floor round it. The base is 77% down the haze (bottom -3%, height 13%). */
+  .gear .shadow::after { content: ''; position: absolute; left: 11%; right: 11%; top: 66%; height: 24%; border-radius: 50%;
+                         background: radial-gradient(closest-side, rgb(0 0 0 / .85), rgb(0 0 0 / .5) 55%, rgb(0 0 0 / 0)); filter: blur(2px); }
+  .gear canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%;
+                 filter: drop-shadow(0 18px 22px rgb(0 0 0 / .55)); transition: filter .4s, opacity .25s; }
+  .gear canvas.in { animation: arrive .42s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes arrive { from { opacity: 0; transform: translateY(14px) scale(.975); } }
+  .app.off .gear canvas { filter: drop-shadow(0 18px 22px rgb(0 0 0 / .55)) brightness(.5) saturate(.45); }
+  .app.off .gear .halo { opacity: 0; }
+  .app.empty .gear, .app.empty .title, .app.empty .floor, .app.empty .deck > * { visibility: hidden; }
+
+  .title { position: absolute; left: 34px; bottom: 22px; display: grid; justify-items: start; gap: 2px; z-index: 2; max-width: 34%; }
+  .title .cat { font-size: 16px; font-weight: 600; color: var(--lit); display: flex; align-items: center; gap: 9px; }
+  .title .cat::before { content: ''; width: 11px; height: 11px; border-radius: 3px; box-shadow: inset 0 0 0 2px rgb(var(--tint)); }
+  .title .model { font-size: clamp(34px, 6.4vh, 68px); line-height: .98; font-weight: 700; font-stretch: 75%; text-align: left;
+                  letter-spacing: .005em; text-shadow: 0 2px 18px #000; }
+  .title .capture { font-size: clamp(18px, 2.6vh, 26px); margin-top: 6px; color: #dcdad3; text-shadow: 0 2px 12px #000;
+                    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* a NAM block is known by its capture: the capture's name is the big line (two lines at most, smaller when long),
+     the model the small one under it; each still opens its own list */
+  .title.named .capture { order: 2; margin-top: 0; overflow: visible; white-space: normal; text-align: left; color: var(--ink);
+                          font-size: clamp(calc(30px * var(--fit, 1)), calc(6.4vh * var(--fit, 1)), calc(68px * var(--fit, 1)));
+                          line-height: 1.02; font-weight: 700; font-stretch: 75%; letter-spacing: .005em; text-shadow: 0 2px 18px #000; }
+  .title.named .capture span { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+  .title.named button.capture svg { width: .42em; height: .42em; align-self: flex-end; margin-bottom: .3em; }
+  .title.named .model { order: 3; margin-top: 6px; font-size: clamp(18px, 2.6vh, 26px); line-height: 1.2; font-weight: 400; font-stretch: normal;
+                        letter-spacing: 0; color: #dcdad3; text-shadow: 0 2px 12px #000; }
+  .title.named button.model svg { width: .62em; height: .62em; }
+  .title button { display: inline-flex; align-items: center; gap: 12px; max-width: 100%; }
+  .title button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .title button svg { width: .42em; height: .42em; opacity: .5; flex: none; transition: opacity .15s, transform .15s; }
+  .title button.capture svg { width: .62em; height: .62em; }
+  .title button:hover svg { opacity: 1; transform: translateY(2px); }
+  .title button:disabled { cursor: default; }
+  .title button:disabled svg { display: none; }
+
+  /* the list you open on purpose: models, or the captures on the Floor */
+  .picker { position: absolute; left: 0; top: 0; bottom: 0; width: 392px; z-index: 4; display: grid; grid-template-rows: auto auto auto 1fr;
+            background: rgb(8 8 10 / .88); backdrop-filter: blur(22px) saturate(1.2); box-shadow: 1px 0 0 rgb(255 255 255 / .1), 30px 0 80px rgb(0 0 0 / .6);
+            transform: translateX(-104%); transition: transform .28s cubic-bezier(.2, .8, .2, 1); }
+  .picker.open { transform: none; }
+  .scene.picking .title { visibility: hidden; }             /* the list covers the title: a long name must not peek out beside it */
+  .picker header { display: flex; align-items: baseline; justify-content: space-between; padding: 20px 22px 10px 26px; }
+  .picker h2 { margin: 0; font-size: 22px; font-weight: 600; font-stretch: 87%; }
+  .picker header button { font-size: 14px; color: var(--dim); }
+  .picker header button:hover { color: var(--ink); }
+  .picker input { margin: 0 22px 10px 26px; height: 38px; border-radius: 9px; border: 0; padding: 0 12px; font: inherit; font-size: 15px;
+                  color: var(--ink); background: rgb(255 255 255 / .08); user-select: text; -webkit-user-select: text; }
+  .picker input:focus-visible { outline: 0; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .55); }
+  .picker input::placeholder { color: var(--dim); }
+  .kinds { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 10px 24px; }
+  .kinds button { height: 26px; padding: 0 10px; border-radius: 13px; font-size: 13px; color: var(--dim); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .14); }
+  .kinds button:hover { color: var(--ink); }
+  .kinds button.on { color: #000; background: rgb(var(--k)); box-shadow: none; }
+  .rows { overflow-y: auto; padding: 2px 12px 18px 16px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .rows h3 { margin: 12px 10px 4px; font-size: 13px; font-weight: 400; color: var(--dim); }
+  .row { width: 100%; display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 14px; padding: 5px 10px; border-radius: 10px;
+         text-align: left; font-size: 16px; }
+  .row img { width: 48px; height: 48px; object-fit: contain; }
+  .row small { font-size: 12.5px; color: var(--dim); }
+  .row:hover { background: rgb(255 255 255 / .07); }
+  .row.cur { background: rgb(var(--tint) / .16); box-shadow: inset 3px 0 0 rgb(var(--tint)); }
+  .rows p { color: var(--dim); font-size: 14px; padding: 8px 10px; margin: 0; }
+
+  /* ---- Change look: this block in this preset, the whole preset, the defaults --------------------------------- */
+  /* the two view buttons of the bar, side by side: quiet until they are on, as each other */
+  .views { display: flex; align-items: center; gap: 8px; }
+  .views .pill { display: inline-flex; align-items: center; gap: 8px; }
+  .views .pill[hidden] { display: none; }
+  .views .pill svg { width: 15px; height: 15px; }
+  .look { position: absolute; right: 0; top: 0; bottom: 0; width: 430px; z-index: 5; display: grid; grid-template-rows: auto auto 1fr auto;
+          background: rgb(8 8 10 / .9); backdrop-filter: blur(24px) saturate(1.2); box-shadow: -1px 0 0 rgb(255 255 255 / .1), -30px 0 80px rgb(0 0 0 / .55);
+          transform: translateX(104%); transition: transform .28s cubic-bezier(.2, .8, .2, 1); }
+  .look.open { transform: none; }
+  .look > header { display: flex; align-items: baseline; justify-content: space-between; padding: 18px 22px 10px 24px; }
+  .look h2 { margin: 0; font-size: 22px; font-weight: 600; font-stretch: 87%; }
+  .look > header button { font-size: 14px; color: var(--dim); }
+  .look > header button:hover { color: var(--ink); }
+  .scope { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; margin: 0 22px 6px 24px; padding: 3px; border-radius: 10px; background: rgb(255 255 255 / .07); }
+  .scope button { height: 32px; border-radius: 8px; font-size: 14.5px; color: var(--dim); }
+  .scope button[aria-selected=true] { background: rgb(255 255 255 / .14); color: var(--ink); }
+  .pane { overflow-x: hidden; overflow-y: auto; padding: 8px 22px 18px 24px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .pane .who { margin: 6px 0 2px; font-size: 19px; font-stretch: 87%; }
+  .pane .who span { color: var(--dim); font-size: 14.5px; margin-left: 6px; }
+  .pane .lead { margin: 6px 0 4px; font-size: 14px; color: var(--dim); line-height: 1.4; }
+  .pane .lead button { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+  .pane h3 { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 8px; font-size: 15px; font-weight: 600; }
+  .pane h3 small { font-weight: 400; font-size: 13px; color: var(--dim); }
+  .pane h3 button { margin-left: auto; font-size: 13px; font-weight: 400; color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
+  .pane h3 button:hover { color: var(--ink); }
+  /* this block's two choices, side by side: the one picked shows its pictures below */
+  .parts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 2px; }
+  .parts button { display: grid; grid-template-columns: 62px 1fr; gap: 10px; align-items: center; padding: 8px; border-radius: 10px; text-align: left;
+                  background: rgb(255 255 255 / .05); min-width: 0; }
+  .parts button:hover { background: rgb(255 255 255 / .09); }
+  .parts button[aria-selected=true] { background: rgb(255 255 255 / .1); box-shadow: inset 0 0 0 1.5px #fff; }
+  .parts img { width: 62px; height: 40px; border-radius: 5px; object-fit: contain; }
+  .parts img.bg { object-fit: cover; object-position: 50% 27%; }
+  .parts span { min-width: 0; }
+  .parts b { display: block; font-size: 14.5px; font-weight: 600; }
+  .parts small { display: block; color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scenes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+  .scenes button { position: relative; border-radius: 7px; overflow: hidden; text-align: left; background: #000; box-shadow: 0 0 0 1px rgb(255 255 255 / .1); }
+  /* the Floor's 800 x 480 backgrounds: only the part Focus View shows behind the gear (rows 52 to 340) */
+  .scenes img { display: block; width: 100%; aspect-ratio: 800 / 288; object-fit: cover; object-position: 50% 27%; }
+  .scenes span { display: block; padding: 4px 7px 5px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .scenes button:hover { box-shadow: 0 0 0 1px rgb(255 255 255 / .4); }
+  .scenes button.cur { box-shadow: 0 0 0 2px #fff; }
+  /* the starting background (the default for these blocks, or what the preset gives): outlined and tagged, as on the
+     Floor look page, so one click puts just that one back */
+  .scenes button.start { outline: 2px dashed #8a8a8a; outline-offset: 1px; }
+  .scenes button.start.cur { outline-offset: 3px; }
+  .scenes i { position: absolute; left: 5px; top: 5px; padding: 1px 6px; border-radius: 8px; font: normal 10.5px var(--din); background: rgb(0 0 0 / .7); color: #dcdad3; }
+  .scenes .none { display: grid; place-items: center; height: 100%; min-height: 56px; padding: 0 6px; text-align: center; color: var(--dim); font-size: 12.5px;
+                  background: rgb(255 255 255 / .05); }
+  .pics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .pics button { aspect-ratio: 1; border-radius: 8px; background: rgb(255 255 255 / .05); display: grid; place-items: center; }
+  .pics img { width: 82%; height: 82%; object-fit: contain; }
+  .pics button:hover { background: rgb(255 255 255 / .12); }
+  .pics button.cur { box-shadow: 0 0 0 2px #fff; }
+  .pane input[type=search] { width: 100%; height: 34px; margin-bottom: 8px; border-radius: 9px; border: 0; padding: 0 12px; font: inherit; font-size: 14.5px;
+                             background: rgb(255 255 255 / .08); color: var(--ink); user-select: text; -webkit-user-select: text; }
+  .pane input[type=search]::placeholder { color: var(--dim); }
+  .pane input[type=search]:focus-visible { outline: 0; box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / .55); }
+  .blocks { display: grid; gap: 2px; }
+  .blocks button { display: grid; grid-template-columns: 36px minmax(0, 1fr) 64px 62px 8px; gap: 11px; align-items: center; padding: 3px 8px 3px 6px; border-radius: 9px; text-align: left; }
+  .blocks button:hover { background: rgb(255 255 255 / .07); }
+  .blocks button.cur { background: rgb(255 255 255 / .1); }
+  .blocks .g { width: 36px; height: 36px; object-fit: contain; }
+  .blocks .bg { width: 64px; height: 30px; object-fit: cover; object-position: 50% 27%; border-radius: 4px; }
+  /* the name is cut short inside its own span, so the dot after it is never cut off with it */
+  .blocks b { display: flex; align-items: center; font-weight: 400; font-size: 15px; min-width: 0; }
+  .blocks b span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .blocks button.changed b::after { flex: none; }
+  .blocks small { display: block; color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .blocks svg { width: 8px; height: 12px; opacity: .45; }
+  .blocks button:hover svg { opacity: 1; }
+  .tag { justify-self: start; font-size: 11.5px; padding: 2px 8px; border-radius: 9px; color: var(--dim); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .16); white-space: nowrap; }
+  .tag.own { color: #111; background: #f3f1ea; box-shadow: none; }
+  .tag.preset { color: var(--ink); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .5); }
+  .cats { display: grid; gap: 2px; }
+  .cats > button { display: grid; grid-template-columns: minmax(0, 1fr) 64px 110px; gap: 11px; align-items: center; padding: 4px 8px; border-radius: 9px; text-align: left; font-size: 15px; }
+  .cats > button span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cats > button:hover, .cats > button[aria-expanded=true] { background: rgb(255 255 255 / .07); }
+  .cats > button img { width: 64px; height: 30px; object-fit: cover; object-position: 50% 27%; border-radius: 4px; }
+  .cats > button span:last-child { color: var(--dim); font-size: 13.5px; }
+  /* what is not at its default gets the Floor look page's dot: a kind's default, the preset's own background, a block
+     with a look of its own, and each of its two choices (not the tabs: that was a dot too many) */
+  .cats > button.changed span:first-child::after, .blocks button.changed b::after, .parts button.changed b::after {
+    content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #e05a5b; vertical-align: middle; }
+  .cats .scenes { margin: 6px 0 12px; }
+  .linkish { margin-top: 16px; font-size: 13.5px; color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
+  .linkish:hover { color: var(--ink); }
+  .look > footer { display: flex; align-items: center; gap: 14px; padding: 12px 22px 14px 24px; box-shadow: 0 -1px 0 rgb(255 255 255 / .1); }
+  .look > footer p { margin: 0; flex: 1; font-size: 12.5px; line-height: 1.35; color: var(--dim); }
+  .save { height: 34px; padding: 0 14px; border-radius: 17px; font-size: 14px; background: #f3f1ea; color: #111; white-space: nowrap; }
+  .app.looking .floor { right: 456px; }
+
+  .hint { position: absolute; left: 50%; top: 46%; translate: -50% -50%; z-index: 2; text-align: center; font-size: 19px; color: var(--dim);
+          max-width: 520px; line-height: 1.45; }
+  .hint b { display: block; color: var(--ink); font-size: 26px; font-weight: 600; font-stretch: 87%; margin-bottom: 6px; }
+
+  /* what the Floor's own 800 x 480 screen would draw for this block */
+  .floor { position: absolute; right: 26px; bottom: 22px; z-index: 2; width: 320px; transition: opacity .25s, transform .25s, right .28s cubic-bezier(.2, .8, .2, 1); }
+  .floor.away { opacity: 0; transform: translateY(8px); pointer-events: none; }
+  .floor .cap { font-size: 12.5px; color: var(--dim); margin-bottom: 7px; display: flex; justify-content: space-between; }
+  .floor .frame { width: 320px; height: 192px; border-radius: 6px; overflow: hidden; background: #000;
+                  box-shadow: 0 0 0 1px rgb(255 255 255 / .22), 0 16px 40px rgb(0 0 0 / .7); }
+  .lcd { width: 800px; height: 480px; transform: scale(.4); transform-origin: 0 0; position: relative; background: #000; }
+  .lcd .bg { position: absolute; inset: 0; width: 800px; height: 480px; }
+  .lcd canvas { position: absolute; left: 272px; top: 68px; width: 256px; height: 256px; object-fit: contain; object-position: 50% 100%; }
+  .lcd .line { position: absolute; left: 12px; top: 342px; width: 400px; height: 2px; background: rgb(var(--tint)); }
+  .lcd .who { position: absolute; left: 12px; top: 352px; font-size: 19px; display: flex; gap: 8px; align-items: center; }
+  .lcd .who i { width: 14px; height: 14px; box-shadow: inset 0 0 0 2px rgb(var(--tint)); display: block; }
+  .lcd .who b { color: rgb(var(--tint)); }
+  .lcd .cols { position: absolute; left: 0; right: 0; top: 392px; display: grid; grid-template-columns: repeat(6, 1fr); text-align: center; }
+  .lcd .cols div { display: grid; gap: 8px; }
+  .lcd .cols u { text-decoration: none; font-size: 18px; color: rgb(var(--tint)); border-top: 2px solid rgb(var(--tint) / .7);
+                 margin: 0 26px; padding-top: 5px; white-space: nowrap; overflow: hidden; }
+  .lcd .cols s { text-decoration: none; font-size: 22px; white-space: nowrap; overflow: hidden; }
+  .app.off .lcd canvas { opacity: .5; }
+
+  /* ---- the deck: bypass and the block's own controls ---------------------------------------- */
+  .deck { position: relative; z-index: 3; background: linear-gradient(180deg, #0d0d10 0, #050506 100%); padding: 26px 190px 22px; min-height: 196px;
+          display: flex; align-items: center; justify-content: center; }
+  .deck::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+                  background: linear-gradient(90deg, rgb(var(--tint)) 0, rgb(var(--tint) / .5) 30%, rgb(var(--tint) / 0) 58%); transition: opacity .3s; }
+  .app.off .deck::before { opacity: .35; }
+  .bypass { position: absolute; left: 44px; top: 50%; translate: 0 -50%; display: grid; justify-items: center; gap: 13px; }
+  .stomp { width: 78px; height: 78px; border-radius: 50%; position: relative; background: #050505; display: block;
+           box-shadow: 0 0 0 2px #17181a, 0 0 0 7px rgb(var(--tint)), 0 0 30px 7px rgb(var(--tint) / .5), inset 0 0 0 5px #000;
+           transition: box-shadow .25s; }
+  .stomp::after { content: ''; position: absolute; inset: 15%; border-radius: 50%;
+                  background: radial-gradient(circle at 50% 26%, #f4f5f6 0, #b9bbc0 20%, #74767c 52%, #2b2c30 100%);
+                  box-shadow: 0 6px 10px rgb(0 0 0 / .8), inset 0 -3px 5px rgb(0 0 0 / .5); transition: transform .08s; }
+  .stomp:active::after { transform: translateY(2px) scale(.975); }
+  .stomp:focus-visible { outline-offset: 12px; border-radius: 50%; }
+  .stomp[aria-pressed=false] { box-shadow: 0 0 0 2px #17181a, 0 0 0 7px rgb(var(--tint) / .2), 0 0 0 0 rgb(var(--tint) / 0), inset 0 0 0 5px #000; }
+  .bypass span { font-size: 14.5px; color: var(--dim); }
+  .stomp[aria-pressed=true] + span { color: var(--ink); }
+
+  .controls { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 20px 6px; --k: 84px; }
+  .controls.m { --k: 68px; }
+  .controls.s { --k: 58px; gap: 16px 0; }
+  .ctl { width: calc(var(--k) + 40px); display: grid; justify-items: center; align-content: start; text-align: center; position: relative; }
+  .ctl .val { margin-top: 13px; height: 19px; font-size: 15px; line-height: 19px; color: var(--lit); font-variant-numeric: tabular-nums;
+              white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; transition: color .2s; }
+  .ctl .nm { font-size: 15.5px; line-height: 20px; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .controls.s .ctl .val, .controls.s .ctl .nm { font-size: 13.5px; font-stretch: 90%; }
+  .app.off .ctl .val { color: var(--dim); }
+  .sync { position: absolute; top: -9px; right: -2px; height: 19px; padding: 0 9px; border-radius: 10px; font-size: 12px; line-height: 19px;
+          color: var(--dim); background: #0b0b0d; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .18); }
+  .sync:hover { color: var(--ink); }
+  .sync.on:hover { color: #000; }
+  .sync.on { color: #000; background: var(--lit); box-shadow: none; }
+
+  .dial { position: relative; width: var(--k); height: var(--k); border-radius: 50%; cursor: ns-resize; touch-action: none; }
+  .dial:focus-visible { outline-offset: 12px; border-radius: 50%; }
+  .ctl.live .val { color: #fff; }
+  .ctl.live .hand { transition: none; }
+  .ring { position: absolute; inset: -10px; width: calc(100% + 20px); height: calc(100% + 20px); overflow: visible; fill: none; stroke-linecap: round; }
+  .ring .track { stroke: rgb(255 255 255 / .1); stroke-width: 3; }
+  .ring .fill { stroke: rgb(var(--tint)); stroke-width: 3.4; filter: drop-shadow(0 0 4px rgb(var(--tint) / .8)); transition: stroke .25s; }
+  .ring .dot { fill: rgb(255 255 255 / .26); stroke: none; }
+  .ring .dot.on { fill: rgb(var(--tint)); filter: drop-shadow(0 0 4px rgb(var(--tint))); }
+  .app.off .ring .fill { stroke: #6b6a66; filter: none; }
+  .app.off .ring .dot.on { fill: #8a8985; filter: none; }
+  .skirt { position: absolute; inset: 8%; border-radius: 50%; background: repeating-conic-gradient(#141517 0 3deg, #303136 3deg 6deg);
+           box-shadow: 0 12px 18px rgb(0 0 0 / .8), 0 0 0 1px #000; }
+  .cap { position: absolute; inset: 16%; border-radius: 50%;
+         background: conic-gradient(from 205deg, #3d3e43, #191a1c 22%, #47484e 48%, #17181a 74%, #3d3e43);
+         box-shadow: inset 0 1px 1px rgb(255 255 255 / .28), inset 0 -2px 5px rgb(0 0 0 / .65), 0 2px 4px rgb(0 0 0 / .7); }
+  .hand { position: absolute; inset: 8%; transform: rotate(var(--a, 0deg)); pointer-events: none; transition: transform .12s ease-out; }
+  .hand::after { content: ''; position: absolute; left: 50%; top: 5%; width: max(3px, 4.6%); height: 31%; translate: -50% 0; border-radius: 3px;
+                 background: #f6f3ec; box-shadow: 0 0 8px rgb(255 255 255 / .4); }
+
+  .lever { position: relative; width: var(--k); height: var(--k); display: block; }
+  .lever:focus-visible { border-radius: 50%; }
+  .lever .nut { position: absolute; left: 50%; top: 56%; width: 46%; aspect-ratio: 1; translate: -50% -50%; border-radius: 50%;
+                background: conic-gradient(from 30deg, #94969c, #393a3f, #abadb3, #2d2e32, #94969c);
+                box-shadow: 0 8px 14px rgb(0 0 0 / .8), inset 0 0 0 calc(var(--k) * .075) #121315, inset 0 0 0 calc(var(--k) * .09) #3a3b40; }
+  .lever .bat { position: absolute; left: 50%; top: 56%; width: 17%; height: 40%; translate: -50% -88%; transform-origin: 50% 88%;
+                border-radius: 46% 46% 34% 34% / 24% 24% 12% 12%;
+                background: linear-gradient(90deg, #5f6167, #f1f2f4 40%, #a3a5ab 62%, #46484d); box-shadow: 0 6px 8px rgb(0 0 0 / .7);
+                transition: transform .14s cubic-bezier(.3, 1.5, .5, 1), filter .14s; }
+  .lever.down .bat { transform: scaleY(-.8); filter: brightness(.78); }
+  .lever .led { position: absolute; top: 0; left: 50%; margin-left: -4.5px; width: 9px; height: 9px; border-radius: 50%; background: #262628;
+                box-shadow: inset 0 1px 1px #000; transition: background .15s, box-shadow .15s; }
+  .lever:not(.down) .led { background: var(--lit); box-shadow: 0 0 10px 2px rgb(var(--tint) / .9); }
+  .app.off .lever:not(.down) .led { background: #8a8985; box-shadow: none; }
+
+  @media (max-width: 1280px) {
+    .blk { width: 60px; } .blk .nm { max-width: 58px; font-size: 10.5px; }
+    .deck { padding-left: 150px; padding-right: 40px; } .bypass { left: 30px; }
+    .floor { width: 240px; } .floor .frame { width: 240px; height: 144px; } .lcd { transform: scale(.3); }
+    .dsp div { grid-template-columns: auto auto; } .dsp i { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    .plate img, .gear { transform: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app empty" id="app">
+  <header class="bar">
+    <div class="row1">
+      <div class="bar-left">
+        <button class="back" id="back" title="Back to the normal editor (Esc)">
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg>
+          Editor
+        </button>
+        <div class="switch" id="preset" hidden>
+          <button class="step" id="presetPrev" title="Previous preset" aria-label="Previous preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg></button>
+          <button class="name" id="presetButton" title="Choose a preset" aria-expanded="false"><span class="num" id="presetNum"></span><span id="presetName"></span>
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l5 5 5-5"/></svg></button>
+          <button class="step" id="presetNext" title="Next preset" aria-label="Next preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2l5 5-5 5"/></svg></button>
+        </div>
+        <button class="snap" id="snapButton" title="Choose a snapshot" aria-expanded="false" hidden><i id="snapNum"></i><span id="snapName"></span>
+          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l5 5 5-5"/></svg></button>
+      </div>
+      <div class="bar-right">
+        <div class="pair">
+          <button class="icon" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3 2 6l3 3"/><path d="M2 6h7a4 4 0 0 1 0 8H6"/></svg></button>
+          <button class="icon" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3l3 3-3 3"/><path d="M14 6H7a4 4 0 0 0 0 8h3"/></svg></button>
+        </div>
+        <div class="dsp" id="dsp" aria-label="DSP load"></div>
+        <div class="views">
+          <button class="pill" id="lookButton" aria-pressed="false" aria-expanded="false" title="Backgrounds and pictures, for this preset or for all" hidden>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 10.5l3.5-3.5 3 3 2.5-2.5 4 4"/><circle cx="10.6" cy="5.8" r="1.1" fill="currentColor" stroke="none"/></svg>
+            Change look</button>
+          <button class="pill" id="floorToggle" aria-pressed="true">Floor preview</button>
+        </div>
+      </div>
+    </div>
+    <nav class="chain" id="chain" aria-label="Signal chain"></nav>
+    <div class="drop presets" id="presetList" hidden></div>
+    <div class="drop" id="snapList" hidden></div>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </header>
+
+  <main class="scene" id="scene">
+    <div class="plate" id="plateA"><img alt=""></div>
+    <div class="plate" id="plateB"><img alt=""></div>
+    <div class="veil"></div>
+    <div class="gear" id="gear"><div class="halo"></div><div class="shadow" id="shadow"></div><canvas id="gearPicture"></canvas></div>
+    <div class="hint" id="hint"><b>Focus Mode</b><span id="hintText">Waiting for HX Edit.</span></div>
+
+    <div class="title">
+      <div class="cat" id="cat"></div>
+      <button class="model" id="modelButton" title="Change the model"><span id="modelName"></span>
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l5 5 5-5"/></svg></button>
+      <button class="capture" id="captureButton" title="Change the capture" hidden><span id="captureName"></span>
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5l5 5 5-5"/></svg></button>
+    </div>
+
+    <aside class="look" id="look" aria-label="Change look" inert>
+      <header><h2>Look</h2><button id="lookClose">Done</button></header>
+      <div class="scope" role="tablist">
+        <button role="tab" data-tab="block">This block</button><button role="tab" data-tab="preset">This preset</button><button role="tab" data-tab="defaults">Defaults</button>
+      </div>
+      <div class="pane" id="lookPane"></div>
+      <footer><p id="lookNote"></p><button class="save" id="lookSave">Save for the Floor</button></footer>
+    </aside>
+
+    <aside class="picker" id="picker" aria-label="Choose" inert>
+      <header><h2 id="pickerTitle"></h2><button id="pickerClose">Close</button></header>
+      <input id="pickerSearch" type="search" placeholder="Search every model" autocomplete="off" spellcheck="false">
+      <div class="kinds" id="pickerKinds"></div>
+      <div class="rows" id="pickerRows"></div>
+    </aside>
+
+    <aside class="floor" id="floor" aria-label="What the Floor shows">
+      <div class="cap"><span>On the Floor</span><span id="floorPage"></span></div>
+      <div class="frame"><div class="lcd">
+        <img class="bg" id="lcdBg" alt=""><canvas id="lcdGear"></canvas>
+        <div class="line"></div>
+        <div class="who"><i></i><b id="lcdCat"></b><span id="lcdModel"></span></div>
+        <div class="cols" id="lcdCols"></div>
+      </div></div>
+    </aside>
+  </main>
+
+  <section class="deck" id="deck" aria-label="Block controls">
+    <div class="bypass" id="bypass"><button class="stomp" id="stomp" aria-pressed="true" title="Bypass"></button><span id="stompText">On</span></div>
+    <div class="controls" id="controls"></div>
+  </section>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const app = $('app'), scene = $('scene');
+const host = window.chrome && window.chrome.webview;
+const plates = [$('plateA'), $('plateB')];
+let catalog = null, state = null, plateOn = 0, shownPicture = '', shownKey = '', visible = !host;
+
+const ask = (name, value) => { if (host) host.postMessage(JSON.stringify({name, value: value === undefined ? null : value})); };
+
+// ---- values as HX Edit shows them (the rules are its own HelixControls.json, in the catalog) ----
+function printf(format, x) {
+  return String(format).replace(/%(\+?)(?:\.(\d+))?([fd%])/g, (_, plus, digits, type) => {
+    if (type === '%') return '%';
+    let text = type === 'd' ? String(Math.round(x)) : x.toFixed(digits ? +digits : 0);
+    if (parseFloat(text) === 0) text = text.replace('-', '');
+    return plus && parseFloat(text) >= 0 ? '+' + text : text;
+  });
+}
+function positions(p) {
+  const rules = catalog.controls[p.display] || {};
+  return rules.isDiscrete && Array.isArray(rules.format) ? rules.format : null;
+}
+function shown(p, v) {
+  const rules = catalog.controls[p.display] || {};
+  if (v === undefined || v === null) return '';
+  const names = positions(p);
+  if (typeof v === 'boolean') return (names && names.length === 2 ? names : ['Off', 'On'])[v ? 1 : 0];
+  if (names) return names[Math.round(v) - (typeof p.min === 'number' ? p.min : 0)] ?? String(v);
+  const d = rules.minimumValue !== undefined && p.max > p.min
+    ? rules.minimumValue + (v - p.min) / (p.max - p.min) * (rules.maximumValue - rules.minimumValue)
+    : v * (rules.dspToDisplayScale || 1);
+  let format = rules.formatUnits || rules.format || '%.1f', scale = 1;
+  if (Array.isArray(rules.format)) {
+    const range = rules.format.find(r => d >= r.lowerBound && d < r.upperBound) || rules.format[rules.format.length - 1];
+    format = range.formatUnits || range.format; scale = range.unitsMultiplier || 1;
+  }
+  return printf(format, d * scale);
+}
+const wide = p => typeof p.min === 'number' && p.min > 0 && p.max / p.min >= 50;     // times and frequencies turn evenly by ratio
+function turn(p, v) {                                                               // 0..1 position of the control
+  if (typeof v !== 'number' || !(p.max > p.min)) return 0;
+  const t = wide(p) && v > 0 ? Math.log(v / p.min) / Math.log(p.max / p.min) : (v - p.min) / (p.max - p.min);
+  return Math.min(1, Math.max(0, t));
+}
+
+// ---- turning things: what the hand sets shows at once, and goes to HX Edit ----------------------------
+// A drag is one "begin", its "move"s and one "end": HX Edit keeps that as a single step of its undo.
+const held = new Map();                                   // value name -> {value, until}: shown until HX Edit has caught up
+function valueOf(key) {
+  const mine = held.get(key);
+  if (mine && (mine.until === 0 || Date.now() < mine.until)) return mine.value;
+  return state.values[key];
+}
+function setValue(block, key, value, phase) {
+  held.set(key, {value, until: phase === 'begin' || phase === 'move' ? 0 : Date.now() + 600});
+  ask('set', {dsp: block.dsp, id: block.id, key, value, phase});
+}
+const clamp = x => Math.min(1, Math.max(0, x));
+
+// ---- pictures: the gear is cut to its own outline, so it can stand on the scene's floor -------------
+const cut = new Map();                                    // url -> Promise<{canvas, w, h} | null>
+function picture(url) {
+  if (!cut.has(url)) cut.set(url, new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const w = img.naturalWidth, h = img.naturalHeight, canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const pen = canvas.getContext('2d', {willReadFrequently: true});
+      pen.drawImage(img, 0, 0);
+      let box = [0, 0, w, h];
+      try {
+        const data = pen.getImageData(0, 0, w, h).data;
+        let l = w, t = h, r = -1, b = -1;
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data[(y * w + x) * 4 + 3] > 12) {
+          if (x < l) l = x; if (x > r) r = x; if (y < t) t = y; if (y > b) b = y;
+        }
+        if (r >= l && b >= t) box = [l, t, r - l + 1, b - t + 1];
+      } catch (_) { /* a picture the page may not read is shown whole */ }
+      const out = document.createElement('canvas');
+      out.width = box[2]; out.height = box[3];
+      out.getContext('2d').drawImage(canvas, box[0], box[1], box[2], box[3], 0, 0, box[2], box[3]);
+      resolve({canvas: out, w: box[2], h: box[3]});
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  }));
+  return cut.get(url);
+}
+async function firstPicture(urls) {
+  for (const url of urls || []) { const found = await picture(url); if (found) return found; }
+  return null;
+}
+function paint(target, source) {
+  target.width = source ? source.w : 1; target.height = source ? source.h : 1;
+  if (source) target.getContext('2d').drawImage(source.canvas, 0, 0);
+}
+
+// ---- which block, and what it is ----------------------------------------------------------------
+const model = block => (catalog.models[block.model]) || {name: block.model, category: '', key: '', tint: [152, 152, 152], pictures: [], scene: null, params: []};
+const isNam = block => catalog.nam.includes(block.model);
+const namKinds = () => (catalog.nam_kinds && catalog.nam_kinds.length ? catalog.nam_kinds : [{name: 'NAM', gears: []}]);
+function namKind(taken) {                                    // 'NAM Amp + cab', ... for a capture; the last kind takes the rest
+  const kinds = namKinds();
+  return (kinds.find(kind => kind.gears.includes((taken && taken.gear) || '')) || kinds[kinds.length - 1]).name;
+}
+const kindOf = block => { const taken = capture(block); return taken && taken.name && 'gear' in taken ? namKind(taken) : model(block).category; };
+function capture(block) {
+  if (!isNam(block) || !Number.isInteger(block.slot)) return null;
+  return (state.captures || []).find(c => c.slot === block.slot) || {slot: block.slot, name: 'IR slot ' + block.slot, icon: ''};
+}
+function ownPictures(block) {
+  const taken = capture(block);
+  if (taken && taken.icon) return catalog.captures.pictures.map(url => url.replace('{icon}', encodeURIComponent(taken.icon))).concat(model(block).pictures);
+  return model(block).pictures;
+}
+
+// ---- the look: a block's own choice in this preset, then the preset's, then the default for its kind -----------
+let look = null;                                             // {assign, factory, categories, presets}, as settings.json keeps it
+const presetKey = () => state && state.preset && Number.isInteger(state.preset.setlist) && Number.isInteger(state.preset.number)
+  ? state.preset.setlist + ':' + state.preset.number : null;
+const keptLook = () => (look && presetKey() && look.presets[presetKey()]) || null;
+// A look kept under another name was another preset's (this number was written over, or the presets were moved).
+const presetLook = () => { const kept = keptLook(); return kept && kept.name === (state.preset.name || '') ? kept : null; };
+const blockKey = block => isNam(block) && Number.isInteger(block.slot) ? 'slot:' + block.slot : block.model;
+const ownLook = block => { const mine = presetLook(); return (mine && mine.blocks[blockKey(block)]) || {}; };
+const usable = name => name && catalog.scenes[name] ? name : null;
+function defaultScene(block) {
+  const m = model(block);
+  return look ? usable(look.assign.category[m.key]) || usable(look.assign.default) || m.scene : m.scene;
+}
+function sceneOf(block) {                                    // {name, from: 'own' | 'preset' | 'default'}
+  const mine = presetLook(), whole = mine && usable(mine.scene), under = whole || defaultScene(block);
+  const own = usable(ownLook(block).scene);
+  // (a background of its own that is the one it would have anyway says nothing: it counts as that one, as focus_view.tidy_looks keeps it)
+  if (own && own !== under) return {name: own, from: 'own'};
+  return whole ? {name: whole, from: 'preset'} : {name: under, from: 'default'};
+}
+const givenPicture = block => { const id = ownLook(block).picture; return (id && catalog.pictures && catalog.pictures[id]) ? id : null; };
+function ownPictureId(block) {
+  const taken = capture(block);
+  return taken && taken.icon ? 'capture:' + taken.icon : model(block).picture || null;
+}
+function pictures(block) {                                   // best first; a picture given to the block comes before its own
+  const given = givenPicture(block);
+  return given ? catalog.pictures[given].urls : ownPictures(block);
+}
+function ordered() {
+  // Each DSP in signal order: its input, the blocks by place (the lower path marked), its output.
+  // The split and the join show only on a DSP that uses its lower path.
+  const groups = [];
+  for (const dsp of [0, 1]) {
+    const here = state.blocks.filter(b => b.dsp === dsp);
+    const blocks = here.filter(b => /^block/.test(b.id));
+    const selected = state.selected && state.selected.dsp === dsp ? state.selected.id : '';
+    if (!blocks.length && !selected && dsp === 1) continue;
+    const parallel = blocks.some(b => b.path === 1);
+    const middle = blocks.concat(parallel ? here.filter(b => b.id === 'split' || b.id === 'join') : [])
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || (a.id === 'split' ? -1 : b.id === 'split' ? 1 : 0) || a.path - b.path);
+    const pick = id => here.filter(b => b.id === id && (id === 'inputA' || id === 'outputA' || id === selected));
+    groups.push([...pick('inputA'), ...pick('inputB'), ...middle, ...(parallel ? [] : here.filter(b => (b.id === 'split' || b.id === 'join') && b.id === selected)),
+                 ...pick('outputA'), ...pick('outputB')]);
+  }
+  return groups;
+}
+function current() {
+  if (!state || !state.blocks.length) return null;
+  if (state.selected) return state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id) || null;
+  return null;
+}
+
+// ---- the chain strip ----------------------------------------------------------------------------
+let shownChain = '';
+function drawChain() {
+  const now = current(), groups = ordered();
+  // Only when the chain itself has changed (not with every value): its pictures are not loaded again for a knob turn.
+  const key = JSON.stringify([groups.map(group => group.map(b => [b.dsp, b.id, b.model, b.enabled, b.path, b.slot ?? 0, (capture(b) || {}).icon || '', givenPicture(b) || ''])),
+                              now ? [now.dsp, now.id] : null]);
+  if (key === shownChain) return;
+  shownChain = key;
+  const chain = $('chain'); chain.textContent = '';
+  groups.forEach((group, index) => {
+    if (index) { const mark = document.createElement('span'); mark.className = 'mark'; mark.textContent = 'DSP 2'; chain.append(mark); }
+    const run = document.createElement('div'); run.className = 'run';
+    for (const b of group) {
+      // (the split and the join have no cell of their own in HX Edit's chain to click)
+      const m = model(b), taken = capture(b), item = document.createElement(b.id === 'split' || b.id === 'join' ? 'div' : 'button');
+      if (item.tagName === 'BUTTON') item.onclick = () => ask('select', {dsp: b.dsp, id: b.id});
+      item.className = 'blk' + (b === now ? ' sel' : '') + (b.enabled ? '' : ' off') + (b.path === 1 && /^block/.test(b.id) ? ' low' : '');
+      item.style.setProperty('--c', m.tint.join(' '));
+      item.title = m.name + (taken ? ', ' + taken.name : '') + (b.enabled ? '' : ' (bypassed)');
+      item.innerHTML = '<span class="pic"><img alt=""></span><span class="nm"></span>';
+      const img = item.querySelector('img'), urls = pictures(b).slice().reverse();   // the small picture is plenty here
+      img.onerror = () => { if (urls.length) img.src = urls.shift(); else img.style.visibility = 'hidden'; };
+      if (urls.length) img.src = urls.shift(); else img.style.visibility = 'hidden';
+      item.querySelector('.nm').textContent = taken ? taken.name : m.name;
+      run.append(item);
+    }
+    chain.append(run);
+  });
+}
+
+// ---- the scene ----------------------------------------------------------------------------------
+function focusGearBox(G, shape, widest) {
+  // {w, h} of the gear's box for a picture `shape` wide per high, where G is the height of tall gear.
+  if (!(shape > 1)) return {w: G, h: G};
+  let h = G / Math.pow(shape, .4), w = h * shape;
+  if (w > widest) { w = widest; h = w / shape; }
+  return {w, h};
+}
+function place() {
+  // With the Look panel open, the gear stands in the middle of what the panel leaves in view (the scene still fills it all).
+  const full = scene.clientWidth, H = scene.clientHeight, W = full - (app.classList.contains('looking') ? $('look').offsetWidth : 0);
+  const G = Math.max(180, Math.min(H * .72, W * .46, 680)), base = Math.round(H * .84);
+  // The gear's box follows its picture's shape. Tall or square gear (a pedal, a combo, a cab) stands G high. Wide gear
+  // (an amp head, a rack unit) would be left small by that square, so it stands nearly as high and is let grow wider,
+  // up to what the scene has beside it (an amp head: about six sevenths of G high, where the square left it two thirds).
+  const gear = $('gearPicture'), shape = gear.width > 1 ? gear.width / gear.height : 1;
+  const box = focusGearBox(G, shape, Math.min(W * .56, G * 1.6));
+  Object.assign($('gear').style, {width: box.w + 'px', height: box.h + 'px', left: (W - box.w) / 2 + 'px', top: base - box.h + 'px'});
+  if (gear.width > 1) $('shadow').style.width = Math.min(box.w, box.h * shape) * 1.12 + 'px';
+  for (const plate of plates) {
+    const frame = plate.frame; if (!frame) continue;
+    // The Floor pack's own rule (focus_bg.fit_plate): the scene's focus point lands under the gear's base.
+    const s = Math.max(full / frame.w, H / frame.h) * frame.zoom * 1.03, w = frame.w * s, h = frame.h * s;
+    const x = Math.min(Math.max(frame.focus[0] * w - W / 2, 12), Math.max(12, w - full - 12));
+    const y = Math.min(Math.max(frame.focus[1] * h - (base - G * .09), 8), Math.max(8, h - H - 8));
+    Object.assign(plate.firstElementChild.style, {width: w + 'px', height: h + 'px', left: -x + 'px', top: -y + 'px'});
+    plate.style.setProperty('--gain', frame.gain);
+  }
+}
+function showScene(name) {
+  const now = plates[plateOn];
+  if (now.sceneName === name) return;
+  const next = plates[plateOn ^= 1], sc = name && catalog.scenes[name];
+  next.sceneName = name;
+  const img = next.firstElementChild;
+  if (!sc) { next.frame = null; img.removeAttribute('src'); next.classList.remove('on'); now.classList.remove('on'); return; }
+  next.frame = sc;
+  img.onerror = () => {                                        // no large picture on this PC: the Floor's own background
+    if (!sc.small || img.getAttribute('src') === sc.small.picture) return;
+    next.frame = sc.small; img.src = sc.small.picture; place();
+  };
+  img.src = sc.pictures[0];
+  place(); next.classList.add('on'); now.classList.remove('on');
+}
+async function showGear(block) {
+  const urls = pictures(block), key = urls.join('|');
+  if (key === shownPicture) return;
+  shownPicture = key;
+  const found = await firstPicture(urls) || (givenPicture(block) ? await firstPicture(ownPictures(block)) : null);
+  if (key !== shownPicture) return;                             // another block was picked meanwhile
+  const gear = $('gearPicture');
+  paint(gear, found); paint($('lcdGear'), found);
+  gear.style.opacity = found ? 1 : 0;
+  gear.classList.remove('in'); void gear.offsetWidth; gear.classList.add('in');
+  place();
+}
+
+// ---- the deck -----------------------------------------------------------------------------------
+const ARC = 'M18.2 81.8 A45 45 0 1 1 81.8 81.8';
+function controlsOf(block) {
+  // On a NAM block the capture is the line under the title, not a control.
+  return model(block).params.filter(p => !(isNam(block) && p.id === 'Index'));
+}
+function synced(p) { return !!(p.sync && valueOf(p.sync.switch) === true); }
+const notes = () => (catalog.controls.sync_note || {}).format || [];
+function text(p) {
+  if (synced(p)) {
+    const note = valueOf(p.sync.note);
+    return typeof note === 'number' ? notes()[Math.round(note) - (p.sync.min || 0)] || '' : '';
+  }
+  return shown(p, valueOf(p.id));
+}
+// What a dial turns right now: its own value, or the note when it follows the tempo. Whole steps for a list
+// of positions, a note or a whole-number value.
+function turning(p) {
+  if (synced(p)) return {key: p.sync.note, min: p.sync.min, max: p.sync.min + notes().length - 1, whole: true};
+  return {key: p.id, min: p.min, max: p.max, whole: p.kind === 'steps' || p.whole === true};
+}
+function position(p) {
+  const t = turning(p), v = valueOf(t.key);
+  if (typeof v !== 'number') return 0;
+  return t.whole ? clamp((v - t.min) / Math.max(1, t.max - t.min)) : turn(p, v);
+}
+function valueAt(p, x) {
+  const t = turning(p); x = clamp(x);
+  if (t.whole) return t.min + Math.round(x * (t.max - t.min));
+  return wide(p) ? p.min * Math.pow(p.max / p.min, x) : p.min + x * (p.max - p.min);
+}
+function wire(el, p, block) {
+  // The page's own controls change the block as HX Edit's sliders do.
+  const redraw = () => { fill(el, p); drawFloor(block); };
+  const lever = el.querySelector('.lever'), dial = el.querySelector('.dial'), sync = el.querySelector('.sync');
+  if (sync) sync.onclick = () => { setValue(block, p.sync.switch, !synced(p), 'single'); redraw(); };
+  if (lever) {
+    lever.onclick = () => {
+      const now = valueOf(p.id);
+      setValue(block, p.id, typeof now === 'number' ? (now === p.max ? p.min : p.max) : now !== true, 'single');
+      redraw();
+    };
+    return;
+  }
+  let from = null, last = null, waiting = false, nudging = null;
+  const push = (value, phase) => { last = value; setValue(block, turning(p).key, value, phase); redraw(); };
+  // A press alone changes nothing (and a double-click is two of them): the drag begins with its first change.
+  dial.onpointerdown = e => {
+    if (e.button !== 0) return;
+    try { dial.setPointerCapture(e.pointerId); } catch (_) { /* a pointer that is already gone */ }
+    from = {y: e.clientY, x: position(p), moved: false}; last = valueAt(p, from.x); el.classList.add('live');
+  };
+  dial.onpointermove = e => {
+    if (!from) return;
+    const value = valueAt(p, from.x + (from.y - e.clientY) / (e.shiftKey ? 900 : 190));
+    if (value === last) return;
+    if (!from.moved) { from.moved = true; setValue(block, turning(p).key, last, 'begin'); }
+    last = value; held.set(turning(p).key, {value, until: 0}); redraw();
+    if (waiting) return;                                  // one message a frame is plenty
+    waiting = true;
+    requestAnimationFrame(() => { waiting = false; if (from) setValue(block, turning(p).key, last, 'move'); });
+  };
+  dial.onpointerup = dial.onpointercancel = () => {
+    if (!from) return;
+    const moved = from.moved;
+    from = null; el.classList.remove('live');
+    if (moved) push(last, 'end');
+  };
+  // The wheel and the arrow keys: a run of small steps is one drag for HX Edit's undo.
+  const nudge = (direction, fine) => {
+    const t = turning(p), step = t.whole ? 1 / Math.max(1, t.max - t.min) : fine ? .002 : .01;
+    const value = valueAt(p, position(p) + direction * step);
+    if (nudging === null) push(valueAt(p, position(p)), 'begin'); else clearTimeout(nudging);
+    push(value, 'move');
+    nudging = setTimeout(() => { nudging = null; push(last, 'end'); }, 350);
+  };
+  dial.onwheel = e => { e.preventDefault(); if (!from) nudge(e.deltaY < 0 ? 1 : -1, e.shiftKey); };
+  dial.onkeydown = e => {
+    if (['ArrowUp', 'ArrowRight'].includes(e.key)) nudge(1, e.shiftKey);
+    else if (['ArrowDown', 'ArrowLeft'].includes(e.key)) nudge(-1, e.shiftKey);
+    else return;
+    e.preventDefault();
+  };
+  dial.ondblclick = () => { if (!synced(p) && typeof p.default === 'number') push(p.default, 'single'); };
+}
+function control(p) {
+  const el = document.createElement('div'); el.className = 'ctl'; el.dataset.id = p.id;
+  if (p.kind === 'switch') el.innerHTML = '<button class="lever" role="switch"><span class="led"></span><span class="nut"></span><span class="bat"></span></button><div class="val"></div><div class="nm"></div>';
+  else el.innerHTML = '<div class="dial" role="slider" tabindex="0"><svg class="ring" viewBox="0 0 100 100"></svg><span class="skirt"></span><span class="cap"></span><span class="hand"></span></div><div class="val"></div><div class="nm"></div>';
+  if (p.sync) el.insertAdjacentHTML('beforeend', '<button class="sync" title="Follow the tempo">Sync</button>');
+  el.querySelector('.nm').textContent = p.name;
+  (el.querySelector('.dial') || el.querySelector('.lever')).setAttribute('aria-label', p.name);
+  return el;
+}
+function fill(el, p) {
+  const value = valueOf(p.id);
+  el.querySelector('.val').textContent = text(p);
+  if (p.kind === 'switch') {
+    const up = value === true || (typeof value === 'number' && value === p.max);
+    el.querySelector('.lever').classList.toggle('down', !up);
+    el.querySelector('.lever').setAttribute('aria-checked', up);
+    return;
+  }
+  const names = synced(p) ? notes() : p.kind === 'steps' ? positions(p) : null;
+  const n = names ? names.length : 0;
+  const t = position(p);
+  el.querySelector('.dial').style.setProperty('--a', (-135 + 270 * t) + 'deg');
+  el.querySelector('.dial').setAttribute('aria-valuetext', text(p));
+  const ring = el.querySelector('.ring'), key = n && n <= 12 ? 'dots' + n + ':' + Math.round(t * (n - 1)) : 'arc' + t.toFixed(4);
+  if (ring.dataset.key !== key) {
+    ring.dataset.key = key;
+    ring.innerHTML = n && n <= 12
+      ? Array.from({length: n}, (_, i) => {
+          const a = (135 + 270 * i / (n - 1)) * Math.PI / 180;
+          return `<circle class="dot${Math.round(t * (n - 1)) === i ? ' on' : ''}" cx="${50 + 45 * Math.cos(a)}" cy="${50 + 45 * Math.sin(a)}" r="2.7"/>`;
+        }).join('')
+      : `<path class="track" d="${ARC}"/><path class="fill" d="${ARC}" pathLength="100" stroke-dasharray="${Math.max(.01, t * 100)} 100"/>`;
+  }
+  const sync = el.querySelector('.sync'); if (sync) sync.classList.toggle('on', synced(p));
+}
+function drawDeck(block) {
+  const list = controlsOf(block), box = $('controls'), key = block.dsp + '|' + block.id + '|' + block.model;
+  if (key !== shownKey) {                                      // another block: its own set of controls
+    shownKey = key; held.clear();
+    box.className = 'controls' + (list.length > 11 ? ' s' : list.length > 8 ? ' m' : '');
+    box.replaceChildren(...list.map(p => { const el = control(p); wire(el, p, block); return el; }));
+  }
+  list.forEach((p, i) => fill(box.children[i], p));
+  // Bypass: only what HX Edit can bypass (not an input or an output).
+  $('bypass').hidden = model(block).bypass !== true;
+  $('stomp').setAttribute('aria-pressed', block.enabled);
+  $('stomp').onclick = () => ask('set', {dsp: block.dsp, id: block.id, key: '@enabled', value: !block.enabled, phase: 'single'});
+  $('stompText').textContent = block.enabled ? 'On' : 'Bypassed';
+}
+
+// ---- what the Floor's Focus View draws: the same scene and picture, and its own first page of six ----
+function drawFloor(block) {
+  const m = model(block), sc = catalog.scenes[sceneOf(block).name];
+  const small = sc ? (sc.small ? sc.small.picture : sc.pictures[sc.pictures.length - 1]) : '';
+  if ($('lcdBg').getAttribute('src') !== small) { if (small) $('lcdBg').src = small; else $('lcdBg').removeAttribute('src'); }
+  $('lcdCat').textContent = m.category; $('lcdModel').textContent = m.name;
+  const page = m.params.map(p => ({name: p.name, text: isNam(block) && p.id === 'Index' ? (capture(block) || {}).name || '' : text(p)}));
+  const cols = $('lcdCols');
+  while (cols.children.length < Math.min(6, page.length)) cols.insertAdjacentHTML('beforeend', '<div><u></u><s></s></div>');
+  while (cols.children.length > Math.min(6, page.length)) cols.lastChild.remove();
+  page.slice(0, 6).forEach((item, i) => { cols.children[i].children[0].textContent = item.text; cols.children[i].children[1].textContent = item.name; });
+  $('floorPage').textContent = page.length > 6 ? 'Page 1 of ' + Math.ceil(page.length / 6) : '';
+}
+
+// ---- the list you open on purpose: another model, or another capture ------------------------------------
+let picking = null, pickedKind = '';                         // 'model' | 'capture'; the category shown
+function openPicker(kind) {
+  const block = current(); if (!block) return;
+  picking = kind;
+  pickedKind = kind === 'capture' || isNam(block) ? 'NAM' : model(block).category;
+  $('pickerSearch').value = '';
+  $('pickerSearch').hidden = kind === 'capture';
+  $('pickerKinds').hidden = kind === 'capture';
+  fillPicker();
+  const picker = $('picker'); picker.classList.add('open'); picker.inert = false; scene.classList.add('picking');
+  if (kind !== 'capture') setTimeout(() => $('pickerSearch').focus(), 60);
+}
+function closePicker() {
+  if (!picking) return;
+  picking = null;
+  const picker = $('picker'); picker.classList.remove('open'); picker.inert = true; scene.classList.remove('picking');
+}
+function row(name, urls, note, isCurrent, choose) {
+  const el = document.createElement('button');
+  el.className = 'row' + (isCurrent ? ' cur' : '');
+  el.innerHTML = '<img alt="" loading="lazy"><span></span><small></small>';
+  const img = el.firstChild, list = (urls || []).slice().reverse();   // the small picture is plenty in a list
+  img.onerror = () => { if (list.length) img.src = list.shift(); else img.style.visibility = 'hidden'; };
+  if (list.length) img.src = list.shift(); else img.style.visibility = 'hidden';
+  el.children[1].textContent = name; el.children[2].textContent = note || '';
+  el.onclick = choose;
+  return el;
+}
+function fillPicker() {
+  const block = current(), rows = $('pickerRows'), kinds = $('pickerKinds');
+  if (!block || !picking) return;
+  const lists = catalog.lists || [], captures = state.captures || [];
+  const query = picking === 'capture' ? '' : $('pickerSearch').value.trim().toLowerCase();
+  $('pickerTitle').textContent = picking === 'capture' ? 'Captures on the Floor' : 'Change the model';
+  kinds.textContent = '';
+  if (picking === 'model') {
+    for (const group of [...lists, {name: 'NAM', tint: [176, 112, 224]}]) {
+      const chip = document.createElement('button');
+      chip.textContent = group.name; chip.className = !query && group.name === pickedKind ? 'on' : '';
+      chip.style.setProperty('--k', group.tint.join(' '));
+      chip.onclick = () => { pickedKind = group.name; $('pickerSearch').value = ''; fillPicker(); rows.scrollTop = 0; };
+      kinds.append(chip);
+    }
+  }
+  rows.textContent = '';
+  const taken = capture(block);
+  const captureRow = c => row(c.name, catalog.captures.pictures.map(url => url.replace('{icon}', encodeURIComponent(c.icon || ''))), query ? namKind(c) : 'slot ' + c.slot,
+        !!taken && taken.slot === c.slot, () => { ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot}); closePicker(); });
+  const captureRows = () => captures.filter(c => !query || c.name.toLowerCase().includes(query)).map(captureRow);
+  // The captures on the Floor under their kinds, as the block picker's NAM categories have them (a kind with none is left out).
+  const capturesByKind = () => namKinds().flatMap(kind => {
+    const mine = captures.filter(c => namKind(c) === kind.name);
+    if (!mine.length) return [];
+    const h = document.createElement('h3'); h.textContent = kind.name;
+    return [h, ...mine.map(captureRow)];
+  });
+  const modelRow = (symbol, note) => { const m = catalog.models[symbol];
+    return row(m.name, m.pictures, note, symbol === block.model, () => { ask('model', {dsp: block.dsp, id: block.id, symbol}); closePicker(); }); };
+  if (query) {                                                // a search looks through every model and capture
+    const found = [];
+    for (const group of lists) for (const folder of group.folders) for (const symbol of folder.models) {
+      if (catalog.models[symbol].name.toLowerCase().includes(query)) found.push(modelRow(symbol, group.name + (folder.name ? ', ' + folder.name : '')));
+    }
+    found.push(...captureRows());
+    rows.append(...found.slice(0, 80));
+    if (!found.length) rows.innerHTML = '<p>Nothing matches that search.</p>';
+  } else if (picking === 'capture' || pickedKind === 'NAM') {
+    const list = capturesByKind();
+    rows.append(...list);
+    if (!list.length) rows.innerHTML = '<p>No capture on the Floor yet. Put one there from the NAM tab.</p>';
+  } else {
+    const group = lists.find(g => g.name === pickedKind) || lists[0];
+    for (const folder of group ? group.folders : []) {
+      if (group.folders.length > 1) { const h = document.createElement('h3'); h.textContent = folder.name; rows.append(h); }
+      rows.append(...folder.models.map(symbol => modelRow(symbol, '')));
+    }
+  }
+}
+
+// ---- Change look: this block (in this preset), this preset, the defaults ---------------------------------------
+// Nothing is changed here: each choice is asked of the launcher, which keeps it and sends the looks back.
+let lookOpen = false, lookTab = 'block', lookPart = 'scene', lookFind = '', lookKind = null, shownLook = '', shownLookAt = '';
+const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; };
+const sceneThumb = name => { const sc = catalog.scenes[name]; return sc ? (sc.small ? sc.small.picture : sc.pictures[sc.pictures.length - 1]) : ''; };
+const presetRef = () => ({setlist: state.preset.setlist, number: state.preset.number});
+const presetTitle = () => String(state.preset.number).padStart(3, '0') + ' ' + (state.preset.name || '');
+function thumb(urls, cls) {                                  // the smallest picture that loads
+  const img = el('img', cls), list = (urls || []).slice().reverse();
+  img.alt = ''; img.loading = 'lazy';
+  img.onerror = () => { if (list.length) img.src = list.shift(); else img.style.visibility = 'hidden'; };
+  if (list.length) img.src = list.shift(); else img.style.visibility = 'hidden';
+  return img;
+}
+function sceneGrid(now, pick, {marked = null, mark = 'Default', none = null} = {}) {
+  const grid = el('div', 'scenes');
+  if (none) { const off = el('button', now ? '' : 'cur'); off.append(el('div', 'none', none)); off.onclick = () => pick(null); grid.append(off); }
+  for (const [name, sc] of Object.entries(catalog.scenes)) {
+    const cell = el('button', name === now ? 'cur' : ''), img = el('img');
+    img.alt = ''; img.loading = 'lazy'; img.src = sceneThumb(name);
+    cell.append(img, el('span', '', sc.name));
+    if (name === marked) { cell.classList.add('start'); cell.append(el('i', '', mark)); cell.title = 'Where these blocks start. Click to put it back.'; }
+    cell.onclick = () => pick(name);
+    grid.append(cell);
+  }
+  return grid;
+}
+function heading(text, note, undo) {
+  const h = el('h3', '', text);
+  if (note) h.append(el('small', '', note));
+  if (undo) { const back = el('button', '', undo[0]); back.onclick = undo[1]; h.append(back); }
+  return h;
+}
+function lookBlockTab(pane, block) {
+  if (!block || !presetKey()) { pane.append(el('p', 'lead', block ? 'HX Edit has not said which preset this is yet.' : 'Select a block above to change its look.')); return; }
+  const m = model(block), taken = capture(block), own = ownLook(block), key = blockKey(block), from = sceneOf(block);
+  const change = more => ask('look', {scope: 'block', preset: presetRef(), key, ...more});
+  const who = el('p', 'who', taken ? taken.name : m.name); who.append(el('span', '', 'in ' + presetTitle())); pane.append(who);
+  pane.append(el('p', 'lead', 'Only this block, only in this preset. Everything else keeps its look.'));
+  const mine = presetLook(), under = (mine && usable(mine.scene)) || defaultScene(block);
+  const given = givenPicture(block), shownId = given || ownPictureId(block);
+  // The two things to choose, with what each is now; the one picked shows its choices below.
+  const parts = el('div', 'parts');
+  const part = (name, title, picture, now, changed) => {
+    const card = el('button', changed ? 'changed' : ''), text = el('span');
+    card.setAttribute('aria-selected', lookPart === name);
+    text.append(el('b', '', title), el('small', '', now));
+    card.append(picture, text);
+    card.onclick = () => { lookPart = name; drawLook(true); };
+    parts.append(card);
+  };
+  const backdrop = el('img', 'bg'); backdrop.alt = ''; backdrop.src = sceneThumb(from.name);
+  part('scene', 'Background', backdrop, catalog.scenes[from.name] ? catalog.scenes[from.name].name : '', from.from === 'own');
+  part('picture', 'Picture', thumb(pictures(block)), given ? catalog.pictures[given].name : taken ? taken.name : m.name, !!given);
+  pane.append(parts);
+  if (lookPart === 'scene') {
+    pane.append(heading('Background', from.from === 'own' ? 'chosen for this block' : from.from === 'preset' ? 'from this preset' : 'the ' + (m.category || 'block') + ' default',
+                        from.from === 'own' ? [mine && mine.scene ? "Use the preset's" : 'Use the default', () => change({scene: null})] : null));
+    pane.append(sceneGrid(from.name, name => change({scene: name}), {marked: under, mark: mine && usable(mine.scene) ? 'Preset' : 'Default'}));
+    return;
+  }
+  pane.append(heading('Picture', given ? 'chosen for this block' : taken ? "the capture's own picture" : "the model's own picture",
+                      given ? ['Use its own', () => change({picture: null})] : null));
+  const search = el('input'); search.type = 'search'; search.placeholder = 'Search the pictures'; search.value = lookFind; search.spellcheck = false;
+  const pics = el('div', 'pics'), group = isNam(block) ? 'NAM' : m.category;
+  const fill = () => {
+    const query = search.value.trim().toLowerCase();
+    lookFind = search.value;
+    const all = Object.entries(catalog.pictures || {}).filter(([, p]) => !query || p.name.toLowerCase().includes(query));
+    const list = (query ? all : all.filter(([id, p]) => p.group === group || id === shownId)).slice(0, 80);   // its own kind first; a search looks through all
+    pics.replaceChildren(...list.map(([id, p]) => {
+      const cell = el('button', id === shownId ? 'cur' : ''); cell.title = p.name;
+      cell.append(thumb(p.urls));
+      cell.onclick = () => change({picture: id === ownPictureId(block) ? null : id});
+      return cell;
+    }));
+    if (!list.length) pics.append(el('p', 'lead', 'Nothing matches that search.'));
+  };
+  search.oninput = fill; fill();
+  pane.append(search, pics);
+}
+function lookPresetTab(pane, block) {
+  if (!presetKey()) { pane.append(el('p', 'lead', 'HX Edit has not said which preset this is yet.')); return; }
+  const mine = presetLook(), kept = keptLook();
+  pane.append(el('p', 'who', presetTitle()));
+  if (kept && !mine) {                                       // a look is kept at this number under another name
+    const note = el('p', 'lead', 'A look was saved at this number for "' + kept.name + '". '), take = el('button', '', 'Use it for this preset');
+    take.onclick = () => ask('look', {scope: 'preset', preset: presetRef(), adopt: true});
+    note.append(take); pane.append(note);
+  }
+  pane.append(el('p', 'lead', 'This preset only. A block with a look of its own keeps it.'));
+  // One background for the whole preset: a row that opens its choices, so the blocks below stay in view.
+  const whole = mine && usable(mine.scene), cats = el('div', 'cats'), row = el('button', whole ? 'changed' : ''), mark = el('img');
+  row.setAttribute('aria-expanded', lookKind === 'preset');
+  mark.alt = ''; if (whole) mark.src = sceneThumb(whole); else mark.style.visibility = 'hidden';
+  row.append(el('span', '', 'Whole preset'), mark, el('span', '', whole ? catalog.scenes[whole].name : 'By kind of block'));
+  row.onclick = () => { lookKind = lookKind === 'preset' ? null : 'preset'; drawLook(true); };
+  cats.append(row);
+  if (lookKind === 'preset') cats.append(sceneGrid(whole, name => ask('look', {scope: 'preset', preset: presetRef(), scene: name}), {none: 'By kind of block'}));
+  pane.append(heading('Background'), cats);
+  pane.append(heading('Blocks in this preset'));
+  const rows = el('div', 'blocks');
+  for (const item of ordered().flat().filter(b => b.id !== 'split' && b.id !== 'join')) {
+    const m = model(item), taken = capture(item), from = sceneOf(item);
+    // (the dot after the name is the background's, as the tag is; a picture of its own shows as the picture itself)
+    const row = el('button', (item === block ? 'cur' : '') + (from.from !== 'default' ? ' changed' : '')), text = el('span');
+    row.title = "Change this block's look";
+    const title = el('b'); title.append(el('span', '', taken ? taken.name : m.name));
+    const under = el('small', '', kindOf(item) || 'Block');
+    text.append(title, under);
+    const bg = el('img', 'bg'); bg.alt = ''; bg.loading = 'lazy'; bg.src = sceneThumb(from.name);
+    // The tag beside the background speaks for the background alone.
+    const tag = el('span', 'tag ' + from.from, from.from === 'own' ? 'Its own' : from.from === 'preset' ? 'Preset' : 'Default');
+    tag.title = 'Its background: ' + (from.from === 'own' ? 'chosen for this block' : from.from === 'preset' ? "this preset's" : 'the default for its kind');
+    row.append(thumb(pictures(item), 'g'), text, bg, tag);
+    row.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 1.5 6 6l-4.5 4.5"/></svg>');
+    row.onclick = () => { lookTab = 'block'; lookPart = 'scene'; ask('select', {dsp: item.dsp, id: item.id}); drawLook(true); };
+    rows.append(row);
+  }
+  pane.append(rows);
+  if (mine) { const clear = el('button', 'linkish', 'Put this preset back on the defaults'); clear.onclick = () => ask('look', {scope: 'preset', preset: presetRef(), clear: true}); pane.append(clear); }
+}
+function lookDefaultsTab(pane) {
+  pane.append(el('p', 'lead', 'What every preset starts from: one background for each kind of block. The Floor look page edits the same choices.'));
+  const cats = el('div', 'cats');
+  let moved = 0;                                             // how many kinds are not on their starting background
+  for (const [key, label] of [...look.categories, ['default', 'Everything else']]) {
+    const now = key === 'default' ? usable(look.assign.default) : usable(look.assign.category[key]) || usable(look.assign.default);
+    const starting = key === 'default' ? look.factory.default : look.factory.category[key];
+    const changed = !!usable(starting) && now !== starting;
+    if (changed) moved++;
+    const row = el('button', changed ? 'changed' : ''); row.setAttribute('aria-expanded', lookKind === key);
+    row.title = changed ? 'Changed from ' + catalog.scenes[starting].name + '. Click to choose.' : '';
+    const img = el('img'); img.alt = ''; img.loading = 'lazy'; img.src = sceneThumb(now);
+    row.append(el('span', '', label), img, el('span', '', now ? catalog.scenes[now].name : ''));
+    row.onclick = () => { lookKind = lookKind === key ? null : key; drawLook(true); };
+    cats.append(row);
+    if (lookKind === key) cats.append(sceneGrid(now, name => ask('look', {scope: 'default', category: key, scene: name}), {marked: starting}));
+  }
+  pane.append(cats);
+  pane.append(heading('Capture pictures'));
+  pane.append(el('p', 'lead', "A NAM capture's picture is chosen on its row in the NAM library. It is the same in every preset unless a preset gives that capture another."));
+  if (moved) {                                               // (a dot marks each one; its outlined background puts just that one back)
+    const back = el('button', 'linkish', 'Put every default back'); back.onclick = () => ask('look', {scope: 'default', reset: true});
+    pane.append(back);
+  }
+}
+function drawLook(force) {
+  if (!lookOpen || !catalog || !state || !look) return;
+  const block = current();
+  // Only when something it shows has changed (not with every knob turn): its pictures and its scroll stay put.
+  const key = JSON.stringify([lookTab, lookPart, lookKind, presetKey(), state.preset && state.preset.name, block && [block.dsp, block.id, block.model, block.slot ?? 0],
+                              lookTab === 'defaults' ? look.assign : keptLook(), lookTab === 'preset' ? shownChain : '', (state.captures || []).length]);
+  if (!force && key === shownLook) return;
+  // The same tab on the same block of the same preset keeps its scroll; anything else starts at the top.
+  const pane = $('lookPane'), at = JSON.stringify([lookTab, presetKey(), block && [block.dsp, block.id]]), keep = at === shownLookAt ? pane.scrollTop : 0;
+  const typing = document.activeElement && document.activeElement.type === 'search' && pane.contains(document.activeElement);
+  shownLook = key; shownLookAt = at;
+  document.querySelectorAll('.scope button').forEach(tab => tab.setAttribute('aria-selected', tab.dataset.tab === lookTab));
+  pane.textContent = '';
+  if (lookTab === 'block') lookBlockTab(pane, block); else if (lookTab === 'preset') lookPresetTab(pane, block); else lookDefaultsTab(pane);
+  $('lookNote').textContent = presetKey() && presetLook()
+    ? "This preset's look shows here. The Floor shows the defaults until its firmware can read looks by preset."
+    : 'Save writes the defaults to the file the Floor reads at its next picture update.';
+  pane.scrollTop = keep;
+  if (typing) { const search = pane.querySelector('input[type=search]'); if (search) { search.focus(); search.setSelectionRange(search.value.length, search.value.length); } }
+}
+function openLook() {
+  if (!look) return;
+  closePicker();
+  lookOpen = true; lookTab = current() ? 'block' : 'preset'; lookPart = 'scene'; lookFind = ''; lookKind = null;   // first: the block you are looking at
+  const panel = $('look'); panel.classList.add('open'); panel.inert = false;
+  app.classList.add('looking'); $('lookButton').setAttribute('aria-expanded', 'true'); $('lookButton').setAttribute('aria-pressed', 'true');
+  drawLook(true); place();
+}
+function closeLook() {
+  if (!lookOpen) return;
+  lookOpen = false;
+  const panel = $('look'); panel.classList.remove('open'); panel.inert = true;
+  app.classList.remove('looking'); $('lookButton').setAttribute('aria-expanded', 'false'); $('lookButton').setAttribute('aria-pressed', 'false');
+  place();
+}
+
+// ---- the top bar: preset, snapshot, undo, DSP ----------------------------------------------------------------
+let dsp = null;
+function drawBar() {
+  const preset = state.preset, names = state.snapshots || [], on = state.snapshot;
+  $('preset').hidden = !preset;
+  if (preset) { $('presetNum').textContent = String(preset.number).padStart(3, '0'); $('presetName').textContent = preset.name || ''; }
+  // The list is offered when HX Edit's own preset list could be read for this setlist; the arrows always.
+  const listed = !!preset && Array.isArray(state.presets) && state.presets.length > 0;
+  $('presetButton').disabled = !listed;
+  $('presetButton').title = listed && $('presetList').hidden ? 'Choose a preset' : '';   // no tooltip over its open list
+  if (!listed) closePresets(); else if (!$('presetList').hidden) fillPresets();
+  const has = Number.isInteger(on) && on >= 0 && on < names.length;
+  $('snapButton').hidden = !has;
+  if (has) { $('snapNum').textContent = on + 1; $('snapName').textContent = names[on] || 'Snapshot ' + (on + 1); }
+  else closeSnapshots();
+  $('undo').disabled = state.undo === false;
+  if (!$('snapList').hidden) fillSnapshots();
+}
+function fillSnapshots() {
+  const list = $('snapList'), names = state.snapshots || [];
+  list.style.left = $('snapButton').offsetLeft + 'px';
+  list.replaceChildren(...names.map((name, index) => {
+    const row = document.createElement('button');
+    row.className = index === state.snapshot ? 'cur' : '';
+    row.innerHTML = '<span></span><span></span>';
+    row.firstChild.textContent = index + 1; row.lastChild.textContent = name || 'Snapshot ' + (index + 1);
+    row.onclick = () => { ask('snapshot', index); closeSnapshots(); };
+    return row;
+  }));
+}
+function closeSnapshots() { $('snapList').hidden = true; $('snapButton').setAttribute('aria-expanded', 'false'); $('snapButton').title = 'Choose a snapshot'; }
+let shownPresets = '';
+function fillPresets() {
+  // The loaded setlist's presets by number; redrawn only when a name or the loaded preset changes (it keeps its scroll).
+  const list = $('presetList'), names = state.presets || [], at = state.preset ? state.preset.number : -1;
+  const key = at + '\n' + names.join('\n');
+  list.style.left = $('preset').offsetLeft + 'px';
+  if (key === shownPresets && list.childElementCount === names.length) return;
+  shownPresets = key;
+  list.replaceChildren(...names.map((name, index) => {
+    const row = document.createElement('button');
+    row.className = index === at ? 'cur' : '';
+    row.innerHTML = '<span></span><span></span>';
+    row.firstChild.textContent = String(index).padStart(3, '0'); row.lastChild.textContent = name;
+    row.onclick = () => { if (index !== at) ask('preset', index); closePresets(); };
+    return row;
+  }));
+}
+function openPresets() {
+  closeSnapshots(); shownPresets = '';
+  fillPresets();
+  $('presetList').hidden = false; $('presetButton').setAttribute('aria-expanded', 'true'); $('presetButton').title = '';
+  const current = $('presetList').querySelector('.cur');
+  if (current) current.scrollIntoView({block: 'center'});
+}
+function closePresets() {
+  $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false');
+  $('presetButton').title = $('presetButton').disabled ? '' : 'Choose a preset';
+}
+let toastTimer = 0;
+function toast(text) {
+  // Something asked for here did not happen (a preset that did not load, a model with no room on its DSP).
+  const line = $('toast');
+  line.textContent = String(text || ''); line.hidden = !line.textContent;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { line.hidden = true; }, 6000);
+}
+function drawDsp() {
+  // Each DSP's blocks out of what they may use on the Floor (its own meter's figure), coloured as HX Edit Unbound's meter.
+  $('dsp').replaceChildren(...(dsp || []).map((view, index) => {
+    const el = document.createElement('div');
+    if (!view || typeof view.used !== 'number') { el.hidden = true; return el; }
+    el.className = view.level || '';
+    el.innerHTML = '<span></span><i><b></b></i><span></span>';
+    el.firstChild.textContent = 'DSP ' + (index + 1);
+    el.querySelector('b').style.width = Math.min(100, 100 * view.used / view.budget) + '%';
+    el.lastChild.textContent = view.used + '/' + view.budget;
+    return el;
+  }));
+}
+
+// ---- everything together ------------------------------------------------------------------------
+function render() {
+  if (!catalog || !state) return;
+  const block = current();
+  app.classList.toggle('empty', !block);
+  $('hint').hidden = !!block;
+  drawBar();
+  drawChain();
+  $('lookButton').hidden = !look;
+  if (!block) {
+    closePicker();
+    $('hintText').textContent = !state.blocks.length ? 'Waiting for a preset from HX Edit.'
+      : state.blocks.some(block => /^block/.test(block.id)) ? 'Select a block above, or on the Floor.'
+      : 'This preset has no blocks yet. Pick its input or output above, or add a block in the editor.';
+    app.classList.remove('off'); app.style.setProperty('--tint', '152 152 152');
+    showScene(null); shownKey = ''; shownPicture = '';
+    drawLook();
+    return;
+  }
+  const m = model(block), taken = capture(block);
+  app.style.setProperty('--tint', m.tint.join(' '));
+  app.classList.toggle('off', !block.enabled);
+  $('cat').textContent = kindOf(block) || 'Block';              // a NAM block says which kind of capture it plays
+  $('modelName').textContent = m.name;
+  $('captureButton').hidden = !taken; $('captureName').textContent = taken ? taken.name : '';
+  const title = $('cat').parentElement;                       // a NAM block: its capture's name is the big line
+  title.classList.toggle('named', !!taken);
+  title.style.setProperty('--fit', taken ? Math.max(.52, Math.min(1, 20 / taken.name.length)).toFixed(3) : 1);
+  $('modelButton').disabled = !/^block/.test(block.id);          // an input or an output is not a model to change
+  if (picking) fillPicker();
+  showScene(sceneOf(block).name); showGear(block); drawDeck(block); drawFloor(block);
+  drawLook();
+}
+function receive(message) {
+  if (!message || typeof message !== 'object') return;
+  if (message.type === 'catalog') { catalog = message.catalog; shownKey = ''; shownPicture = ''; shownChain = ''; }
+  else if (message.type === 'state') state = message.state;
+  else if (message.type === 'dsp') { dsp = message.dsp; drawDsp(); return; }
+  else if (message.type === 'look') look = message.look;      // (the scene, the gear and the strip each know when they differ)
+  else if (message.type === 'notice') { toast(message.text); return; }
+  else if (message.type === 'shown') { visible = message.shown === true; if (visible) place(); else { closePicker(); closeSnapshots(); closePresets(); closeLook(); $('toast').hidden = true; } return; }
+  else return;
+  render();
+}
+if (host) host.addEventListener('message', event => receive(event.data));
+// A press-and-drag on the scene or a picture must not pick the picture up (the browser's own image drag shows a
+// ghost of it). The page has no drag and drop of its own: knobs and sliders use pointer events.
+addEventListener('dragstart', event => event.preventDefault());
+window.focusReceive = receive;                                  // (tests feed the page through this)
+
+$('back').onclick = () => ask('exit');
+$('undo').onclick = () => ask('undo');
+$('redo').onclick = () => ask('redo');
+$('snapButton').onclick = () => {
+  const list = $('snapList');
+  if (list.hidden) { closePresets(); fillSnapshots(); list.hidden = false; $('snapButton').setAttribute('aria-expanded', 'true'); $('snapButton').title = ''; } else closeSnapshots();
+};
+$('presetPrev').onclick = () => { closePresets(); ask('preset', 'previous'); };
+$('presetNext').onclick = () => { closePresets(); ask('preset', 'next'); };
+$('presetButton').onclick = () => $('presetList').hidden ? openPresets() : closePresets();
+addEventListener('pointerdown', e => {
+  if (!$('snapList').hidden && !e.target.closest('#snapList, #snapButton')) closeSnapshots();
+  if (!$('presetList').hidden && !e.target.closest('#presetList, #presetButton')) closePresets();
+});
+$('modelButton').onclick = () => picking === 'model' ? closePicker() : openPicker('model');
+$('captureButton').onclick = () => picking === 'capture' ? closePicker() : openPicker('capture');
+$('pickerClose').onclick = closePicker;
+$('lookButton').onclick = () => lookOpen ? closeLook() : openLook();
+$('lookClose').onclick = closeLook;
+$('lookSave').onclick = () => ask('lookSave');
+// (a row left open on a tab is closed when the tab is left: coming back, the tab reads from the top again)
+document.querySelectorAll('.scope button').forEach(tab => { tab.onclick = () => { lookTab = tab.dataset.tab; lookKind = null; drawLook(true); }; });
+$('pickerSearch').oninput = () => { fillPicker(); $('pickerRows').scrollTop = 0; };
+scene.addEventListener('pointerdown', e => { if (picking && !e.target.closest('.picker')) closePicker(); });
+$('floorToggle').onclick = e => {
+  const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+  e.currentTarget.setAttribute('aria-pressed', on); $('floor').classList.toggle('away', !on);
+};
+// The scene leans a little with the pointer, and never jumps: each frame it goes a small part of the way to where
+// the pointer asks, and it drifts back to rest, more slowly, when the pointer leaves the scene or is over a panel.
+const lean = {x: 0, y: 0, toX: 0, toY: 0, frame: 0};
+function leanStep() {
+  const rate = lean.toX === 0 && lean.toY === 0 ? .018 : .03;   // (slow on purpose: it should drift, not follow)
+  lean.x += (lean.toX - lean.x) * rate; lean.y += (lean.toY - lean.y) * rate;
+  const there = Math.abs(lean.toX - lean.x) < .002 && Math.abs(lean.toY - lean.y) < .002;
+  if (there) { lean.x = lean.toX; lean.y = lean.toY; }
+  scene.style.setProperty('--px', lean.x.toFixed(4)); scene.style.setProperty('--py', lean.y.toFixed(4));
+  lean.frame = there ? 0 : requestAnimationFrame(leanStep);
+}
+function leanTo(x, y) { lean.toX = x; lean.toY = y; if (!lean.frame) lean.frame = requestAnimationFrame(leanStep); }
+scene.addEventListener('pointermove', e => {
+  if (e.target.closest('.look, .picker, .floor')) { leanTo(0, 0); return; }      // (choosing in a panel must not move the scene)
+  const r = scene.getBoundingClientRect();
+  leanTo((e.clientX - r.left) / r.width * 2 - 1, (e.clientY - r.top) / r.height * 2 - 1);
+});
+scene.addEventListener('pointerleave', () => leanTo(0, 0));
+addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !visible) return;
+  if (!$('snapList').hidden) closeSnapshots();
+  else if (!$('presetList').hidden) closePresets();
+  else if (picking) closePicker(); else if (lookOpen) closeLook(); else ask('exit');          // Escape closes a list first, then Focus Mode
+});
+addEventListener('resize', place);
+</script>
+</body>
+</html>

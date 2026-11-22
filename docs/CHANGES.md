@@ -1,5 +1,16 @@
 # What's new
 
+## November 21
+
+- **Focus** is now its own button on the toolbar: one click into Focus Mode. Its top bar chooses presets (arrows and a list) and snapshots, with undo, redo and DSP meters of its own, and a preset that comes up with nothing selected shows its first block.
+- **Change look** in Focus Mode: the background and the picture of the block you are looking at, for this preset only; one background for a whole preset; and the defaults for every preset (the same ones as the Floor look page). The Floor shows the defaults until its firmware can read looks by preset.
+- The **HX Unbound** menu holds the tools only; the options moved to a gear beside it, grouped by what they change. Options that depend on another one sit under it and are dimmed while it is off.
+
+## November 20
+
+- **Focus Mode**: the selected block shown large in its category's scene, with its own controls as knobs and switches, a strip of the chain to pick another block, and lists to change the block's model or its capture. Everything changes the real block, as HX Edit's own controls do, and undo works as usual. A small frame shows what the Floor's Focus View draws for the same block. See [Focus Mode](../README.md#focus-mode).
+- Signal-chain pictures: 3D pictures, large pictures and block names under them (the options beside the HX Unbound menu).
+
 ## November 19
 
 - **Drag and drop onto the chain**: captures from the NAM tab and the library window, and (with NAM categories) any model from the block picker. Dropping on a block replaces it, an empty cell adds one, between blocks inserts.
