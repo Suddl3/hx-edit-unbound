@@ -49,6 +49,10 @@ The small frame in the corner shows what the Floor's own Focus View draws for th
 
 ![Choosing a capture in Focus Mode](docs/screenshots/focus-mode-list.jpg)
 
+Focus Mode works from a plain clone, with the pictures kept in git (up to 256 px). For sharper gear and scenes, unzip the
+[art pack](https://github.com/Suddl3/hx-edit-unbound/releases/tag/gear-art-2026-11-22) into an `art` folder in your clone
+(see [Setup](docs/FLOOR-SETUP.md#sharper-pictures-in-focus-mode)): Focus Mode finds it on its own.
+
 ### Level presets
 
 Brings presets and snapshots to one output level, silently. Level plays two seconds of your own recorded playing through each snapshot over USB (nothing comes out of your amp), measures the loudness, and suggests a change to each output block's Level. Keep a lead louder on purpose with an offset, then Apply, with Undo. Recordings are saved per guitar ("Strat · neck"), so you record once. Only output levels change; tone and drive are never touched.

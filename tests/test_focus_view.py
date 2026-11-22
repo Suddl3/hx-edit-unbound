@@ -18,6 +18,14 @@ import focus_view  # noqa: E402
 from dsp_meter import DspMeter  # noqa: E402
 
 NODE = shutil.which('node')
+
+
+def setUpModule():
+    # The tests describe a clone without the art pack: what this PC has unzipped into art/ must not change them.
+    from unittest.mock import patch
+    local = patch.object(focus_view, 'LOCAL_ART', {})
+    local.start()
+    unittest.addModuleCleanup(local.stop)
 CONTROLS = {
     'generic_knob': {'dspToDisplayScale': 10, 'format': '%.1f', 'step': {'fine': .1}},
     'percent': {'dspToDisplayScale': 100, 'format': '%.0f', 'formatUnits': '%.0f %%'},
@@ -182,6 +190,22 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(scene['small']['picture'], 'https://scenes.focus.example/deep_sea.png')
         self.assertIn('plates', focus_view.art_folders(self.res, {'focusArt': {'scenes': str(plates)}}))
         self.assertNotIn('plates', focus_view.art_folders(self.res, {'focusArt': {'scenes': str(plates / 'missing')}}))
+
+    def test_the_art_pack_unzipped_into_the_clone_is_found_without_a_setting(self):
+        from unittest.mock import patch
+        pack = Path(self.folder.name, 'art')
+        for part in ('helix-gear-art/full', 'nam-gear-art/full', 'focus-backgrounds/sources'):
+            (pack / part).mkdir(parents=True)
+        named = Path(self.folder.name, 'named')
+        named.mkdir()
+        local = {'full': (pack / 'helix-gear-art' / 'full',), 'capturesfull': (pack / 'nam-gear-art' / 'full',),
+                 'plates': (pack / 'focus-backgrounds' / 'sources',)}
+        with patch.object(focus_view, 'LOCAL_ART', local):
+            folders = focus_view.art_folders(self.res, {})
+            self.assertEqual((folders['full'], folders['capturesfull'], folders['plates']),
+                             (pack / 'helix-gear-art' / 'full', pack / 'nam-gear-art' / 'full', pack / 'focus-backgrounds' / 'sources'))
+            self.assertEqual(focus_view.art_folders(self.res, {'focusArt': {'models': str(named)}})['full'], named)  # a named folder wins
+        self.assertEqual(focus_view.PACK, ROOT.parent / 'art')
 
     def test_a_test_build_can_name_this_pcs_folders_without_the_settings_file(self):
         from unittest.mock import patch

@@ -134,11 +134,19 @@ def _folder(value):
     return path if path and path.is_dir() else None
 
 
+# Larger pictures found without any setting, when they are there: the art pack (release gear-art-*, three zips unzipped
+# into the clone's art/ folder, which git ignores) and the checkout's own full-size folders. Named folders come first.
+PACK = ROOT.parent / 'art'
+LOCAL_ART = {'full': (ROOT / 'helix_model_icons' / 'full', PACK / 'helix-gear-art' / 'full'),
+             'capturesfull': (PACK / 'nam-gear-art' / 'full',),
+             'plates': (ROOT / 'focus_backgrounds' / 'plates', PACK / 'focus-backgrounds' / 'sources')}
+
+
 def art_folders(resources, settings=None):
     """The folders the page's pictures come from: {name: folder}. Always: the prepared copy's model pictures
     (256 px), the capture pictures (128 px) and the Floor's backgrounds (800 x 480). Larger ones when this PC has
-    them (settings.json "focusArt": {"models", "captures", "scenes"}, the same as JSON in HX_EDIT_FOCUS_ART, or the
-    checkout's own full-size renders)."""
+    them (settings.json "focusArt": {"models", "captures", "scenes"}, the same as JSON in HX_EDIT_FOCUS_ART, else
+    LOCAL_ART: the art pack unzipped into art/, or the checkout's own full-size renders)."""
     art = (settings or {}).get('focusArt') if isinstance((settings or {}).get('focusArt'), dict) else {}
     try:                                           # a test build names this PC's folders without touching settings.json
         named = json.loads(os.environ.get('HX_EDIT_FOCUS_ART') or '{}')
@@ -148,9 +156,10 @@ def art_folders(resources, settings=None):
     look = (settings or {}).get('floorLook') if isinstance((settings or {}).get('floorLook'), dict) else {}
     folders = {'app': ROOT, 'models': Path(resources) / 'icons_models', 'captures': ROOT / 'nam_capture_icons',
                'scenes': ROOT / 'focus_backgrounds' / 'backgrounds'}
-    for name, choices in (('full', (art.get('models'), str(ROOT / 'helix_model_icons' / 'full'))),
+    for name, choices in (('full', (art.get('models'),)),
                           ('capturesfull', (art.get('captures'), look.get('gearArt'))),
                           ('plates', (art.get('scenes'),))):
+        choices = (*choices, *(str(folder) for folder in LOCAL_ART.get(name, ())))
         found = next((folder for folder in map(_folder, choices) if folder), None)
         if found:
             folders[name] = found
