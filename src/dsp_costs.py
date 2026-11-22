@@ -2,8 +2,8 @@
 
 The Floor reports DSP per path only (dsp_meter.js: "used" of a 75 budget). HX Edit's per-model figure
 (HelixModelDefs.bin) is an estimate that does not match it (a NAM A2 Lite: 36 of 75 there, much less on the meter).
-So the Workbench watches the path: when a path settles with exactly one block more or fewer than before, the
-change in its meter is that block's cost. A model swapped for another counts too, once the old model's cost is
+So the Workbench watches the path: when a path has exactly one block more or fewer than its last steady reading,
+the meter's next move is that block's cost. A model swapped for another counts too, once the old model's cost is
 known. Nothing is asked of the device: these are the figures the meter reads anyway.
 
 Saved in %LOCALAPPDATA%\\HX Edit NAM\\dsp-costs.json: {"costs": {model symbol: used units}}.
@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 FILE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'dsp-costs.json'
-SETTLE = 5.0        # seconds a path's blocks and its meter figure must stay the same before they are trusted
+SETTLE = 5.0        # seconds any other reading must stay the same before it is the one to measure from
 GIVE_UP = 30.0      # a change the meter never showed is dropped after this long (nothing is measured from it)
 
 
@@ -62,19 +62,23 @@ class DspCosts:
             reading = {'preset': preset, 'models': _models(state, index), 'used': _used(dsp, index)}
             current = self._now[index]
             if current is None or any(current[key] != reading[key] for key in reading):
-                self._now[index] = {**reading, 'since': now}
-                continue
-            if now - current['since'] < SETTLE:
-                continue
+                current = self._now[index] = {**reading, 'since': now}
             before = self._settled[index]
             if before == reading:
                 continue
             measured = self._measure(before, reading)
-            if measured == 'wait' and now - current['since'] < GIVE_UP:
+            if measured == 'wait':
+                if now - current['since'] >= GIVE_UP:
+                    self._settled[index] = reading      # a change the meter never showed: start again from here
                 continue                  # the blocks changed but the meter has not followed yet
-            self._settled[index] = reading
-            if measured and measured != 'wait':
+            if measured:
+                # The meter's first move after one block came or went: taken at once (a Remove then Undo a few
+                # seconds later is two measurements), and the new reading is where the next one starts.
+                self._settled[index] = reading
                 found.append(measured)
+                continue
+            if now - current['since'] >= SETTLE:
+                self._settled[index] = reading
         if found:
             for model, cost in found:
                 self.costs[model] = cost

@@ -62,6 +62,7 @@ class WorkbenchView(focus_view.FocusView):
         self.options = {}
         self.costs = dsp_costs.DspCosts(costs_file)
         self.clock = clock
+        self._seen = None
         super().__init__(resources, **options)
 
     def catalog(self):
@@ -90,6 +91,11 @@ class WorkbenchView(focus_view.FocusView):
             self._write('P', {'type': 'options', 'options': self.options})
             self._show_costs()
         if kind in ('state', 'dsp'):
+            # (the meter's figures and each path's block count, as the measuring sees them, for the trace)
+            seen = [[dsp_costs._used(self.dsp, k), sum(dsp_costs._models(self.state, k).values())] for k in (0, 1)]
+            if seen != self._seen:
+                self._seen = seen
+                self.trace({'type': 'workbench', 'event': 'dsp-seen', 'paths': seen})
             self._idle()
 
     def _idle(self):

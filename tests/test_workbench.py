@@ -379,11 +379,17 @@ class DspCostTests(unittest.TestCase):
         self.assertEqual(self.settle(self.state('Fuzz', 'A', preset=6), 5.0, 50), [])  # meter never moved
         self.assertEqual(self.settle(self.state('Fuzz', 'A', preset=6), None, 90), [])  # no meter (Floor off)
 
-    def test_a_short_reading_is_not_trusted(self):
-        self.settle(self.state('Boost'), 10.0, 0)
-        self.costs.observe(self.state('Boost', 'NAM'), self.meter(32.0), 10)
-        self.assertEqual(self.costs.observe(self.state('Boost', 'NAM'), self.meter(32.0), 12), [])
-        self.assertEqual(self.costs.observe(self.state('Boost', 'NAM'), self.meter(32.0), 15.5), [('NAM', 22.0)])
+    def test_a_remove_and_a_quick_undo_are_both_measured(self):
+        self.settle(self.state('Boost', 'NAM'), 32.0, 0)
+        observe = lambda models, used, at: self.costs.observe(self.state(*models), self.meter(used), at)
+        self.assertEqual(observe(('Boost',), 32.0, 10), [])                 # removed; the meter follows a poll later
+        self.assertEqual(observe(('Boost',), 10.0, 11.5), [('NAM', 22.0)])
+        self.assertEqual(observe(('Boost', 'NAM'), 10.0, 13), [])           # Undo two seconds later
+        self.assertEqual(observe(('Boost', 'NAM'), 32.0, 14.5), [('NAM', 22.0)])
+        self.assertEqual(observe(('Boost', 'NAM'), 32.0, 30), [])           # and nothing more from it
+        self.assertEqual(observe(('Boost',), 32.0, 40), [])                 # removed and put back before the meter
+        self.assertEqual(observe(('Boost', 'NAM'), 32.0, 41), [])           # moved: nothing to measure
+        self.assertEqual(observe(('Boost', 'NAM'), 33.0, 50), [])           # the meter alone moving is no block's
 
     def test_the_page_shows_the_measured_figure_or_says_it_is_not_measured_yet(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
