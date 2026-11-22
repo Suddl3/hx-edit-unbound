@@ -427,6 +427,12 @@ class ChainChangeTests(unittest.TestCase):
         self.assertIn('const left = result >= 0 ? peekModel(editor, fromDsp, blockName) : null;', across)
         self.assertIn('if (left && model && left.model === model.model) result = remove(editor, fromDsp, name, 0);', across)
         self.assertIn('finally {\n        close(editor, result);', across)        # the undo step is always closed
+        # lane B of a one-lane path: pasted on an empty place of lane A, then moved down inside the same undo step
+        self.assertIn('if (result < 0 && row === 1) {', across)
+        self.assertIn("if (taken.includes('0:' + place)) continue;", across)
+        self.assertLess(across.index('open(editor, 0x80000000)'), across.index('result = move(editor, toDsp, madeName, down, 0)'))
+        self.assertIn("editorEntry(editor, 0xa0, 0x5123c0, 'move-block')", across)
+        self.assertIn("send({type: 'dspNotice', text: 'HX Edit did not make that change.'})", script)   # a refusal is told
         self.assertIn('targetBinding.setIndex(editor, made.dsp, made.id, follow.slot)', script)         # a capture is never left on slot 1
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("'add': view.checked_add, 'remove': view.checked_remove, 'move': view.checked_move", launcher)

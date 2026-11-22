@@ -380,7 +380,11 @@ function installFocusView(options, parts) {
         } else if (['add', 'remove', 'move'].includes(command.action)) change(command);
         else if (command.action) swap(command); else write(command);
       }
-      catch (error) { drag = null; changed = true; send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)}); }
+      catch (error) {
+        drag = null; changed = true;
+        send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
+        if (['add', 'remove', 'move'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+      }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
     try {

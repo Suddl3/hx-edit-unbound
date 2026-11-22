@@ -388,6 +388,17 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  function blockCells(editor, dsp) {
+    // The blocks of a path as the edit buffer has them now: [{name, path, position}].
+    const found = [];
+    for (let k = 0; k < 32; k++) {
+      const name = 'block' + k;
+      if (!peekModel(editor, dsp, name)) continue;
+      const lane = peekValue(editor, dsp, name, '@path'), place = peekValue(editor, dsp, name, '@position');
+      if (Number.isInteger(lane) && Number.isInteger(place)) found.push({name, path: lane, position: place});
+    }
+    return found;
+  }
   function moveAcross(editor, fromDsp, blockName, toDsp, row, col) {
     // A block to an empty place of the other path, as HX Edit's own drag between the paths does it: the block is
     // copied to the drag's own store (store 2, not the clipboard: +0xb8, as the chain's drag start 0x416de7), pasted
@@ -401,6 +412,7 @@ function installTargetBinding(options = {}) {
     const paste = new NativeFunction(editorEntry(editor, 0xc4, 0x513620, 'paste'), 'int', ['pointer', 'int', 'int', 'pointer', 'uint'], 'thiscall');
     const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
     const open = new NativeFunction(editorEntry(editor, 0xd4, 0x4ffa80, 'undo-open'), 'int', ['pointer', 'uint'], 'thiscall');
+    const move = new NativeFunction(editorEntry(editor, 0xa0, 0x5123c0, 'move-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
     const close = new NativeFunction(editorEntry(editor, 0xd8, 0x5044b0, 'undo-close'), 'int', ['pointer', 'int'], 'thiscall');
     let name = null;
     const cell = emptyVariant();
@@ -409,12 +421,35 @@ function installTargetBinding(options = {}) {
       cell.writeU32(5); cell.add(8).writeU32(((row << 16) | col) >>> 0);
       let result = copy(editor, 2, fromDsp, name);
       if (result < 0) fail(`copying the block was rejected (${result})`);
+      // Lane B of a path that has only lane A: HX Edit's paste refuses it (seen 2026-11-22, -4), a move within a
+      // path does not. Then the block is pasted on an empty place of lane A (its own place first) and moved down
+      // there, as a drag within that path moves it.
+      let via = null;
       result = canPaste(editor, 2, toDsp, cell, 0);
+      if (result < 0 && row === 1) {
+        const taken = blockCells(editor, toDsp).map(b => b.path + ':' + b.position);
+        for (const place of [col, 0, 1, 2, 3, 4, 5, 6, 7]) {
+          if (taken.includes('0:' + place)) continue;
+          cell.add(8).writeU32(place >>> 0);
+          if (canPaste(editor, 2, toDsp, cell, 0) >= 0) { via = place; result = 0; break; }
+        }
+      }
       if (result < 0) fail(`the other path refused the block (${result})`);
-      const model = peekModel(editor, fromDsp, blockName);
+      const model = peekModel(editor, fromDsp, blockName), before = via === null ? [] : blockCells(editor, toDsp).map(b => b.name);
       open(editor, 0x80000000);
       try {
         result = paste(editor, 2, toDsp, cell, 0x100);
+        if (result >= 0 && via !== null) {
+          const made = blockCells(editor, toDsp).find(b => !before.includes(b.name) && b.path === 0 && b.position === via);
+          if (!made) result = -1;
+          else {
+            const madeName = string(made.name), down = emptyVariant();
+            try {
+              down.writeU32(5); down.add(8).writeU32(((1 << 16) | col) >>> 0);
+              result = move(editor, toDsp, madeName, down, 0);
+            } finally { destroyVariant(madeName); }
+          }
+        }
         // The paste with 0x100 takes the block from its own path itself (seen 2026-11-22: a removal after it was
         // refused, -4, and closing the undo step with that lost it). Removed here only if it is still there.
         const left = result >= 0 ? peekModel(editor, fromDsp, blockName) : null;
