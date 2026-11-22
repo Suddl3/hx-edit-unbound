@@ -145,6 +145,17 @@ function focusFirstBlock(blocks) {
   chain.sort((a, b) => a.dsp - b.dsp || a.position - b.position || a.path - b.path);
   return chain.length ? {dsp: chain[0].dsp, id: chain[0].id} : null;
 }
+function focusCaptures(found, previous, inventory) {
+  // The captures on the Floor for the pane's names and pictures. A change to the chain makes HX Edit announce a
+  // new signal flow, which sends the whole slot list back to be checked (2-4 s): checked, it is empty meanwhile.
+  // While that check runs (inventory.state 'refreshing'), a capture seen before stays on a slot the list still
+  // shows (inventory.entries: [slot, contentId], kept through the check; a slot changed or deleted leaves it).
+  const now = Array.isArray(found) ? found : [];
+  if (!inventory || inventory.state !== 'refreshing' || !Array.isArray(previous) || !Array.isArray(inventory.entries)) return now;
+  const have = new Set(now.map(c => c.slot)), shown = new Set(inventory.entries.map(entry => entry[0]));
+  const kept = previous.filter(c => !have.has(c.slot) && shown.has(c.slot));
+  return kept.length ? now.concat(kept).sort((a, b) => a.slot - b.slot) : now;
+}
 function focusPresetNames(names, preset) {
   // The setlist's preset names for the bar's list, only when HX Edit's list is the loaded preset's own setlist:
   // its row for the loaded preset must carry that preset's name (the sidebar can show another setlist, and a
@@ -309,10 +320,14 @@ function installFocusView(options, parts) {
     }
     return focusPaneBounds(sf, ed, main);
   }
-  function captures() {
-    // The captures on the Floor, by slot: a NAM block's name and picture come from its slot.
-    try { return namView.installedCaptures().map(capture => ({slot: capture.slot, name: capture.name, icon: capture.icon, gear: capture.gear})); }
-    catch (_) { return []; }
+  function captures(previous) {
+    // The captures on the Floor, by slot: a NAM block's name and picture come from its slot (focusCaptures: kept
+    // while HX Edit re-checks the slots after a chain change).
+    try {
+      const found = namView.installedCaptures().map(capture => ({slot: capture.slot, name: capture.name, icon: capture.icon, gear: capture.gear}));
+      return focusCaptures(found, previous, namView.inventorySnapshot ? namView.inventorySnapshot() : null);
+    }
+    catch (_) { return previous || []; }
   }
   function endDrag(why) {
     if (!drag) return;
@@ -375,7 +390,7 @@ function installFocusView(options, parts) {
       known = state.blocks;
       if (full && addFollow) { try { followAdd(known); } catch (error) { addFollow = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'add-follow-failed', error: String(error.message)}); } }
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
-      if (full) { onFloor = captures(); header = presetHeader(); }
+      if (full) { onFloor = captures(onFloor); header = presetHeader(); }
       state.captures = onFloor;
       state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots; state.tempo = header.tempo; state.topology = header.topology;
       const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
@@ -511,5 +526,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusCaptures, installFocusView };
 }

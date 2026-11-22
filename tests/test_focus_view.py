@@ -634,6 +634,18 @@ class ScriptTests(unittest.TestCase):
         idle = run_js(['focus_view.js'], f'focusValues({self.READER}, {json.dumps(blocks)}, {{dsp: -1, block: ""}}, {{}}, [])')
         self.assertIsNone(idle['selected'])
 
+    def test_captures_stay_named_while_hx_edit_rechecks_the_slots(self):
+        before = [{'slot': 16, 'name': 'Klon'}, {'slot': 25, 'name': 'Tweed'}, {'slot': 30, 'name': 'Gone'}]
+        call = lambda found, inventory: run_js(['focus_view.js'], f'focusCaptures({json.dumps(found)}, {json.dumps(before)}, {json.dumps(inventory)})')
+        # A chain change: the checked list is empty, the slots it still shows keep their captures (30 was deleted).
+        refreshing = {'state': 'refreshing', 'entries': [[16, 'a'], [25, 'b']]}
+        self.assertEqual([c['name'] for c in call([], refreshing)], ['Klon', 'Tweed'])
+        self.assertEqual([c['name'] for c in call([{'slot': 25, 'name': 'New'}], refreshing)], ['Klon', 'New'])  # checked wins
+        # Checked (or disconnected): only what the check found.
+        self.assertEqual(call([], {'state': 'verified', 'entries': [[16, 'a']]}), [])
+        self.assertEqual(call([], {'state': 'unverified', 'entries': []}), [])
+        self.assertEqual(call([], None), [])
+
     def test_a_block_is_selected_by_a_click_on_its_cell_of_hx_edits_chain(self):
         box = '{x: 318, y: 45, w: 1592, h: 120}'
         point = lambda block: run_js(['focus_view.js'], f'focusChainPoint({box}, {json.dumps(block)})')
@@ -877,7 +889,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
         self.assertEqual(script.count('targetBinding.setValue('), 4)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
-        self.assertIn('if (full) { onFloor = captures(); header = presetHeader(); }', script)   # the captures are listed whatever the preset holds
+        self.assertIn('if (full) { onFloor = captures(onFloor); header = presetHeader(); }', script)   # the captures are listed whatever the preset holds
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]
         self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain
