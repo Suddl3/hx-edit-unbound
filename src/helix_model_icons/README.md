@@ -11,6 +11,11 @@ descriptions of each unit's shape, colour, materials and lettering. No Line 6 ar
 copied or traced; the stock icons were only used as a reference when writing the descriptions.
 Model and maker names shown on the gear belong to their respective owners.
 
+The first renders kept the studio floor's shadow under the gear as a dark slab. In November 2026 every
+picture (these and the NAM capture pictures) was rendered again by the same generator with the earlier
+picture as its reference, on a flat key colour and without any shadow, so the gear, lettering and angle stay
+the same; a shadow, where one is wanted, is drawn by the app.
+
 ## Contents
 
 This repository keeps only what HX Edit uses: `hxedit/` (below) and `icons.json`. The larger sets
