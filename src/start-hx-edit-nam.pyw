@@ -561,7 +561,7 @@ def main():
         if args.floor_reference:
             import floor_firmware
             floor = floor_firmware.profile()
-            # Ask the Floor itself (editor command 0x53); without an answer, a profile set by hand, its last answer,
+            # Ask the Floor itself (editor command 0x4f); without an answer, a profile set by hand, its last answer,
             # else the basic NAM firmware (floor_firmware.detect). "floorFirmwareAsk": false skips asking.
             floor = floor_firmware.detect(CONVERTER.parent)
             print(f'Floor firmware: {floor.describe()} ({floor.source})')

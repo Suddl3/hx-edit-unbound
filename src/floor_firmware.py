@@ -1,6 +1,8 @@
 """Which HX Unbound Floor firmware the editor is set up for: one place for what used to be scattered flags.
 
-Firmware built with NAM_UNBOUND_INFO=1 answers editor command 0x53 with its NAM blocks and costs (from_identity).
+HX Unbound Floor firmware answers editor command 0x4f with its NAM blocks and costs (from_identity): on in every build
+since hx-unbound-floor #18 (NAM_UNBOUND_INFO=0 leaves it out). It was 0x53 before; that stock command wins at boot and
+never answered.
 Otherwise the profile comes from, first to last:
   - HX_EDIT_FLOOR_FIRMWARE: JSON, e.g. {"namCost": 3250, "pedal": true} (builds and tests)
   - settings.json "floorFirmware": the same JSON object
@@ -82,7 +84,7 @@ NAM_ID, PEDAL_ID = 380, 768
 
 
 def from_identity(reply):
-    """The profile from the Floor's own answer to editor command 0x53 (hx-unbound-floor unbound_info.py, format 1):
+    """The profile from the Floor's own answer to editor command 0x4f (hx-unbound-floor unbound_info.py, format 1):
     {"fmt": 1, "blocks": [[preset id, DSP cost], ...], "feat": [...]}. None for a reply this editor does not understand
     (a newer format, no NAM block): the caller then keeps the configured profile."""
     if not isinstance(reply, dict) or reply.get('fmt') != 1 or not isinstance(reply.get('blocks'), list):
@@ -102,7 +104,7 @@ def from_identity(reply):
         return None
 
 
-INFO_COMMAND = 0x53
+INFO_COMMAND = 0x4f                     # hx-unbound-floor #18 (was 0x53, a stock command)
 
 
 def _text(value):
@@ -116,7 +118,7 @@ def _text(value):
 
 
 def ask_floor(firmware_tools, *, find=None, opener=None, timeout=1.5):
-    """Ask the connected Floor which firmware it runs (editor command 0x53), before HX Edit takes the USB editor
+    """Ask the connected Floor which firmware it runs (editor command 0x4f), before HX Edit takes the USB editor
     interface: one request on the editor service through the same WinUSB link the LT profile scan uses. The profile
     from its reply, or None (no Floor, stock firmware or a build without the command, no answer in time: right after
     a power-on the Floor does not answer USB for about a minute). Never raises: the caller keeps the configured profile."""
@@ -171,7 +173,7 @@ def remember(firmware):
 
 def detect(firmware_tools, *, ask=None, settings=None):
     """The firmware the Floor runs, for this launch: its own answer (kept for next time); without one (no Floor, the
-    first minute after power-on, a build without command 0x53), a profile set by hand (HX_EDIT_FLOOR_FIRMWARE or
+    first minute after power-on, a build without command 0x4f), a profile set by hand (HX_EDIT_FLOOR_FIRMWARE or
     settings "floorFirmware"), else its last answer, else the basic NAM firmware (no NAM Pedal block, no layer
     skipping): what the Floor cannot be shown to play is never offered. settings "floorFirmwareAsk": false skips
     asking. Never raises."""

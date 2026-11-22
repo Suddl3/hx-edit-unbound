@@ -79,7 +79,7 @@ class Channel:
     def __init__(self, link, timeout, **stream):
         assert stream == EDITOR and link == 'link'
     def request(self, cmd, params=None):
-        assert cmd == 0x53
+        assert cmd == 0x4f
         if isinstance(REPLY, Exception):
             raise REPLY
         return REPLY
@@ -120,7 +120,7 @@ class AskFloorTests(unittest.TestCase):
         self.assertEqual(closed, [True])
 
     def test_refusal_no_floor_or_failure_give_none(self):
-        self.assertEqual(self.ask(lambda m: m.HxError('cmd 0x53 refused: status 255'))[0], None)
+        self.assertEqual(self.ask(lambda m: m.HxError('cmd 0x4f refused: status 255'))[0], None)
         self.assertEqual(self.ask({b'fmt': 1}, path=None)[0], None)
         self.assertEqual(self.ask(lambda m: OSError('timed out'))[0], None)
         self.assertEqual(self.ask({b'fmt': 9, b'blocks': [[380, 3600]]})[0], None)
