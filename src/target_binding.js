@@ -388,8 +388,44 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  function moveAcross(editor, fromDsp, blockName, toDsp, row, col) {
+    // A block to an empty place of the other path, as HX Edit's own drag between the paths does it: the block is
+    // copied to the drag's own store (store 2, not the clipboard: +0xb8, as the chain's drag start 0x416de7), pasted
+    // on the other path (+0xc4 with 0x100, as the chain's drop of a block from the other path 0x412af1), and
+    // removed from its own (+0xb0, as the drag's end 0x41200b), the paste and the removal as one undo step (+0xd4
+    // opens it, +0xd8 closes it with the outcome, as the drop does). Nothing is changed when the paste is refused.
+    if (!editorReady(editor) || ![0, 1].includes(fromDsp) || ![0, 1].includes(toDsp) || fromDsp === toDsp ||
+        !/^block\d{1,2}$/.test(blockName) || ![0, 1].includes(row) || !Number.isInteger(col) || col < 0 || col > 7) fail('unsupported block or place');
+    const copy = new NativeFunction(editorEntry(editor, 0xb8, 0x5034b0, 'copy-block'), 'int', ['pointer', 'int', 'int', 'pointer'], 'thiscall');
+    const canPaste = new NativeFunction(editorEntry(editor, 0xc8, 0x500320, 'can-paste'), 'int', ['pointer', 'int', 'int', 'pointer', 'uint'], 'thiscall');
+    const paste = new NativeFunction(editorEntry(editor, 0xc4, 0x513620, 'paste'), 'int', ['pointer', 'int', 'int', 'pointer', 'uint'], 'thiscall');
+    const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
+    const open = new NativeFunction(editorEntry(editor, 0xd4, 0x4ffa80, 'undo-open'), 'int', ['pointer', 'uint'], 'thiscall');
+    const close = new NativeFunction(editorEntry(editor, 0xd8, 0x5044b0, 'undo-close'), 'int', ['pointer', 'int'], 'thiscall');
+    let name = null;
+    const cell = emptyVariant();
+    try {
+      name = string(blockName);
+      cell.writeU32(5); cell.add(8).writeU32(((row << 16) | col) >>> 0);
+      let result = copy(editor, 2, fromDsp, name);
+      if (result < 0) fail(`copying the block was rejected (${result})`);
+      result = canPaste(editor, 2, toDsp, cell, 0);
+      if (result < 0) fail(`the other path refused the block (${result})`);
+      open(editor, 0x80000000);
+      try {
+        result = paste(editor, 2, toDsp, cell, 0x100);
+        if (result >= 0) result = remove(editor, fromDsp, name, 0);
+      } finally {
+        close(editor, result);
+      }
+      if (result < 0) fail(`moving the block to the other path was rejected (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
   return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel,
-           removeBlock, moveBlock };
+           removeBlock, moveBlock, moveAcross };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

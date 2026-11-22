@@ -472,7 +472,13 @@ function drawPath(p, g, now) {
   row.append(tag, grid);
   return row;
 }
-// ---- moving a block: drag it onto an empty place of its own path ----------------------------------------------------
+// ---- moving a block: drag it onto an empty place of its own path or of the other path ----------------------------
+// The other path takes it only with room on its DSP for the block's model (the driver checks again).
+function fitsOn(block, path) {
+  if (path === block.dsp) return true;
+  const view = dsp && dsp[path], cost = Number((catalog.loads || {})[block.model]);
+  return !view || typeof view.used !== 'number' || !Number.isFinite(cost) || view.used + cost <= view.budget;
+}
 let dragging = null, dragDone = false;
 function liftBlock(event, block, tile) {
   if (event.button !== 0) return;
@@ -483,15 +489,15 @@ function liftBlock(event, block, tile) {
       if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 7) return;
       dragging = {block, over: null};
       const board = $('board'); board.classList.add('dragging'); tile.classList.add('lifted');
-      // Only the block's own path takes it (moving to the other path comes later); a one-lane path offers lane B.
+      // Either path takes it when it has room; a one-lane path offers lane B.
       for (const target of board.querySelectorAll('.slot.spot')) {
-        const mine = Number(target.dataset.dsp) === block.dsp;
-        target.classList.toggle('off-path', !mine);
-        if (target.classList.contains('offered') && mine) target.style.visibility = 'visible';
+        const fits = fitsOn(block, Number(target.dataset.dsp));
+        target.classList.toggle('off-path', !fits);
+        if (target.classList.contains('offered') && fits) target.style.visibility = 'visible';
       }
       for (const grid of board.querySelectorAll('.grid8')) {
         const path = Number(grid.querySelector('.slot')?.dataset.dsp);
-        if (path === block.dsp && !grid.dataset.two) { grid.style.height = '218px'; grid.querySelector('.laneb-hint').style.visibility = 'visible'; }
+        if (fitsOn(block, path) && !grid.dataset.two) { grid.style.height = '218px'; grid.querySelector('.laneb-hint').style.visibility = 'visible'; }
       }
       const ghost = el('div', 'ghost'); ghost.style.setProperty('--c', tint(block).join(' '));
       ghost.append(image(pictures(block), '', true));
@@ -514,7 +520,8 @@ function liftBlock(event, block, tile) {
     dragging.ghost.remove();
     dragging = null; dragDone = true; setTimeout(() => { dragDone = false; }, 0);
     $('board').classList.remove('dragging');
-    if (target) chainAsk('move', {dsp: block.dsp, id: block.id, lane: Number(target.dataset.lane), place: Number(target.dataset.place)});
+    const to = target ? Number(target.dataset.dsp) : block.dsp;
+    if (target) chainAsk('move', {dsp: block.dsp, id: block.id, lane: Number(target.dataset.lane), place: Number(target.dataset.place), ...(to !== block.dsp ? {to} : {})});
     drawChain(true);
   };
   addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);

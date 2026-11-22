@@ -758,13 +758,17 @@ class FocusView:
         return {'action': 'remove', 'dsp': block['dsp'], 'id': block['id']}
 
     def checked_move(self, value):
-        """The Workbench's request to move a block to an empty place of its own path (lane A or B), or None."""
-        block, where = self._block(value), self._cell(value)
-        if not block or not str(block.get('id', '')).startswith('block') or not where or where[0] != block['dsp']:
+        """The Workbench's request to move a block to an empty place (lane A or B) of its own path, or of the other
+        path ("to": that path's DSP), or None."""
+        block = self._block(value)
+        if not block or not str(block.get('id', '')).startswith('block'):
             return None
-        if (where[1], where[2]) == (block.get('path'), block.get('position')) or not self._empty(*where):
+        to = value.get('to', block['dsp'])
+        where = self._cell({**value, 'dsp': to}) if isinstance(to, int) and not isinstance(to, bool) else None
+        if not where or not self._empty(*where) or (where[0] == block['dsp'] and (where[1], where[2]) == (block.get('path'), block.get('position'))):
             return None
-        return {'action': 'move', 'dsp': block['dsp'], 'id': block['id'], 'lane': where[1], 'place': where[2]}
+        command = {'action': 'move', 'dsp': block['dsp'], 'id': block['id'], 'lane': where[1], 'place': where[2]}
+        return {**command, 'to': to} if to != block['dsp'] else command
 
     def checked_set(self, value):
         """The page's request to set a value, as the command for focus_view.js, or None when it is not one of the

@@ -273,12 +273,19 @@ function installFocusView(options, parts) {
       if (!block || !chainBlock.test(block.id)) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
       if (command.action === 'remove') targetBinding.removeBlock(editor, block.dsp, block.id);
       else {
-        if (occupied(block.dsp, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
-        targetBinding.moveBlock(editor, block.dsp, block.id, command.lane, command.place);
+        // (to: the other path, when the block goes there)
+        const to = command.to === undefined ? block.dsp : command.to;
+        if (occupied(to, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
+        if (to === block.dsp) targetBinding.moveBlock(editor, block.dsp, block.id, command.lane, command.place);
+        else {
+          const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to], loads, null, block.model, to);
+          if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'move-no-room'}); return; }
+          targetBinding.moveAcross(editor, block.dsp, block.id, to, command.lane, command.place);
+        }
       }
     }
     changed = true;
-    send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-' + command.action, dsp: command.dsp, lane: command.lane, place: command.place});
+    send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-' + command.action, dsp: command.dsp, to: command.to, lane: command.lane, place: command.place});
   }
   function followAdd(blocks) {
     // The capture's slot on the block just added, once a full reading shows it at its place.
@@ -514,8 +521,9 @@ function installFocusView(options, parts) {
                    (value.symbol === undefined && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127))) ||
                  (value.action === 'remove' && typeof value.id === 'string' && chainBlock.test(value.id)) ||
                  (value.action === 'move' && typeof value.id === 'string' && chainBlock.test(value.id) && [0, 1].includes(value.lane) &&
-                  Number.isInteger(value.place) && value.place >= 0 && value.place <= 7))) {
-        writes.push({action: value.action, dsp: value.dsp, id: value.id, lane: value.lane, place: value.place, symbol: value.symbol, slot: value.slot});
+                  Number.isInteger(value.place) && value.place >= 0 && value.place <= 7 && (value.to === undefined || [0, 1].includes(value.to))))) {
+        writes.push({action: value.action, dsp: value.dsp, id: value.id, lane: value.lane, place: value.place, symbol: value.symbol, slot: value.slot,
+                     to: value.action === 'move' ? value.to : undefined});
         queued = false; ask();
       }
       commands();

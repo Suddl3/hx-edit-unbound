@@ -38,7 +38,8 @@ function workbenchPaths(blocks, names = {}, topology = []) {
   const first = find(0, 'outputA'), fed = first && WORKBENCH_INTO_PATH_2[first.output] || [];
   const paths = [];
   for (const dsp of [0, 1]) {
-    const chain = all.filter(block => block.dsp === dsp && /^block\d{1,2}$/.test(block.id) && Number.isInteger(block.position)
+    // (a block named "pending": one the page shows where a change it asked for will put it, workbenchPending)
+    const chain = all.filter(block => block.dsp === dsp && /^(block\d{1,2}|pending)$/.test(block.id) && Number.isInteger(block.position)
                                      && block.position >= 0 && block.position < WORKBENCH_PLACES);
     const a = Array(WORKBENCH_PLACES).fill(null), b = Array(WORKBENCH_PLACES).fill(null);
     for (const block of chain) (block.path === 1 ? b : a)[block.position] = block;
@@ -120,11 +121,19 @@ function workbenchPending(blocks, pending, namEngine) {
   const at = block => block.dsp === pending.dsp && chain(block) && block.position === pending.place && block.path === pending.lane;
   if (pending.action === 'move') {
     // (pending.block: the block as it was when it was dragged, for a reading that has it in neither place)
+    // (pending.to: the other path's DSP, when the block goes there: HX Edit pastes a copy there, with a block name of
+    // that path, and then removes the block from its own; settled once the copy is there and the block is gone)
+    const to = Number.isInteger(pending.to) ? pending.to : pending.dsp, across = to !== pending.dsp;
+    const there = b => b.dsp === to && chain(b) && b.position === pending.place && b.path === pending.lane;
     const block = all.find(b => b.dsp === pending.dsp && b.id === pending.id), was = block || pending.block;
-    if (!was || (block && block.position === pending.place && block.path === pending.lane) ||
-        all.some(b => b !== block && at(b) && b.model === was.model)) return {blocks: all, settled: true};
-    const moved = {...was, position: pending.place, path: pending.lane};
-    return {blocks: block ? all.map(b => b === block ? moved : b) : all.concat([moved]), settled: false};
+    if (!was) return {blocks: all, settled: true};
+    const arrived = all.some(b => b !== block && there(b) && b.model === was.model);
+    if (across ? arrived && !(block && block.model === was.model) : arrived || (block && block.position === pending.place && block.path === pending.lane)) {
+      return {blocks: all, settled: true};
+    }
+    const moved = {...was, dsp: to, position: pending.place, path: pending.lane, ...(across ? {id: 'pending'} : {})};
+    const rest = all.filter(b => b !== block && !(across && there(b)));
+    return {blocks: !across && block ? all.map(b => b === block ? moved : b) : rest.concat([moved]), settled: false};
   }
   if (pending.action === 'remove') {
     if (!all.some(b => b.dsp === pending.dsp && b.id === pending.id)) return {blocks: all, settled: true};

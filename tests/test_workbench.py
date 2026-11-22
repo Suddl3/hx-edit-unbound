@@ -161,6 +161,18 @@ class ChainTests(unittest.TestCase):
         self.assertTrue(self.pending(chain[:1], {'action': 'move', 'dsp': 0, 'id': 'block1', 'lane': 1, 'place': 5})['settled'])
         moved = [chain[0], dict(chain[1], position=5, path=1)]
         self.assertTrue(self.pending(moved, {'action': 'move', 'dsp': 0, 'id': 'block1', 'lane': 1, 'place': 5})['settled'])
+        # a move to the other path: shown there at once; settled once a copy is there and the block is gone from its own
+        across = {'action': 'move', 'dsp': 0, 'id': 'block1', 'lane': 0, 'place': 2, 'to': 1, 'block': chain[1]}
+        shown = self.pending(chain, across)
+        self.assertFalse(shown['settled'])
+        self.assertEqual([(b['dsp'], b['id'], b['position'], b['path']) for b in shown['blocks']], [(0, 'block0', 0, 0), (1, 'pending', 2, 0)])
+        drawn = run_js(['workbench_layout.js'], f'workbenchPaths({json.dumps(shown["blocks"])}, {{}}, ["A", "A"])[1].a[2]')
+        self.assertEqual(drawn['id'], 'pending')                                # the chain draws it there
+        copy = dict(chain[1], dsp=1, id='block0', position=2, path=0)
+        both = self.pending(chain + [copy], across)                           # pasted, not removed yet
+        self.assertFalse(both['settled'])
+        self.assertEqual([(b['dsp'], b['id']) for b in both['blocks']], [(0, 'block0'), (1, 'pending')])
+        self.assertTrue(self.pending(chain[:1] + [copy], across)['settled'])
         # a removal: gone at once
         shown = self.pending(chain, {'action': 'remove', 'dsp': 0, 'id': 'block0'})
         self.assertEqual([b['id'] for b in shown['blocks']], ['block1'])
@@ -339,8 +351,21 @@ class ChainChangeTests(unittest.TestCase):
                         {'dsp': 0, 'id': 'inputA', 'lane': 0, 'place': 2},
                         {'dsp': 0, 'id': 'block0', 'lane': 0, 'place': -1}):
             self.assertIsNone(move(refused), refused)
-        other_path = dict(self.view.state)
         self.assertIsNone(move({'dsp': 1, 'id': 'block0', 'lane': 0, 'place': 0}))
+
+    def test_a_block_moves_to_an_empty_place_of_the_other_path(self):
+        move = self.view.checked_move
+        self.assertEqual(move({'dsp': 0, 'id': 'block0', 'lane': 0, 'place': 4, 'to': 1}),
+                         {'action': 'move', 'dsp': 0, 'id': 'block0', 'lane': 0, 'place': 4, 'to': 1})
+        self.assertEqual(move({'dsp': 1, 'id': 'block0', 'lane': 1, 'place': 0, 'to': 0})['to'], 0)
+        # "to" its own path is an ordinary move
+        self.assertNotIn('to', move({'dsp': 0, 'id': 'block0', 'lane': 0, 'place': 4, 'to': 0}))
+        for refused in ({'dsp': 0, 'id': 'block0', 'lane': 0, 'place': 0, 'to': 1},      # taken on the other path
+                        {'dsp': 0, 'id': 'block0', 'lane': 0, 'place': 4, 'to': 2},
+                        {'dsp': 0, 'id': 'block0', 'lane': 0, 'place': 4, 'to': True},
+                        {'dsp': 0, 'id': 'block0', 'lane': 0, 'place': 4, 'to': '1'},
+                        {'dsp': 0, 'id': 'inputA', 'lane': 0, 'place': 4, 'to': 1}):
+            self.assertIsNone(move(refused), refused)
 
     def test_the_native_calls_are_hx_edits_own_entries_and_only_for_a_block_of_the_chain(self):
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
@@ -349,7 +374,7 @@ class ChainChangeTests(unittest.TestCase):
         self.assertIn("editorEntry(editor, 0xb0, 0x514bc0, 'remove-block')", remove)
         self.assertIn("editorEntry(editor, 0xa0, 0x5123c0, 'move-block')", move)
         for body in (remove, move):
-            self.assertIn('/^block\d{1,2}$/.test(blockName)', body)
+            self.assertIn(r'/^block\d{1,2}$/.test(blockName)', body)
             self.assertIn('0x80000000', body)
         self.assertIn('col < 0 || col > 7', move)
         self.assertIn('if (!entry.equals(base.add(rva)))', binding)
@@ -357,6 +382,19 @@ class ChainChangeTests(unittest.TestCase):
         change = script[script.index('function change(command)'):script.index('function followAdd(')]
         self.assertLess(change.index('focusRoom('), change.index('targetBinding.addModel('))          # room checked first
         self.assertLess(change.rindex('occupied('), change.index('targetBinding.moveBlock('))         # still empty
+        # the other path: still empty and with room, then HX Edit's own copy, paste and removal as one undo step
+        self.assertLess(change.rindex('occupied('), change.index('targetBinding.moveAcross('))
+        self.assertLess(change.rindex('focusRoom('), change.index('targetBinding.moveAcross('))
+        across = binding[binding.index('function moveAcross'):binding.index('return { capture, read')]
+        for entry in ("0xb8, 0x5034b0, 'copy-block'", "0xc8, 0x500320, 'can-paste'", "0xc4, 0x513620, 'paste'",
+                      "0xb0, 0x514bc0, 'remove-block'", "0xd4, 0x4ffa80, 'undo-open'", "0xd8, 0x5044b0, 'undo-close'"):
+            self.assertIn('editorEntry(editor, ' + entry + ')', across)
+        self.assertIn('fromDsp === toDsp', across)
+        self.assertIn("copy(editor, 2, fromDsp, name)", across)                    # the drag's store, not the clipboard
+        self.assertLess(across.index('canPaste(editor, 2, toDsp, cell, 0)'), across.index('open(editor, 0x80000000)'))
+        self.assertLess(across.index('paste(editor, 2, toDsp, cell, 0x100)'), across.index('remove(editor, fromDsp, name, 0)'))
+        self.assertIn('if (result >= 0) result = remove(', across)                  # removed only once pasted
+        self.assertIn('finally {\n        close(editor, result);', across)        # the undo step is always closed
         self.assertIn('targetBinding.setIndex(editor, made.dsp, made.id, follow.slot)', script)         # a capture is never left on slot 1
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("'add': view.checked_add, 'remove': view.checked_remove, 'move': view.checked_move", launcher)
