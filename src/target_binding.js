@@ -411,10 +411,14 @@ function installTargetBinding(options = {}) {
       if (result < 0) fail(`copying the block was rejected (${result})`);
       result = canPaste(editor, 2, toDsp, cell, 0);
       if (result < 0) fail(`the other path refused the block (${result})`);
+      const model = peekModel(editor, fromDsp, blockName);
       open(editor, 0x80000000);
       try {
         result = paste(editor, 2, toDsp, cell, 0x100);
-        if (result >= 0) result = remove(editor, fromDsp, name, 0);
+        // The paste with 0x100 takes the block from its own path itself (seen 2026-11-22: a removal after it was
+        // refused, -4, and closing the undo step with that lost it). Removed here only if it is still there.
+        const left = result >= 0 ? peekModel(editor, fromDsp, blockName) : null;
+        if (left && model && left.model === model.model) result = remove(editor, fromDsp, name, 0);
       } finally {
         close(editor, result);
       }

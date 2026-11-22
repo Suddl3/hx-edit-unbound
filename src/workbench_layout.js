@@ -150,6 +150,16 @@ function workbenchPending(blocks, pending, namEngine) {
   return {blocks: all, settled: true};
 }
 
+function workbenchRedo(track, at, preset, redoing) {
+  // Whether there is something to redo, from HX Edit's undo position (at: the steps that can be undone) as it
+  // changes: an undo lowers it and leaves a step to redo; a new change raises it and leaves none, unless it is the
+  // redo asked for (redoing). A preset loaded starts afresh. {preset, at, top, redo}; redo true when unknown.
+  if (!Number.isInteger(at)) return {preset, at: null, top: null, redo: true};
+  if (!track || track.preset !== preset || !Number.isInteger(track.at) || !Number.isInteger(track.top)) return {preset, at, top: at, redo: false};
+  const top = Math.max(at > track.at && !redoing ? at : track.top, at);
+  return {preset, at, top, redo: at < top};
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchSplitNote, workbenchMixNote };
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote };
 }

@@ -864,6 +864,7 @@ function drawBar() {
   $('presetPrev').disabled = $('presetNext').disabled = !preset;
   if (!listed) closePresets(); else if (!$('presetList').hidden) fillPresets();
   $('undo').disabled = state.undo === false;
+  $('redo').disabled = !redoTrack.redo;
   $('tempo').hidden = typeof state.tempo !== 'number';
   if (typeof state.tempo === 'number') $('tempoValue').textContent = state.tempo.toFixed(1);
   // the snapshots as buttons: four at a time, the other four behind one more
@@ -931,8 +932,12 @@ function toast(words) {
 }
 
 // ---- everything together -----------------------------------------------------------------------------------------
+// Redo: worked out from HX Edit's undo position as it changes (workbenchRedo); a redo asked for here is one.
+let redoTrack = null, redoAskedAt = 0;
 function render() {
   if (!catalog || !state) return;
+  const preset = state.preset ? state.preset.setlist + ':' + state.preset.number : '';
+  redoTrack = workbenchRedo(redoTrack, state.undoAt, preset, Date.now() - redoAskedAt < 3000);
   drawBar();
   drawChain();
   drawPanel();
@@ -961,7 +966,7 @@ window.workbenchReceive = receive;                              // (tests and th
 document.body.insertAdjacentHTML('beforeend', '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><radialGradient id="kg" cx="35%" cy="28%" r="80%"><stop offset="0" stop-color="#4a4f5b"/><stop offset=".55" stop-color="#23262e"/><stop offset="1" stop-color="#15171c"/></radialGradient></defs></svg>');
 
 $('undo').onclick = () => ask('undo');
-$('redo').onclick = () => ask('redo');
+$('redo').onclick = () => { redoAskedAt = Date.now(); ask('redo'); };
 $('save').onclick = () => ask('save');
 $('toFocus').onclick = () => ask('menu', 'focus');
 $('presetPrev').onclick = () => { closePresets(); ask('preset', 'previous'); };

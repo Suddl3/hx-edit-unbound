@@ -144,6 +144,24 @@ class ChainTests(unittest.TestCase):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@topology' + dsp)", script)
 
+    def test_redo_is_offered_only_after_an_undo_until_a_new_change(self):
+        steps = '''(() => { let t = null; const out = [];
+          for (const [at, preset, redoing] of %s) { t = workbenchRedo(t, at, preset, redoing); out.push(t.redo); }
+          return out; })()'''
+        run = lambda seq: run_js(['workbench_layout.js'], steps % json.dumps(seq))
+        # 3 changes, an undo, a redo asked for, an undo, a new change
+        self.assertEqual(run([[3, 'a', False], [2, 'a', False], [3, 'a', True], [2, 'a', False], [3, 'a', False]]),
+                         [False, True, False, True, False])
+        # two undos and a new change: nothing to redo after it
+        self.assertEqual(run([[4, 'a', False], [2, 'a', False], [3, 'a', False]]), [False, True, False])
+        # another preset starts afresh; an unknown position leaves the button on
+        self.assertEqual(run([[4, 'a', False], [3, 'a', False], [0, 'b', False]]), [False, True, False])
+        self.assertEqual(run([[None, 'a', False]]), [True])
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("$('redo').disabled = !redoTrack.redo;", page)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn('state.undoAt = editor.add(0x294).readS32();', script)
+
     def pending(self, chain, change):
         return run_js(['workbench_layout.js'], f'workbenchPending({json.dumps(chain)}, {json.dumps(change)}, "HD2_AmpNAMLite")')
 
@@ -393,7 +411,9 @@ class ChainChangeTests(unittest.TestCase):
         self.assertIn("copy(editor, 2, fromDsp, name)", across)                    # the drag's store, not the clipboard
         self.assertLess(across.index('canPaste(editor, 2, toDsp, cell, 0)'), across.index('open(editor, 0x80000000)'))
         self.assertLess(across.index('paste(editor, 2, toDsp, cell, 0x100)'), across.index('remove(editor, fromDsp, name, 0)'))
-        self.assertIn('if (result >= 0) result = remove(', across)                  # removed only once pasted
+        # the paste takes the block from its own path; removed only if a reading after the paste still has it there
+        self.assertIn('const left = result >= 0 ? peekModel(editor, fromDsp, blockName) : null;', across)
+        self.assertIn('if (left && model && left.model === model.model) result = remove(editor, fromDsp, name, 0);', across)
         self.assertIn('finally {\n        close(editor, result);', across)        # the undo step is always closed
         self.assertIn('targetBinding.setIndex(editor, made.dsp, made.id, follow.slot)', script)         # a capture is never left on slot 1
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')

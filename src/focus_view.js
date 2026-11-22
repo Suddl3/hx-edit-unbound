@@ -403,7 +403,8 @@ function installFocusView(options, parts) {
       const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
       state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
       // Something to undo: HX Edit's own undo position (as tone_view reads it).
-      try { state.undo = editor.add(0x294).readS32() > 0; } catch (_) { state.undo = null; }
+      // (undoAt: that position itself, for the Workbench's redo button)
+      try { state.undoAt = editor.add(0x294).readS32(); state.undo = state.undoAt > 0; } catch (_) { state.undo = null; state.undoAt = null; }
       if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: full ? 'read' : 'read-values', ms: Date.now() - began, blocks: state.blocks.length, selected: !!state.selected}); }
       if (full) {
         const key = state.preset ? state.preset.setlist + ':' + state.preset.number : '';
