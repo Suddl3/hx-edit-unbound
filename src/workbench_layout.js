@@ -109,6 +109,38 @@ function workbenchMixNote(join) {
   return 'A ' + level(join.values['A Level']) + ', B ' + level(join.values['B Level']);
 }
 
+function workbenchPending(blocks, pending, namEngine) {
+  // The chain as the page shows it while a change it asked for is on its way: HX Edit passes through other states
+  // first (a moved block is briefly in neither place; an added capture first reads as a NAM block on IR slot 1), so the
+  // change asked for is shown from the click until a reading has it. {blocks, settled}: settled when the reading
+  // already shows the change (the page then forgets it; it also gives up after a few seconds: a change refused).
+  const all = Array.isArray(blocks) ? blocks : [];
+  if (!pending) return {blocks: all, settled: true};
+  const chain = block => /^block\d{1,2}$/.test(block.id);
+  const at = block => block.dsp === pending.dsp && chain(block) && block.position === pending.place && block.path === pending.lane;
+  if (pending.action === 'move') {
+    // (pending.block: the block as it was when it was dragged, for a reading that has it in neither place)
+    const block = all.find(b => b.dsp === pending.dsp && b.id === pending.id), was = block || pending.block;
+    if (!was || (block && block.position === pending.place && block.path === pending.lane) ||
+        all.some(b => b !== block && at(b) && b.model === was.model)) return {blocks: all, settled: true};
+    const moved = {...was, position: pending.place, path: pending.lane};
+    return {blocks: block ? all.map(b => b === block ? moved : b) : all.concat([moved]), settled: false};
+  }
+  if (pending.action === 'remove') {
+    if (!all.some(b => b.dsp === pending.dsp && b.id === pending.id)) return {blocks: all, settled: true};
+    return {blocks: all.filter(b => !(b.dsp === pending.dsp && b.id === pending.id)), settled: false};
+  }
+  if (pending.action === 'add') {
+    const model = pending.slot ? namEngine : pending.symbol;
+    const there = all.find(at);
+    if (there && there.model === model && (!pending.slot || there.slot === pending.slot)) return {blocks: all, settled: true};
+    const shown = {dsp: pending.dsp, id: there ? there.id : 'pending', model, position: pending.place, path: pending.lane, enabled: true,
+                   ...(pending.slot ? {slot: pending.slot} : {})};
+    return {blocks: there ? all.map(b => b === there ? {...b, ...shown} : b) : all.concat([shown]), settled: false};
+  }
+  return {blocks: all, settled: true};
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchSplitNote, workbenchMixNote };
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchSplitNote, workbenchMixNote };
 }

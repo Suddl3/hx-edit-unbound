@@ -111,6 +111,7 @@
   .tile .strip { width: calc(100% + 10px); margin: 4px -5px 0; padding: 4px 4px 5px; background: #0b0c0f; border-top: 2px solid rgb(var(--c)); text-align: center;
                  font-size: 12px; font-stretch: 88%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tile .strip small { display: block; font-size: 10.5px; color: rgb(var(--c)); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; }
+  .tile.coming { pointer-events: none; opacity: .85; }
   .tile.off .pic { filter: grayscale(.9) brightness(.45); } .tile.off .strip { border-top-color: #3a3e48; color: var(--faint); } .tile.off .strip small { color: var(--faint); }
   .tile.on { border-color: rgb(var(--c)); box-shadow: 0 0 0 1px rgb(var(--c)), 0 10px 30px rgb(var(--c) / .22); background: linear-gradient(#1b1e26, #15181e); }
   .tile .led { position: absolute; top: 7px; left: 7px; }
@@ -333,8 +334,22 @@ function current() {
   return state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id) || null;
 }
 // A picture that tries each of its addresses in turn (the large render first where asked, else the small one).
+// A picture already showing is moved to where it is wanted, not loaded again (a redraw must not flash the pictures
+// empty): drawChain and drawPanel gather their pictures first (reusable), image() takes one with the same addresses.
+let reusable = null;
+function gather(container) {
+  const found = new Map();
+  for (const img of container.querySelectorAll('img[data-pics]')) {
+    if (!found.has(img.dataset.pics)) found.set(img.dataset.pics, []);
+    found.get(img.dataset.pics).push(img);
+  }
+  return found;
+}
 function image(urls, cls, small, lazy) {
+  const key = (small ? 's|' : 'l|') + (urls || []).join('|'), kept = reusable && reusable.get(key);
+  if (kept && kept.length) { const img = kept.pop(); img.className = cls || ''; return img; }
   const img = el('img', cls), list = (urls || []).slice();
+  img.dataset.pics = key;
   if (small) list.reverse();
   img.alt = ''; img.draggable = false;
   if (lazy) img.loading = 'lazy';                               // (only the picker's many cards wait until they are in view)
@@ -351,21 +366,40 @@ function geometry(width) {
   const end = Math.max(X0 + 8 * 90, width - 74), step = (end - X0) / 8, tile = Math.min(105, step - 18);
   return {width, end, step, tile, px: k => X0 + step * k + (step - tile) / 2, gap: k => X0 + step * k};
 }
+// A change to the chain asked for here, shown until HX Edit's reading has it (workbenchPending).
+let pending = null, pendingTimer = 0;
+const PENDING_MS = 3000;
+function chainAsk(action, value) {
+  const block = value.id ? state.blocks.find(b => b.dsp === value.dsp && b.id === value.id) : null;
+  pending = {action, ...value, block: block ? {...block} : null, until: Date.now() + PENDING_MS};
+  ask(action, value);
+  clearTimeout(pendingTimer);
+  pendingTimer = setTimeout(() => { pending = null; if (catalog && state) drawChain(true); }, PENDING_MS + 50);
+  if (catalog && state) drawChain(true);
+}
+function shownBlocks() {
+  if (pending && Date.now() > pending.until) pending = null;
+  const view = workbenchPending(state.blocks, pending, catalog.nam[0]);
+  if (view.settled) pending = null;
+  return view.blocks;
+}
+const same = (a, b) => !!a && !!b && a.dsp === b.dsp && a.id === b.id;
 function drawChain(force) {
   const board = $('board'), width = Math.max(800, board.clientWidth - 28 - 88);
-  const paths = workbenchPaths(state.blocks, catalog, state.topology);
+  const paths = workbenchPaths(shownBlocks(), catalog, state.topology);
   const now = current();
   const key = JSON.stringify([width, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
                               now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), dsp]);
   if (!force && key === shownChain) return;
   if (dragging) return;                                         // (redrawn when the drag ends)
   shownChain = key;
-  board.replaceChildren(...paths.map(p => drawPath(p, geometry(width), now)));
+  reusable = gather(board);
+  try { board.replaceChildren(...paths.map(p => drawPath(p, geometry(width), now))); } finally { reusable = null; }
 }
 function drawPath(p, g, now) {
   const two = !!p.b, out = [], wires = [`<path d="M32 ${YA}H${g.width - 32}"/>`];
   const tileOf = (block, place, y) => {
-    const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (block === now ? ' on' : ''));
+    const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (same(block, now) ? ' on' : '') + (block.id === 'pending' ? ' coming' : ''));
     button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - 52}px;width:${g.tile}px`;
     const led = el('span', 'led' + (block.enabled ? '' : ' off'));
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
@@ -387,7 +421,7 @@ function drawPath(p, g, now) {
     return plus;
   };
   const io = (end, y, right) => {
-    const block = end.block, button = el('button', 'tile io' + (block === now ? ' on' : ''));
+    const block = end.block, button = el('button', 'tile io' + (same(block, now) ? ' on' : ''));
     button.style.cssText = `left:${right ? g.width - 64 : 0}px;top:${y - 40}px`;
     button.insertAdjacentHTML('beforeend', ICON.jack);
     if (right) button.firstChild.style.transform = 'scaleX(-1)';
@@ -480,7 +514,7 @@ function liftBlock(event, block, tile) {
     dragging.ghost.remove();
     dragging = null; dragDone = true; setTimeout(() => { dragDone = false; }, 0);
     $('board').classList.remove('dragging');
-    if (target) ask('move', {dsp: block.dsp, id: block.id, lane: Number(target.dataset.lane), place: Number(target.dataset.place)});
+    if (target) chainAsk('move', {dsp: block.dsp, id: block.id, lane: Number(target.dataset.lane), place: Number(target.dataset.place)});
     drawChain(true);
   };
   addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
@@ -605,7 +639,7 @@ function capturePanel(block) {
 }
 function removeBlock(block) {
   if (!block || !isChain(block)) return;
-  ask('remove', {dsp: block.dsp, id: block.id});
+  chainAsk('remove', {dsp: block.dsp, id: block.id});
   if (picking) closePicker();
 }
 function placeTarget() {
@@ -644,7 +678,8 @@ function drawPanel() {
     knobs.replaceChildren(...list.map(p => { const item = control(p); wireControl(item, p, block, () => fill(item, p)); return item; }));
     if (!list.length) knobs.append(el('div', 'empty', 'This block has no controls.'));
     ctl.append(tabs, knobs);
-    panel.replaceChildren(card(block, false), ctl, ...(nam ? [capturePanel(block)] : []));
+    reusable = gather(panel);
+    try { panel.replaceChildren(card(block, false), ctl, ...(nam ? [capturePanel(block)] : [])); } finally { reusable = null; }
   }
   const knobs = panel.querySelector('.knobs');
   list.forEach((p, i) => { const item = knobs.children[i]; if (item) fill(item, p); });
@@ -765,7 +800,7 @@ function drawPicker(block) {
     item.append(image(m.pictures, 'pic', true, true), el('i', 'num', inUse ? 'in use' : costText(cost)), el('span', '', m.name));
     item.title = m.name + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
     item.onclick = () => {
-      if (block.isPlace) { ask('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol}); closePicker(); }
+      if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol}); }
       else if (!inUse) ask('model', {dsp: block.dsp, id: block.id, symbol});
     };
     return item;
@@ -778,7 +813,7 @@ function drawPicker(block) {
     item.append(image(captureUrls(c), 'pic', true, true), el('i', 'num', inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : costText(cost)), el('span', '', c.name));
     item.title = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
     item.onclick = () => {
-      if (block.isPlace) { ask('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot}); closePicker(); }
+      if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot}); }
       else if (!inUse) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
     };
     return item;
@@ -802,7 +837,8 @@ function drawPicker(block) {
   }
   cards.append(...shownCards);
   const grid = el('div', 'pgrid'); grid.append(head, cards);
-  panel.replaceChildren(card(block, true), cats, grid);
+  reusable = gather(panel);
+  try { panel.replaceChildren(card(block, true), cats, grid); } finally { reusable = null; }
   cards.scrollTop = scrolled;
   if (typing) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
 }

@@ -144,6 +144,48 @@ class ChainTests(unittest.TestCase):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@topology' + dsp)", script)
 
+    def pending(self, chain, change):
+        return run_js(['workbench_layout.js'], f'workbenchPending({json.dumps(chain)}, {json.dumps(change)}, "HD2_AmpNAMLite")')
+
+    def test_a_change_asked_for_shows_at_once_until_hx_edits_reading_has_it(self):
+        chain = blocks(0, (0, 0), (3, 0))
+        # a move: the block stands at its new place, also while HX Edit reads it in neither place
+        shown = self.pending(chain, {'action': 'move', 'dsp': 0, 'id': 'block1', 'lane': 1, 'place': 5})
+        self.assertFalse(shown['settled'])
+        self.assertEqual([(b['id'], b['position'], b['path']) for b in shown['blocks']], [('block0', 0, 0), ('block1', 5, 1)])
+        between = self.pending(chain[:1], {'action': 'move', 'dsp': 0, 'id': 'block1', 'lane': 1, 'place': 5, 'block': chain[1]})
+        self.assertFalse(between['settled'])                                   # HX Edit has it in neither place for a moment
+        self.assertEqual([(b['id'], b['position'], b['path']) for b in between['blocks']], [('block0', 0, 0), ('block1', 5, 1)])
+        renamed = chain[:1] + [dict(chain[1], id='block7', position=5, path=1)]
+        self.assertTrue(self.pending(renamed, {'action': 'move', 'dsp': 0, 'id': 'block1', 'lane': 1, 'place': 5, 'block': chain[1]})['settled'])
+        self.assertTrue(self.pending(chain[:1], {'action': 'move', 'dsp': 0, 'id': 'block1', 'lane': 1, 'place': 5})['settled'])
+        moved = [chain[0], dict(chain[1], position=5, path=1)]
+        self.assertTrue(self.pending(moved, {'action': 'move', 'dsp': 0, 'id': 'block1', 'lane': 1, 'place': 5})['settled'])
+        # a removal: gone at once
+        shown = self.pending(chain, {'action': 'remove', 'dsp': 0, 'id': 'block0'})
+        self.assertEqual([b['id'] for b in shown['blocks']], ['block1'])
+        self.assertTrue(self.pending(chain[1:], {'action': 'remove', 'dsp': 0, 'id': 'block0'})['settled'])
+        # a capture added: shown with its capture, also while HX Edit has the NAM block on IR slot 1
+        add = {'action': 'add', 'dsp': 0, 'lane': 0, 'place': 6, 'slot': 17}
+        shown = self.pending(chain, add)
+        self.assertEqual(shown['blocks'][-1], {'dsp': 0, 'id': 'pending', 'model': 'HD2_AmpNAMLite', 'position': 6, 'path': 0, 'enabled': True, 'slot': 17})
+        early = chain + [{'dsp': 0, 'id': 'block2', 'model': 'HD2_AmpNAMLite', 'position': 6, 'path': 0, 'enabled': True, 'slot': 1}]
+        shown = self.pending(early, add)
+        self.assertFalse(shown['settled'])
+        self.assertEqual((shown['blocks'][-1]['id'], shown['blocks'][-1]['slot'], len(shown['blocks'])), ('block2', 17, 3))
+        self.assertTrue(self.pending(early[:2] + [dict(early[2], slot=17)], add)['settled'])
+        model = {'action': 'add', 'dsp': 0, 'lane': 0, 'place': 6, 'symbol': 'HD2_X'}
+        self.assertTrue(self.pending(early[:2] + [dict(early[2], model='HD2_X')], model)['settled'])
+        self.assertTrue(self.pending(chain, None)['settled'])
+
+    def test_a_redraw_moves_the_pictures_already_showing(self):
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn('reusable = gather(board);', page)
+        self.assertIn('reusable = gather(panel);', page)
+        self.assertIn("const paths = workbenchPaths(shownBlocks(), catalog, state.topology);", page)
+        for action in ('move', 'remove', 'add'):
+            self.assertIn(f"chainAsk('{action}', ", page)
+
     def test_the_script_reads_where_inputs_and_outputs_go_and_the_split_and_mixer_settings(self):
         reader = '''(() => { const values = {
             "0|inputA|@model": "HD2_AppDSPFlow1Input", "0|inputA|@input": 2, "0|outputB|@model": "HD2_AppDSPFlowOutput", "0|outputB|@output": 6,
@@ -376,7 +418,7 @@ class WiringTests(unittest.TestCase):
         for script in ('<script src="pane_controls.js"></script>', '<script src="workbench_layout.js"></script>'):
             self.assertIn(script, page)
         import re
-        asked = set(re.findall(r"ask\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
+        asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
         self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move'})
 
 
