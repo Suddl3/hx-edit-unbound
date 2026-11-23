@@ -170,6 +170,8 @@ function workbenchRedo(track, at, preset, redoing) {
   // changes: an undo lowers it and leaves a step to redo; a new change raises it and leaves none, unless it is the
   // redo asked for (redoing). A preset loaded starts afresh. {preset, at, top, redo}; redo true when unknown.
   if (!Number.isInteger(at)) return {preset, at: null, top: null, redo: true};
+  // (a reading without the preset's header, as while HX Edit reloads the preset's contents for an undo: the same preset)
+  if (!preset && track) preset = track.preset;
   if (!track || track.preset !== preset || !Number.isInteger(track.at) || !Number.isInteger(track.top)) return {preset, at, top: at, redo: false};
   const top = Math.max(at > track.at && !redoing ? at : track.top, at);
   return {preset, at, top, redo: at < top};

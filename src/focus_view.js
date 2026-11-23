@@ -395,6 +395,7 @@ function installFocusView(options, parts) {
   // added is a NAM block whose slot is set as soon as HX Edit has put the block in the chain (until then the place
   // reads empty): left on slot 1, a plain IR, it would silence the Floor.
   let addFollow = null;
+  let lastUndoWord = '';      // HX Edit's undo position and the preset, as last traced (the Workbench's redo button)
   const ADD_FOLLOW_MS = 3000;
   const occupied = (dsp, lane, place) => (known || []).some(block => block.dsp === dsp && chainBlock.test(block.id) && block.position === place && block.path === lane);
   function change(command) {
@@ -627,6 +628,8 @@ function installFocusView(options, parts) {
       // Something to undo: HX Edit's own undo position (as tone_view reads it).
       // (undoAt: that position itself, for the Workbench's redo button)
       try { state.undoAt = editor.add(0x294).readS32(); state.undo = state.undoAt > 0; } catch (_) { state.undo = null; state.undoAt = null; }
+      const undoWord = state.undoAt + '@' + (state.preset ? state.preset.setlist + ':' + state.preset.number : '-');
+      if (undoWord !== lastUndoWord) { lastUndoWord = undoWord; send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-at', at: undoWord}); }
       // The selected block's controllers, footswitch and snapshot values (focusAssign), read with each full reading
       // and kept between them; the first reading of each block goes to the trace (what HX Edit answered).
       const chosen = state.selected && state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id);

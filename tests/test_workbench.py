@@ -157,6 +157,8 @@ class ChainTests(unittest.TestCase):
         # another preset starts afresh; an unknown position leaves the button on
         self.assertEqual(run([[4, 'a', False], [3, 'a', False], [0, 'b', False]]), [False, True, False])
         self.assertEqual(run([[None, 'a', False]]), [True])
+        # a reading without the preset (HX Edit reloading the preset's contents for the undo) is the same preset
+        self.assertEqual(run([[0, 'a', False], [1, 'a', False], [0, '', False], [0, 'a', False]]), [False, False, True, True])
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("$('redo').disabled = !redoTrack.redo;", page)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
