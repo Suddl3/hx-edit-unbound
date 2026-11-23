@@ -1471,7 +1471,14 @@ function fillPresets() {
 function openPresets() {
   closeMenu(); shownPresets = ''; fillPresets();
   $('presetList').hidden = false; $('presetButton').setAttribute('aria-expanded', 'true');
-  const cur = $('presetList').querySelector('.cur:not(.pinned)'); if (cur) cur.scrollIntoView({block: 'center'});
+  centerIn($('presetList'), $('presetList').querySelector('.cur:not(.pinned)'));
+}
+// A row in the middle of its own list: only the list scrolls (scrollIntoView also scrolled the drawer around it, which
+// hid its search box, seen live 2026-11-23)
+function centerIn(list, row) {
+  if (!list || !row) return;
+  const top = row.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+  list.scrollTop = Math.max(0, top - (list.clientHeight - row.offsetHeight) / 2);
 }
 function closePresets() { $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false'); }
 function openMenu() {
@@ -1776,7 +1783,7 @@ function drawPresetDrawer(box) {
   const scroll = box.querySelector('.prows').scrollTop;
   box.querySelector('h3').replaceWith(head); box.querySelector('.prows').replaceWith(list);
   list.scrollTop = scroll;
-  if (first) { const cur = list.querySelector('.cur:not(.pinned)'); if (cur) cur.scrollIntoView({block: 'center'}); }
+  if (first) centerIn(list, list.querySelector('.cur:not(.pinned)'));
 }
 // ---- Presets: pins, and the whole setlist on one screen ------------------------------------------------------------
 // A pin is the editor's own setting (settings.json "presetPins": "setlist:number", workbench.py), never the browser's:
