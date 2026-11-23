@@ -194,12 +194,14 @@
   .tabview th { text-align: left; font-weight: 400; color: var(--faint); font-size: 12px; padding: 0 10px 6px; }
   .tabview td { padding: 7px 10px; border-top: 1px solid #1d2027; } .tabview td.name { font-weight: 600; } .tabview td.now { color: rgb(var(--c)); } .tabview td.dim { color: var(--faint); }
   .tabview .tabnote { color: var(--faint); font-size: 12px; margin: 0; }
-  .tabview .pick { height: 28px; border-radius: 7px; background: var(--raise2); border: 1px solid #3a3f4b; color: var(--ink); font: inherit; padding: 0 8px; }
+  .tabview .pick, .sgrid .pick { height: 28px; border-radius: 7px; background: var(--raise2); border: 1px solid #3a3f4b; color: var(--ink); font: inherit; padding: 0 8px; }
   .tabview input.pick { width: 170px; } .tabview select.pick { max-width: 190px; }
   .tabview .seg { display: inline-flex; border: 1px solid #3a3f4b; border-radius: 7px; overflow: hidden; }
   .tabview .seg button { padding: 5px 10px; color: var(--dim); } .tabview .seg button.on { background: var(--raise2); color: var(--ink); }
   .tabview td input.range { width: 110px; vertical-align: middle; margin-right: 8px; accent-color: rgb(var(--c)); }
-  .sgrid input.range { width: calc(100% - 52px); min-width: 50px; margin-right: 6px; accent-color: rgb(var(--c)); }
+  .sgrid input.range { flex: 1; min-width: 40px; margin-right: 6px; accent-color: rgb(var(--c)); }
+  .sgrid > div { flex-wrap: nowrap; } .sgrid > div.num > span { flex: none; width: 52px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sgrid select.pick { width: 100%; min-width: 0; }
   .sgrid .dotb { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgb(var(--c)); }
   .sgrid .dotb.on { background: rgb(var(--c)); box-shadow: 0 0 8px rgb(var(--c) / .7); }
   .sgrid .cellb { height: 24px; padding: 0 9px; border-radius: 6px; border: 1px solid #3a3f4b; background: #0f1115; }
@@ -931,8 +933,15 @@ function snapshotView(block, list) {
     grid.append(el('div', 'name', p.name));
     for (let s = 0; s < count; s++) {
       const v = s === state.snapshot ? valueOf(p.id) : a.snapshots[s] && a.snapshots[s].values[p.id], cell = el('div', 'num' + (s === state.snapshot ? ' cur' : ''));
+      const names = positions(p);
       if (moved && typeof v === 'boolean') {
         const b = el('button', 'cellb', shown(p, v)); b.onclick = () => change(s, p.id, !v); cell.append(b);
+      } else if (moved && typeof v === 'number' && names) {
+        // (a list setting — a wave shape, a note — is a list here: a slider's label would change width as it moves)
+        const pick = el('select', 'pick'), low = typeof p.min === 'number' ? p.min : 0;
+        names.forEach((name, i) => pick.append(new Option(name, low + i, false, Math.round(v) === low + i)));
+        pick.onchange = () => change(s, p.id, Number(pick.value));
+        cell.append(pick);
       } else if (moved && typeof v === 'number') {
         const slide = el('input', 'range'); slide.type = 'range'; slide.min = 0; slide.max = 1; slide.step = 0.005; slide.value = turn(p, v);
         const label = el('span', '', shown(p, v));
