@@ -157,6 +157,48 @@
   .acts .btn svg.star { fill: currentColor; stroke: none; }
   .drop .pinned span:first-child { color: #f0c94a; }
 
+  /* ---- Floor look: the scene behind each kind of block (Focus Mode's looks), lower half and full view ------------- */
+  .lkhalf { padding: 12px 20px; display: grid; grid-template-rows: auto auto auto auto; gap: 10px; align-content: start; min-width: 0; min-height: 0; overflow-y: auto; }
+  .lkrow { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .lkrow .sp { flex: 1; }
+  .lkinds { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .lkind { position: relative; height: 62px; border-radius: 9px; overflow: hidden; border: 1px solid var(--line); background: #000 center / cover no-repeat; text-align: left; }
+  .lkind::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, rgb(0 0 0 / .8) 35%, rgb(0 0 0 / .25)); }
+  .lkind img { position: absolute; right: 8px; top: 50%; width: 46px; height: 42px; object-fit: contain; transform: translateY(-50%); z-index: 1; filter: drop-shadow(0 5px 4px rgb(0 0 0 / .7)); }
+  .lkind span { position: absolute; left: 9px; right: 56px; top: 50%; transform: translateY(-50%); z-index: 2; font-size: 12.5px; font-weight: 500; line-height: 1.25; }
+  .lkind span em { display: block; font-style: normal; font-weight: 400; color: #aab0bc; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lkind:hover { border-color: #5a606c; }
+  .lkind.on { border-color: #b070e0; box-shadow: 0 0 0 1px #b070e0; }
+  .lkind.absent { opacity: .38; }
+  .lkind .dot { position: absolute; right: 6px; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: #f0c94a; z-index: 3; }
+  .lkstrip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .lkstrip button { flex: none; width: 92px; height: 46px; border-radius: 7px; border: 1px solid var(--line); background: #000 center / cover no-repeat; }
+  .lkstrip button:hover { border-color: #5a606c; }
+  .lkstrip button.on { border-color: #b070e0; box-shadow: 0 0 0 2px #b070e0; }
+  .lkstrip button.def { border-color: rgb(240 201 74 / .6); }
+  .lk { display: grid; grid-template-columns: minmax(520px, 676px) minmax(0, 1fr); height: 100%; min-height: 0; }
+  .lk .left { padding: 16px 20px; display: grid; align-content: start; gap: 12px; border-right: 1px solid var(--line); overflow-y: auto; min-height: 0; }
+  .lk .right { padding: 16px 20px 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 12px; min-width: 0; min-height: 0; }
+  .lcd { position: relative; width: 100%; height: 0; padding-bottom: 60%; border-radius: 14px; border: 1px solid #3a3f4b; background: #000 center / cover no-repeat; overflow: hidden;
+         box-shadow: 0 0 0 6px #08090b, 0 24px 60px rgb(0 0 0 / .6); margin: 6px 0 8px; }
+  .lcd::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, rgb(0 0 0 / .78)); }
+  .lcd img { position: absolute; left: 50%; top: 46%; width: 60%; height: 55%; object-fit: contain; transform: translate(-50%, -50%); filter: drop-shadow(0 22px 14px rgb(0 0 0 / .7)); z-index: 1; }
+  .lcd .cap { position: absolute; left: 20px; bottom: 16px; z-index: 2; line-height: 1.15; }
+  .lcd .cap b { font-size: 26px; font-weight: 600; font-stretch: 86%; display: block; } .lcd .cap span { color: #ff8a4a; font-size: 13px; }
+  .lcd .tag { position: absolute; right: 14px; top: 12px; z-index: 2; height: 22px; padding: 0 9px; border-radius: 11px; background: rgb(0 0 0 / .55); font-size: 11.5px; display: flex; align-items: center; color: #cfd3da; }
+  .lkscenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; align-content: start; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .lkscene { position: relative; height: 112px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #000 center / cover no-repeat; text-align: left; }
+  .lkscene:hover { border-color: #5a606c; }
+  .lkscene span { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 9px 6px; font-size: 12px; background: linear-gradient(180deg, transparent, rgb(0 0 0 / .8)); display: flex; justify-content: space-between; gap: 6px; }
+  .lkscene span em { font-style: normal; color: #aab0bc; font-size: 11px; white-space: nowrap; }
+  .lkscene.on { border-color: #b070e0; box-shadow: 0 0 0 2px #b070e0; }
+  .lkscene.def span em { color: #f0c94a; }
+  .cpics { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); min-width: 0; overflow: hidden; }
+  .cpics img { width: 42px; height: 42px; object-fit: contain; flex: none; }
+  .cpics div { margin-right: 6px; line-height: 1.3; flex: none; } .cpics div small { display: block; color: var(--dim); font-size: 11.5px; }
+  .lk .bar { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); margin: 0 -20px; padding: 12px 20px; }
+  .linkish { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
+
   /* ---- the top bar ------------------------------------------------------------------------------------- */
   .top { position: relative; z-index: 6; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
   .logo { width: 68px; height: 100%; display: grid; place-items: center; flex: none; }
@@ -1515,7 +1557,7 @@ let capKind = '', capQuery = '', shownDrawer = '', shownRail = '', presetQuery =
 const THINGS = {
   presets: {title: 'Presets', sub: 'The whole setlist on one screen', icon: 'presets', shrink: 'Show as a side list', ready: true},
   look: {title: 'Floor look', sub: "What the Floor's own screen shows behind each block", half: 'Focus screen backgrounds', icon: 'floor',
-         hint: "The background the Floor's Focus screen shows behind each kind of block.", shrink: 'Show under the chain'},
+         hint: 'Click a block in the chain to see its kind here. Pick a kind, then a scene from the strip.', shrink: 'Show under the chain'},
   level: {title: 'Levels', sub: 'Bring presets and snapshots to one loudness, without touching the tone', half: 'Level presets', icon: 'level',
           hint: 'The amp stays silent while it measures (the Floor plays to USB only). Nothing changes until you Apply.', shrink: 'Show under the chain'},
   library: {title: 'NAM library', sub: 'Every capture you have, on the Floor or only on this PC', icon: 'library'},
@@ -1523,7 +1565,7 @@ const THINGS = {
 };
 // The tools still shown by their old page (library_card.html in the TONE3000 window), which the launcher places over
 // the frame's body (TonePreview.place_over) until each has its own view here.
-const OLD_PAGES = new Set(['look', 'level', 'library', 'tone']);
+const OLD_PAGES = new Set(['level', 'library', 'tone']);
 function setView(action, name) {
   const before = view;
   view = workbenchView(view, action, name);
@@ -1559,6 +1601,7 @@ function drawFrames() {
     drawMini();
     $('vbody').replaceChildren(...(OLD_PAGES.has(full) ? [el('div', 'waiting', 'Opening ' + thing.title + '…')] : []));
     if (full === 'presets') { shownGrid = ''; drawPresetGrid(); }
+    if (full === 'look') { shownLook = ''; drawLook(); }
   } else if (half) {
     const thing = THINGS[half], box = $('toolCard'), icon = el('div', 'bigicon'), words = el('div'), row = el('div', 'btnrow');
     icon.innerHTML = RAIL_ICON[thing.icon];
@@ -1568,6 +1611,7 @@ function drawFrames() {
     row.append(big, close);
     box.replaceChildren(icon, words, el('span', 'hint', thing.hint), row);
     $('toolBody').replaceChildren(...(OLD_PAGES.has(half) ? [el('div', 'waiting', 'Opening ' + thing.title + '…')] : []));
+    if (half === 'look') { shownLook = ''; drawLook(); }
   }
 }
 // The chain as small tiles in a full view's header, path by path: a click goes back to the chain with that block.
@@ -1841,6 +1885,183 @@ function drawPresetGrid() {
   } else side.append(el('span', 'note2', 'Waiting for a preset from HX Edit.'));
   body.querySelector('.pd').replaceWith(side);
 }
+// ---- Floor look: the scene behind each kind of block --------------------------------------------------------------
+// The same looks as Focus Mode's Change look (focus_view.look_view / look_change; settings.json floorLook.assign for
+// the defaults, presetLooks for a preset): nothing is changed here, each choice is asked of the launcher, which checks
+// it, keeps it and sends the looks back ({type: "look"}). "Save for the Floor" writes the file the Floor's picture
+// tool reads (the defaults and the capture pictures). The Floor cannot read a preset's own look yet.
+let look = null, lookScope = 'defaults', lookKind = 'amp', lookFollowed = '', shownLook = '';
+const sceneThumb = name => { const sc = catalog.scenes[name]; return sc ? (sc.small ? sc.small.picture : sc.pictures[sc.pictures.length - 1]) : ''; };
+const sceneName = name => catalog.scenes[name] ? catalog.scenes[name].name : '';
+const usableScene = name => name && catalog.scenes[name] ? name : null;
+const presetKey = () => setlistOf() !== null && state.preset && Number.isInteger(state.preset.number) ? setlistOf() + ':' + state.preset.number : null;
+const presetRef = () => ({setlist: setlistOf(), number: state.preset.number});
+const keptLook = () => (look && presetKey() && look.presets[presetKey()]) || null;
+// (a look kept under another name was another preset's: this number was written over, or the presets were moved)
+const presetLook = () => { const kept = keptLook(); return kept && kept.name === (state.preset.name || '') ? kept : null; };
+const lookBlockKey = block => isNam(block) && Number.isInteger(block.slot) ? 'slot:' + block.slot : block.model;
+const kindKeyOf = block => isNam(block) ? 'amp' : model(block).key || '';      // (a NAM block is an amp to the Floor)
+const lookKinds = () => [...(look ? look.categories : []), ['default', 'Everything else']];
+const kindLabel = key => (lookKinds().find(([k]) => k === key) || [key, key])[1];
+function defaultSceneOf(key) {
+  return key === 'default' ? usableScene(look.assign.default) : usableScene(look.assign.category[key]) || usableScene(look.assign.default);
+}
+const factoryOf = key => key === 'default' ? look.factory.default : look.factory.category[key];
+// This preset's blocks of a kind ("default": the kinds without a card of their own)
+function blocksOfKind(key) {
+  const listed = new Set(look.categories.map(([k]) => k));
+  return state.blocks.filter(b => isChain(b) && (key === 'default' ? !listed.has(kindKeyOf(b)) : kindKeyOf(b) === key));
+}
+// A block's scene in this preset: its own, else the preset's, else the default for its kind (Focus Mode's sceneOf)
+function blockScene(block) {
+  const mine = presetLook(), whole = mine && usableScene(mine.scene), own = usableScene(mine && (mine.blocks[lookBlockKey(block)] || {}).scene);
+  const under = whole || defaultSceneOf(kindKeyOf(block));
+  return own && own !== under ? {name: own, from: 'own'} : {name: under, from: whole ? 'preset' : 'default'};
+}
+// What a kind's card shows: the default's scene, or in "This preset" what its blocks have (mixed when they differ)
+function kindScene(key) {
+  if (lookScope === 'defaults') return {name: defaultSceneOf(key), changed: !!usableScene(factoryOf(key)) && defaultSceneOf(key) !== factoryOf(key)};
+  const blocks = blocksOfKind(key);
+  if (!blocks.length) { const mine = presetLook(); return {name: (mine && usableScene(mine.scene)) || defaultSceneOf(key), changed: false, absent: true}; }
+  const scenes = blocks.map(blockScene), names = [...new Set(scenes.map(s => s.name))];
+  return {name: names[0], mixed: names.length > 1, changed: scenes.some(s => s.from !== 'default')};
+}
+function lookChanges() {
+  if (lookScope === 'defaults') return lookKinds().filter(([key]) => kindScene(key).changed).length;
+  const mine = presetLook();
+  return mine ? (usableScene(mine.scene) ? 1 : 0) + Object.values(mine.blocks).filter(b => b.scene || b.picture).length : 0;
+}
+function pickScene(name) {
+  if (lookScope === 'defaults') { ask('look', {scope: 'default', category: lookKind, scene: name}); return; }
+  if (!presetKey()) return;
+  // (this preset: each of its blocks of that kind gets the scene as its own, as Focus Mode's block look does)
+  for (const block of blocksOfKind(lookKind)) ask('look', {scope: 'block', preset: presetRef(), key: lookBlockKey(block), scene: name});
+}
+function useDefaults() {
+  if (lookScope === 'defaults') ask('look', {scope: 'default', reset: true});
+  else if (presetKey()) ask('look', {scope: 'preset', preset: presetRef(), clear: true});
+}
+// A picture for a kind: its block picked in the chain, else one of its blocks in this preset, else a model of that kind
+function kindPicture(key) {
+  const now = current(), mine = now && isChain(now) && kindKeyOf(now) === key ? now : blocksOfKind(key)[0];
+  if (mine) return {urls: pictures(mine), name: title(mine)};
+  const label = kindLabel(key), found = Object.values(catalog.pictures || {}).find(p => p.group === label);
+  return found ? {urls: found.urls, name: label} : {urls: [], name: label};
+}
+function followBlock() {
+  // Floor look follows the block picked in the chain: its kind
+  const now = current(), at = now ? now.dsp + ':' + now.id + ':' + now.model : '';
+  if (at === lookFollowed) return;
+  lookFollowed = at;
+  if (now && isChain(now) && look) { const key = kindKeyOf(now); lookKind = look.categories.some(([k]) => k === key) ? key : 'default'; }
+}
+function scopeSwitch() {
+  const seg = el('div', 'seg2');
+  for (const [scope, words] of [['defaults', 'Defaults'], ['preset', 'This preset' + (state.preset ? ' · ' + number3(state.preset.number) : '')]]) {
+    const b = el('button', lookScope === scope ? 'on' : '', words);
+    b.title = scope === 'defaults' ? 'What every preset starts from: the backgrounds the Floor shows' : 'This preset only (Focus Mode shows it; the Floor cannot read it yet)';
+    b.onclick = () => { lookScope = scope; shownLook = ''; drawLook(); };
+    seg.append(b);
+  }
+  return seg;
+}
+function lookTopRow(full) {
+  const row = el('div', 'lkrow'), n = lookChanges();
+  row.append(scopeSwitch(), el('span', 'note2', n + ' change' + (n === 1 ? '' : 's') + (lookScope === 'defaults' ? ' from the Floor tool’s own' : ' in this preset')), el('span', 'sp'));
+  if (n) { const back = el('button', 'btn', lookScope === 'defaults' ? 'Put every default back' : 'Use the defaults'); back.onclick = useDefaults; row.append(back); }
+  if (!full) { const big = el('button', 'btn'); big.innerHTML = ICON.expand + 'Preview and gallery'; big.onclick = () => setView('expand', 'look'); row.append(big); }
+  return row;
+}
+function lookPresetNote() {
+  // (said, not pretended: the Floor's firmware has no per-preset key yet; Dragon is working on it)
+  if (lookScope !== 'preset') return null;
+  const kept = keptLook(), note = el('span', 'note2');
+  if (!presetKey()) { note.textContent = 'HX Edit has not said which preset this is yet.'; return note; }
+  if (kept && !presetLook()) {
+    note.textContent = 'A look was kept at this number for “' + kept.name + '”. ';
+    const take = el('button', 'linkish', 'Use it for this preset'); take.onclick = () => ask('look', {scope: 'preset', preset: presetRef(), adopt: true});
+    note.append(take); return note;
+  }
+  note.textContent = 'This preset’s look shows in Focus Mode. The Floor shows the defaults until its firmware can read a look per preset (waiting on Dragon).';
+  return note;
+}
+function kindCards() {
+  const box = el('div', 'lkinds');
+  for (const [key, label] of lookKinds()) {
+    const k = kindScene(key), card = el('button', 'lkind' + (key === lookKind ? ' on' : '') + (k.absent ? ' absent' : ''));
+    card.style.backgroundImage = k.name ? `url("${sceneThumb(k.name)}")` : '';
+    if (k.changed) card.append(el('i', 'dot'));
+    const pic = kindPicture(key);
+    card.append(image(pic.urls, '', true, true));
+    const words = el('span', '', label); words.append(el('em', '', k.mixed ? 'mixed' : sceneName(k.name)));
+    card.append(words);
+    card.title = k.absent ? 'No ' + label + ' block in this preset' : label + ': ' + (k.mixed ? 'mixed' : sceneName(k.name));
+    card.onclick = () => { lookKind = key; shownLook = ''; drawLook(); };
+    box.append(card);
+  }
+  return box;
+}
+const kindArticle = label => (/^[AEIOU]/.test(label) ? 'an ' : 'a ') + label;
+function drawLook() {
+  const full = view.full === 'look', half = !view.full && view.half === 'look';
+  if ((!full && !half) || !catalog || !state) return;
+  const body = full ? $('vbody') : $('toolBody');
+  if (!look) { if (!body.querySelector('.waiting')) body.replaceChildren(el('div', 'waiting', 'Reading the looks…')); return; }
+  followBlock();
+  const now = current();
+  const key = JSON.stringify([full, lookScope, lookKind, look, presetKey(), state.preset && state.preset.name, state.blocks.map(b => [b.dsp, b.id, b.model, b.slot]),
+                              now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.icon])]);
+  if (key === shownLook && body.firstChild && !body.querySelector('.waiting')) return;
+  shownLook = key;
+  const k = kindScene(lookKind), label = kindLabel(lookKind), absent = lookScope === 'preset' && k.absent;
+  const strip = full ? el('div', 'lkscenes') : el('div', 'lkstrip'), marked = lookScope === 'defaults' ? factoryOf(lookKind) : defaultSceneOf(lookKind);
+  for (const name of Object.keys(catalog.scenes)) {
+    const b = el('button', (full ? 'lkscene' : '') + (name === k.name && !k.mixed ? ' on' : '') + (name === marked ? ' def' : ''));
+    b.style.backgroundImage = `url("${sceneThumb(name)}")`;
+    b.title = sceneName(name) + (name === marked ? (lookScope === 'defaults' ? ' (the Floor tool’s own)' : ' (the default)') : '');
+    if (full) { const words = el('span', '', sceneName(name)); words.append(el('em', '', name === marked ? (lookScope === 'defaults' ? 'its own' : 'the default') : name === k.name ? 'chosen' : '')); b.append(words); }
+    b.disabled = absent;
+    b.onclick = () => pickScene(name);
+    strip.append(b);
+  }
+  const what = el('span', 'note2'), strong = el('b', '', label); strong.style.color = 'var(--ink)';
+  what.append('Scene behind ' + (/^[AEIOU]/.test(label) ? 'an ' : 'a '), strong, absent ? ' block: no such block in this preset' : ' block: ' + (k.mixed ? 'mixed' : sceneName(k.name)));
+  if (half) {
+    const box = el('div', 'lkhalf');
+    box.append(lookTopRow(false), kindCards(), what, strip);
+    const note = lookPresetNote(); if (note) box.append(note);
+    reusable = gather(body);
+    try { body.replaceChildren(box); } finally { reusable = null; }
+    return;
+  }
+  // the full view: a large preview of the Floor's screen, the kinds; the gallery, the capture pictures, Save
+  const lk = el('div', 'lk'), left = el('div', 'left'), right = el('div', 'right');
+  const lcd = el('div', 'lcd'), pic = kindPicture(lookKind), cap = el('div', 'cap');
+  lcd.style.backgroundImage = k.name ? `url("${(catalog.scenes[k.name] || {pictures: []}).pictures.slice(-1)[0] || ''}")` : '';
+  cap.append(el('b', '', pic.name), el('span', '', label));
+  lcd.append(el('span', 'tag', 'How the Floor’s Focus View shows it'), image(pic.urls, ''), cap);
+  left.append(lookTopRow(true), lcd, el('h5', '', 'Kind of block · pick one, then a scene on the right'), kindCards());
+  const note = lookPresetNote(); if (note) left.append(note);
+  const head = el('div', 'lkrow'), title = el('b', '', 'Scene behind ' + kindArticle(label) + ' block');
+  title.style.cssText = 'font-size:16px;font-weight:600';
+  head.append(title, el('span', 'note2', lookScope === 'defaults' ? 'in every preset that has no look of its own' : 'in preset ' + (state.preset ? number3(state.preset.number) : '') + ' only'));
+  const caps = (state.captures || []).filter(c => c.icon), strip2 = el('div', 'cpics'), words = el('div');
+  words.append(el('b', '', 'Pictures of your captures'), el('small', '', 'What the Floor shows for each of the ' + caps.length + ' · chosen in the NAM library'));
+  strip2.append(words, ...caps.slice(0, 14).map(c => { const img = image(captureUrls(c), '', true, true); img.title = c.name + ' (slot ' + c.slot + ')'; return img; }));
+  const bar = el('div', 'bar'), save = el('button', 'btn pri');
+  save.innerHTML = $('save').innerHTML; save.append('Save for the Floor');
+  save.title = 'Writes the file the Floor’s picture tool reads: the default backgrounds and the capture pictures';
+  save.onclick = () => ask('lookSave');
+  const saying = el('span', 'note2', 'Saved to a file now. It goes onto the Floor with the next firmware install (about 16 minutes, with HX Edit closed).'); saying.style.maxWidth = '470px';
+  const spacer = el('span'); spacer.style.flex = '1';
+  bar.append(saying, spacer, save);
+  right.append(head, strip, strip2, bar);
+  lk.append(left, right);
+  const scroll = body.querySelector('.lkscenes') ? body.querySelector('.lkscenes').scrollTop : 0;
+  reusable = gather(body);
+  try { body.replaceChildren(lk); } finally { reusable = null; }
+  strip.scrollTop = scroll;
+}
 function libraryRow(kind, c, on) {
   const row = el('button', 'caprow' + (on ? ' on' : '')), [name, sub] = kind.words(c);
   const words = el('div'); words.append(el('b', '', name), el('small', '', sub));
@@ -1912,6 +2133,7 @@ function render() {
   drawRail();
   drawDrawer();
   if (!view.full) { drawChain(); drawPanel(); } else { drawMini(); if (view.full === 'presets') drawPresetGrid(); }
+  drawLook();
 }
 function receive(message) {
   if (!message || typeof message !== 'object') return;
@@ -1938,6 +2160,7 @@ function receive(message) {
     return;
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
+  else if (message.type === 'look') { look = message.look && typeof message.look === 'object' ? message.look : null; shownLook = ''; }
   else if (message.type === 'pins') { pins = Array.isArray(message.pins) ? message.pins.filter(k => typeof k === 'string') : []; shownGrid = ''; shownDrawer = ''; shownPresets = ''; if (!$('presetList').hidden) fillPresets(); }
   else return;
   render();

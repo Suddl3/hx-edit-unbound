@@ -325,6 +325,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     if workbench is not None:
                         workbench.set_raise(True)
                 if workbench is not None:
+                    if shown:                            # (the looks may have been changed in Focus Mode meanwhile)
+                        workbench.show_look(nam_catalog.load_settings())
                     workbench.set_on(shown)
                 meter.set_chain_option('focusMode', focus_on[0] or workbench_on[0])
                 if not detached.is_set():
@@ -369,7 +371,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 if view.on:
                     trace({'type': 'focusView', 'event': 'preset-load-unseen', 'number': number})
                     view.notice(f'The Floor did not load preset {number:03d}. Check MIDI PC Receive in its Global Settings.')
-            def focus_look_save():
+            def focus_look_save(view=None):
+                view = view or focus                     # the pane that asked (Focus Mode or the Workbench)
                 try:
                     import floor_store
                     from floor_memory import FloorMemory
@@ -377,10 +380,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                                                         nam_catalog.load_settings().get('floorLook'))
                 except Exception as error:               # no library folder, a picture folder that has gone
                     trace({'type': 'focusView', 'event': 'look-save-failed', 'error': str(error)})
-                    focus.notice(f'The file for the Floor was not saved. {error}')
+                    view.notice(f'The file for the Floor was not saved. {error}')
                     return
                 trace({'type': 'focusView', 'event': 'look-saved', 'slots': len(store['nam']['slots'])})
-                focus.notice(f"Saved for the Floor: the default backgrounds and {len(store['nam']['slots'])} capture pictures. "
+                view.notice(f"Saved for the Floor: the default backgrounds and {len(store['nam']['slots'])} capture pictures. "
                              "It goes onto the Floor with its next picture update.")
             def pane_request(view, shown, name, value):
                 # What either pane asks of HX Edit, each request checked by the pane's driver (focus_view.FocusView)
@@ -481,6 +484,21 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         nam_catalog.save_setting(PINS, pins)
                         workbench.show_pins(pins)
                     return
+                if name == 'look':
+                    # The Workbench's Floor look: the same looks and checks as Focus Mode's Change look (focus_view
+                    # .look_change): a default (floorLook.assign, what the Floor shows) or this preset's own.
+                    if workbench_on[0] and not focus_on[0]:
+                        changed = workbench.changed_look(value, nam_catalog.load_settings())
+                        for key, kept in changed.items():
+                            nam_catalog.save_setting(key, kept)
+                        if changed:
+                            workbench.show_look(nam_catalog.load_settings())
+                    return
+                if name == 'lookSave':
+                    # "Save for the Floor": the file the Floor's picture tool reads, as Focus Mode's and the old page's Save.
+                    if workbench_on[0] and not focus_on[0]:
+                        Thread(target=focus_look_save, args=(workbench,), daemon=True).start()
+                    return
                 if name == 'toolClose':
                     # The Workbench closed the frame a tool sat in (Close, Back to the chain, Esc, another tool's
                     # place): its window closes as its own Close does.
@@ -521,6 +539,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 workbench.show_options({'level': bool(preview.level)})
                 from workbench import PINS, pinned, pins_after
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
+                workbench.show_look(nam_catalog.load_settings())
                 if workbench_start:
                     after_resume.append(lambda: workbench_mode(True, keep=False))
             ir_dots = [options.get('irDots') is not False]

@@ -484,6 +484,42 @@ class PresetTests(unittest.TestCase):
         self.assertIn({'type': 'pins', 'pins': ['2:6']}, sent())
 
 
+class FloorLookTests(unittest.TestCase):
+    """Stage 3 of the views: Floor look in the lower half and full, on Focus Mode's looks (no copy of the old page)."""
+
+    def test_the_page_asks_only_focus_modes_look_changes(self):
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        body = page[page.index('// ---- Floor look:'):page.index('function libraryRow(')]
+        asked = __import__('re').findall(r"ask\('look', \{scope: '([a-z]+)'", body)
+        self.assertEqual(sorted(set(asked)), ['block', 'default', 'preset'])           # focus_view.look_change's scopes
+        self.assertIn("ask('lookSave')", body)
+        self.assertNotIn("'look'", page[page.index('const OLD_PAGES'):page.index('const OLD_PAGES') + 80])   # no longer the old page
+        # the view follows the block picked in the chain; a NAM block is an amp to the Floor, as focus_view.tidy_looks has it
+        self.assertIn("const kindKeyOf = block => isNam(block) ? 'amp' : model(block).key || '';", body)
+        # said, not pretended: the Floor cannot read a preset's own look yet
+        self.assertIn('The Floor shows the defaults until its firmware can read a look per preset', body)
+
+    def test_the_launcher_checks_and_keeps_a_look_as_focus_mode_does(self):
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        action = launcher[launcher.index('            def workbench_action(name, value):'):launcher.index('            if focus is not None:\n                focus.on_action')]
+        self.assertIn('changed = workbench.changed_look(value, nam_catalog.load_settings())', action)
+        self.assertIn('Thread(target=focus_look_save, args=(workbench,), daemon=True).start()', action)
+        self.assertIn('workbench.show_look(nam_catalog.load_settings())', launcher[launcher.index('def workbench_show():'):launcher.index('def workbench_mode(')])
+
+    def test_a_look_change_from_the_workbench_is_the_same_check(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe', costs_file=None)
+        self.addCleanup(view.close)
+        view.state = {'preset': {'setlist': 0, 'number': 6, 'name': 'John Mayer Style'}, 'blocks': []}
+        scenes = list(view.catalog()['scenes'])
+        self.assertEqual(view.changed_look({'scope': 'default', 'category': 'delay', 'scene': 'nope'}, {}), {})
+        if scenes:
+            changed = view.changed_look({'scope': 'default', 'category': 'delay', 'scene': scenes[0]}, {})
+            self.assertEqual(changed['floorLook']['assign']['category']['delay'], scenes[0])
+
+
 class SplitMoveTests(unittest.TestCase):
     """Stage 2: the split or the mixer moved along lane A (HX Edit's own move with "split" / "join")."""
 
@@ -1064,7 +1100,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave'})
 
 
 if __name__ == '__main__':
