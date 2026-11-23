@@ -208,7 +208,8 @@
   .sgrid { display: grid; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
   .sgrid > div { padding: 0 12px; min-height: 38px; display: flex; align-items: center; border-top: 1px solid #1d2027; }
   .sgrid .hd { border-top: 0; display: grid; align-content: center; color: var(--dim); font-size: 12px; } .sgrid .hd b { color: var(--ink); font-size: 13px; }
-  .sgrid .cur { background: rgb(var(--c) / .1); } .sgrid .name { font-weight: 600; }
+  .sgrid .cur { background: rgb(var(--c) / .1); }
+  .sgrid .hd.pickable:not(.cur) { cursor: pointer; } .sgrid .hd.pickable:not(.cur):hover { background: var(--raise2); } .sgrid .hd.pickable:not(.cur):hover b { color: rgb(var(--c)); } .sgrid .name { font-weight: 600; }
   .knobs { display: flex; flex-wrap: wrap; gap: 22px 6px; align-content: center; justify-content: center; padding: 14px 0; overflow-y: auto; min-height: 0;
            scrollbar-width: thin; scrollbar-color: #444 transparent; }
   .knobs.s { gap: 14px 2px; }
@@ -913,7 +914,12 @@ function snapshotView(block, list) {
   const names = (state.snapshots || []).slice(0, 8), count = Math.max(1, names.length), grid = el('div', 'sgrid');
   grid.style.gridTemplateColumns = `130px repeat(${count}, minmax(0, 1fr))`;
   grid.append(el('div', 'hd', 'This block'));
-  for (let s = 0; s < count; s++) { const h = el('div', 'hd' + (s === state.snapshot ? ' cur' : '')); h.append(el('span', '', 'Snapshot ' + (s + 1)), el('b', '', names[s] || '')); grid.append(h); }
+  for (let s = 0; s < count; s++) {
+    // (a header switches to its snapshot, as the top bar's snapshot buttons do; the cells below only change values)
+    const h = el('div', 'hd pickable' + (s === state.snapshot ? ' cur' : '')); h.append(el('span', '', 'Snapshot ' + (s + 1)), el('b', '', names[s] || ''));
+    if (s !== state.snapshot) { h.title = 'Switch to ' + (names[s] || 'snapshot ' + (s + 1)); h.onclick = () => ask('snapshot', s); }
+    grid.append(h);
+  }
   // (a change goes to HX Edit as it changes one: that snapshot comes on for a moment, the value is set, and the
   // snapshot that was on comes back: focus_view.js "snapValue". The column of the snapshot that is on shows the live
   // values, which HX Edit keeps in the block itself.)

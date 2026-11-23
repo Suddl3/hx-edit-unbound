@@ -548,6 +548,7 @@ class SnapshotWriteTests(unittest.TestCase):
         self.assertIn("'snapValue': view.checked_snap_value", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("const change = (s, key, value) => ask('snapValue', {dsp: block.dsp, id: block.id, snapshot: s, key, value});", page)
+        self.assertIn("if (s !== state.snapshot) { h.title = 'Switch to ' + (names[s] || 'snapshot ' + (s + 1)); h.onclick = () => ask('snapshot', s); }", page)   # a header switches
 
 class DspCostTests(unittest.TestCase):
     """A block's DSP, measured from the path's meter when exactly one block comes or goes (dsp_costs.py)."""
