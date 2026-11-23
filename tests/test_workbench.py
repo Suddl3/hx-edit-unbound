@@ -410,7 +410,7 @@ class SizeTests(unittest.TestCase):
 
     def test_the_page_places_an_old_tools_window_over_its_frame_and_closes_it_with_the_frame(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
-        self.assertIn("const body = view.full ? $('vbody') : $('toolBody')", page)
+        self.assertIn("const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody')", page)
         self.assertIn("if (!name) { if (toolShown) { toolShown = ''; ask('toolClose'); } return; }", page)
         self.assertIn("else if (message.type === 'toolClosed') { toolClosed(); return; }", page)
         self.assertIn("else if (view.full || view.half) setView('escape');", page)
@@ -775,6 +775,39 @@ class LibraryFloorTests(unittest.TestCase):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("preview.workbench_action('levelOpen' if page == 'level' else 'library')", launcher)
         self.assertIn('elif library is not None and (action := checked_floor(value, library.entries())):', launcher)
+
+
+class ToneTrayTests(unittest.TestCase):
+    """Stage 6: TONE3000's site at full height with the tray of what was chosen on it."""
+
+    def test_only_the_windows_own_keep_and_load_reach_it(self):
+        from threading import Event
+        from unittest.mock import Mock
+        from queue import Queue
+        from tone_preview import TonePreview
+        preview = TonePreview(Mock(), '.', Path('x'), Event(), Mock(), browser_factory=Mock())
+        preview.browser = Mock(); preview.browser.actions = Queue()
+        self.assertFalse(preview.tone_action('keep:3'))                   # not over the Workbench: nothing
+        preview.bounds_override = {'visible': True, 'x': 0, 'y': 0, 'w': 800, 'h': 600}
+        for good in ('keep:3', 'save:3:21'):
+            self.assertTrue(preview.tone_action(good))
+        for bad in ('remove:abc', 'save:3:', 'keep:x', 'finish', 'save:3:21;x'):
+            self.assertFalse(preview.tone_action(bad))
+        self.assertEqual([preview.browser.actions.get_nowait() for _ in range(2)], ['keep:3', 'save:3:21'])
+        preview.workbench = True                                          # never into the Workbench's own session
+        self.assertFalse(preview.tone_action('keep:3'))
+
+    def test_the_tray_follows_the_windows_own_steps(self):
+        src = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
+        for piece in ("'state': 'getting'", "tray_mark(tray_now, state='ready', trial=trial, text='')",
+                      "tray_mark(item, state='floor', slot=reply['savedSlot'], kept=True)", "self._to_workbench('tone', {'tray':"):
+            self.assertIn(piece, src)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("preview.tone_action(f'keep:{trial}')", launcher)
+        self.assertIn("preview.tone_action(f'save:{trial}:{slot}')", launcher)
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("$('vbody').querySelector('.t3web') || $('vbody')", page)     # the site's part only, the tray beside
+        self.assertIn("ask('tray', {do: 'save', trial: t.trial, slot: free[0]});", page)
 
 
 class SplitMoveTests(unittest.TestCase):
@@ -1357,7 +1390,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray'})
 
 
 if __name__ == '__main__':

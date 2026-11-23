@@ -317,6 +317,24 @@
   .picks .grid i:hover { color: #ff8a80; }
   .modal > div.wide { width: min(760px, calc(100% - 40px)); }
 
+  /* ---- TONE3000: their site (the window placed over the left part) and the tray of what you chose ---------------- */
+  .t3v { display: grid; grid-template-columns: minmax(0, 1fr) 356px; height: 100%; min-height: 0; }
+  .t3web { position: relative; border-right: 1px solid var(--line); min-width: 0; min-height: 0; }
+  .tray { padding: 16px 18px 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 14px; min-height: 0; background: linear-gradient(180deg, rgb(176 112 224 / .07), transparent 40%); }
+  .tray .list { display: grid; align-content: start; gap: 8px; overflow-y: auto; min-height: 0; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .tray h5 { margin-top: 6px; }
+  .ti { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+  .ti img { width: 52px; height: 52px; object-fit: contain; grid-row: span 2; }
+  .ti b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; } .ti small { color: var(--dim); font-size: 11.5px; }
+  .ti .act { grid-column: 1 / -1; display: flex; gap: 6px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+  .ti .act .ok { color: #3fc56b; font-size: 12px; } .ti .act .wait { color: #f0c94a; font-size: 12px; white-space: nowrap; } .ti .act .bad { color: #ff8a80; font-size: 12px; }
+  .ti .act u { flex: 1; min-width: 60px; height: 4px; border-radius: 2px; background: #262a33; position: relative; overflow: hidden; text-decoration: none; }
+  .ti .act u i { position: absolute; top: 0; bottom: 0; width: 40%; border-radius: 2px; background: #f0c94a; animation: t3slide 1.4s ease-in-out infinite; }
+  @keyframes t3slide { from { left: -40%; } to { left: 100%; } }
+  .ti.hot { border-color: rgb(176 112 224 / .6); background: rgb(176 112 224 / .1); }
+  .tray .bar { border-top: 1px solid var(--line); margin: 0 -18px; padding: 12px 18px; display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 12.5px; }
+  .tray .bar b { color: var(--ink); } .tray .bar .sp { flex: 1; }
+
   /* a question asked before something is done (a scan that loads other presets, an Apply that saves, a recording) */
   .modal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: grid; place-items: center; }
   .modal > div { width: min(480px, calc(100% - 40px)); background: #15171c; border-radius: 12px; box-shadow: 0 0 0 1px #3a3f4b, 0 30px 80px rgb(0 0 0 / .7); padding: 18px 20px; display: grid; gap: 14px; }
@@ -1747,6 +1765,7 @@ function drawFrames() {
     if (full === 'look') { shownLook = ''; drawLook(); }
     if (full === 'level') { shownLevels = ''; drawLevels(); }
     if (full === 'library') { shownLib = ''; drawLibrary(); }
+    if (full === 'tone') { const t3 = el('div', 't3v'), web = el('div', 't3web'); web.append(el('div', 'waiting', 'Opening TONE3000\u2026')); t3.append(web, el('aside', 'tray')); $('vbody').replaceChildren(t3); shownTray = ''; drawTray(); }
   } else if (half) {
     const thing = THINGS[half], box = $('toolCard'), icon = el('div', 'bigicon'), words = el('div'), row = el('div', 'btnrow');
     icon.innerHTML = RAIL_ICON[thing.icon];
@@ -1794,7 +1813,7 @@ function drawMini() {
 // closed from the window itself ({type: "toolClosed"}).
 let toolShown = '', toolAskedAt = 0, toolPlaced = '';
 function frameRect() {
-  const body = view.full ? $('vbody') : $('toolBody'), r = body.getBoundingClientRect(), k = window.devicePixelRatio || 1;
+  const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody'), r = body.getBoundingClientRect(), k = window.devicePixelRatio || 1;
   return {x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k)};
 }
 function syncTool() {
@@ -2883,6 +2902,51 @@ function drawLibrary() {
   list.scrollTop = scroll;
   $('vhead').querySelector('.sub').textContent = THINGS.library.sub + ' · ' + all.length + ' capture' + (all.length === 1 ? '' : 's');
 }
+// ---- TONE3000's tray: what you chose on the site and where it is now (stage 6) -------------------------------------
+// The TONE3000 window's own session tells it ({type: "session", kind: "tone"}: tone_preview browse's tray) while the
+// window sits in the Workbench: getting ready (downloading, converting), ready (previewing on the selected NAM block:
+// Load on Floor, Keep on this PC: the window's own commands, "tray" -> TonePreview.tone_action), on the Floor.
+let toneTray = null, shownTray = '';
+function drawTray() {
+  const box = view.full === 'tone' ? $('vbody').querySelector('.tray') : null;
+  if (!box || !catalog || !state) return;
+  const t = toneTray || {tray: []}, key = JSON.stringify([t, (state.captures || []).length, (state.irs || []).length]);
+  if (key === shownTray && box.childElementCount) return;
+  shownTray = key;
+  const head = el('div'); head.append(el('b', '', 'From TONE3000'), el('div', 'note2', 'What you chose on the site, and where it is now.'));
+  head.firstChild.style.cssText = 'font-size:16px;font-weight:600';
+  const list = el('div', 'list'), items = t.tray || [], free = Array.isArray(t.free_slots) ? t.free_slots : [];
+  const item = (it, hot) => {
+    const row = el('div', 'ti' + (hot ? ' hot' : ''));
+    row.append(image(captureUrls({icon: it.icon}), '', true, true), el('b', '', it.name));
+    const act = el('div', 'act'), sub = el('small');
+    if (it.state === 'getting') { sub.textContent = 'downloading and fitting it to the Floor'; const u = el('u'); u.append(el('i')); act.append(el('span', 'wait', 'Getting ready'), u); }
+    else if (it.state === 'failed') { sub.textContent = 'did not get ready'; act.append(el('span', 'bad', it.text || 'Something went wrong. Pick it again on the site.')); }
+    else if (it.state === 'floor') { sub.textContent = 'in your library'; act.append(el('span', 'ok', '\u2713 Slot ' + it.slot + ' \u00b7 in the Captures drawer')); }
+    else if (it.state === 'ready' && it.trial === t.trial) {
+      sub.textContent = 'previewing on the selected block' + (it.kept ? ' \u00b7 in your library' : '');
+      const load = el('button', 'btn sm pri', 'Load on Floor'); load.style.setProperty('--c', '176 112 224');
+      load.disabled = !free.length; load.title = free.length ? 'Load it into slot ' + free[0] + ' (the lowest free one) and keep it on the selected block. The preset is not saved.' : 'No free slot on the Floor: free one in the library first.';
+      load.onclick = () => ask('tray', {do: 'save', trial: t.trial, slot: free[0]});
+      act.append(load);
+      if (!it.kept) { const keep = el('button', 'btn sm', 'Keep on this PC'); keep.title = 'Add it to your library on this PC. Nothing changes on the Floor.'; keep.onclick = () => ask('tray', {do: 'keep', trial: t.trial}); act.append(keep); }
+    } else { sub.textContent = it.kept ? 'in your library' : 'previewed, not kept'; }
+    if (it.gear) sub.textContent = (catalog && lib && lib.gears && lib.gears[it.gear] ? lib.gears[it.gear] : it.gear) + ' \u00b7 ' + sub.textContent;
+    row.append(sub, act);
+    return row;
+  };
+  const groups = [['Getting ready', items.filter(i => i.state === 'getting' || i.state === 'failed')],
+                  ['Ready', items.filter(i => i.state === 'ready')], ['On the Floor', items.filter(i => i.state === 'floor')]];
+  for (const [title, these] of groups) if (these.length) list.append(el('h5', '', title), ...these.map(i => item(i, i.key === t.current && i.state === 'ready')));
+  if (!items.length) list.append(el('span', 'note2', 'Pick a tone on the site. It shows here while it gets ready; then you can load it on the Floor. ' + (t.bound === false ? 'Select a NAM block in the chain first: the preview plays on it.' : '')));
+  if (t.text) list.append(el('span', 'note2', t.text));
+  const bar = el('div', 'bar'), used = (state.captures || []).length + (state.irs || []).length, open = el('button', 'btn sm', 'Open the library');
+  open.onclick = () => setView('open', 'library');
+  const n = el('b', 'num', String(Math.max(0, 128 - used)));
+  bar.append('Free slots on the Floor ', n, el('span', 'sp'), open);
+  reusable = gather(box);
+  try { box.replaceChildren(head, list, bar); } finally { reusable = null; }
+}
 function libraryRow(kind, c, on) {
   const row = el('button', 'caprow' + (on ? ' on' : '')), [name, sub] = kind.words(c);
   const words = el('div'); words.append(el('b', '', name), el('small', '', sub));
@@ -2954,7 +3018,7 @@ function render() {
   drawRail();
   drawDrawer();
   if (!view.full) { drawChain(); drawPanel(); } else { drawMini(); if (view.full === 'presets') drawPresetGrid(); }
-  drawLook(); drawLevels(); drawLibrary();
+  drawLook(); drawLevels(); drawLibrary(); drawTray();
 }
 function receive(message) {
   if (!message || typeof message !== 'object') return;
@@ -2982,6 +3046,7 @@ function receive(message) {
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
   else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
+  else if (message.type === 'session' && message.kind === 'tone') { toneTray = message.data || null; shownTray = ''; drawTray(); return; }
   else if (message.type === 'session') { levelSessionMessage(message.kind, message.data || {}); return; }
   else if (message.type === 'prefs') {
     const kept = message.prefs && message.prefs.levels;

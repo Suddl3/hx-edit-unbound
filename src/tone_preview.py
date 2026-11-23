@@ -305,6 +305,16 @@ class TonePreview:
             except Exception:    # (the page's copy only: the session goes on)
                 pass
 
+    def tone_action(self, action):
+        """The Workbench tray's request for the TONE3000 window sitting in it: Keep on this PC or Load on Floor for
+        the preview now (the window's own "keep:<trial>" / "save:<trial>:<slot>", checked there as from its card)."""
+        browser = self.browser
+        if (not self.workbench and self.bounds_override is not None and browser is not None and isinstance(action, str)
+                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}', action)):
+            browser.actions.put(action)
+            return True
+        return False
+
     def workbench_open(self):
         """Whether the Workbench's own session is running (its Levels page)."""
         return (self.workbench and self.thread is not None and self.thread.is_alive() and self.browser is not None
@@ -602,6 +612,23 @@ class TonePreview:
         loaded_now = False  # the profile shown was just loaded on the Floor: it needs no Preview button
 
         reopen = tone_link(self.profile)  # the block's profile came from this tone: its page opens first
+        # The Workbench's TONE3000 tray (while this window sits in the Workbench): each profile picked on the site and
+        # where it is now: "getting" (downloading, converting), "ready" (previewing on the selected block: Keep on
+        # this PC or Load on Floor), "floor" (loaded into a slot), "failed". Newest first; this window's session only.
+        tray = []
+        tray_now = None
+
+        def tray_mark(item, **values):
+            if item is not None:
+                item.update(values)
+                tray_out()
+
+        def tray_out():
+            if self.workbench or self.bounds_override is None or not self.workbench_sink:
+                return
+            self._to_workbench('tone', {'tray': [dict(item) for item in tray[:20]], 'text': text, 'trial': trial,
+                                        'free_slots': list(free_slots), 'current': tray_now['key'] if tray_now else None,
+                                        'bound': bool(self.navigation_state.get('bound'))})
 
         def select():
             nonlocal reopen
@@ -647,6 +674,7 @@ class TonePreview:
                 text = message
             if not self.headless and self.sidebar_status:
                 self.sidebar_status({'text':message, 'busy':busy})
+            tray_out()
             inventory = None
             if self.navigation and self.library:
                 inventory = {'rows': [dict(id=identity, irSlots=entry.get('irSlots', []), pendingSlots=entry.get('pendingSlots', []),
@@ -754,7 +782,7 @@ class TonePreview:
             return mode_now
 
         def audition(candidate, index, replace=None):
-            nonlocal current, selected
+            nonlocal current, selected, tray_now
             if self.close_requested():
                 return
             tone, models, token = candidate
@@ -768,6 +796,18 @@ class TonePreview:
             if mode is None:
                 status('Cancelled: choose the conversion to audition this tone.')
                 return
+            key = f'{tone.get("id")}:{models[index].get("id")}'
+            tray[:] = [item for item in tray if item['key'] != key]
+            picked = ' – '.join(part for part in (tone.get('title', ''), models[index].get('name', '')) if part)
+            try:
+                import capture_icons
+                icon = capture_icons.pick(picked, tone.get('gear') or None)
+            except (OSError, ValueError, KeyError, IndexError):
+                icon = ''
+            tray_now = {'key': key, 'name': picked or 'TONE3000 profile', 'gear': tone.get('gear', ''), 'icon': icon,
+                        'state': 'getting', 'slot': None, 'kept': False, 'trial': None, 'text': ''}
+            tray.insert(0, tray_now)
+            trial_before = trial
             status('Downloading and loading the selected profile…' if mode == 'original' else
                    'Downloading and converting the selected profile…', busy=True)
 
@@ -780,6 +820,10 @@ class TonePreview:
             remember_link(models[index]['id'], tone_url(tone))   # the profile's name ends with this model ID
             message = play(lambda: prepare_model(models[index], token, self.workspace, self.converter, mode), capture,
                            replace, lambda chosen: audition(candidate, index, chosen))
+            if trial != trial_before:
+                tray_mark(tray_now, state='ready', trial=trial, text='')
+            elif tray_now is not None and tray_now['state'] == 'getting':
+                tray_mark(tray_now, state='failed', text=message or text)
             if message is None:
                 return
             if current is not candidate:
@@ -1286,6 +1330,10 @@ class TonePreview:
                         message = (f'Saved to this PC and loaded on the Floor in User IR {reply["savedSlot"]}. '
                                    'The preset is not saved yet.' if self.navigation else
                                    f'Saved in User IR {reply["savedSlot"]}.')
+                    if reply.get('savedSlot'):
+                        for item in tray:
+                            if item.get('trial') == trial:
+                                tray_mark(item, state='floor', slot=reply['savedSlot'], kept=True)
                     if reply.get('savedSlot') and self.library:
                         try:
                             if not keep():
@@ -1320,7 +1368,12 @@ class TonePreview:
                         library_visibility()
                         show_card()
                     elif command == 'keep' and argument == str(trial):
-                        status('Saved to your NAM library on this PC. Nothing changed on the Floor.' if keep() else
+                        made = keep()
+                        if made:
+                            for item in tray:
+                                if item.get('trial') == trial:
+                                    item['kept'] = True
+                        status('Saved to your NAM library on this PC. Nothing changed on the Floor.' if made else
                                'This preview\'s original capture is no longer available, so nothing was added. '
                                'Preview the tone again, then choose Save to PC.')
                     elif command == 'pick' and identity in self.library.entries():

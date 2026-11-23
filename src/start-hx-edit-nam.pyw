@@ -545,6 +545,16 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     except (OSError, ValueError, KeyError) as error:
                         workbench.notice(f'Library: {error}')
                     return
+                if name == 'tray' and isinstance(value, dict):
+                    # The Workbench's TONE3000 tray: Keep on this PC or Load on Floor for the profile previewing now,
+                    # as the window's own card asks it (TonePreview.tone_action checks the shape; browse() the rest).
+                    trial, slot = value.get('trial'), value.get('slot')
+                    if preview is not None and isinstance(trial, int) and not isinstance(trial, bool):
+                        if value.get('do') == 'keep':
+                            preview.tone_action(f'keep:{trial}')
+                        elif value.get('do') == 'save' and isinstance(slot, int) and not isinstance(slot, bool) and 1 <= slot <= 127:
+                            preview.tone_action(f'save:{trial}:{slot}')
+                    return
                 if name == 'notice':
                     workbench.notice(value if isinstance(value, str) else '')   # (the pane's own word: a file it could not read)
                     return
