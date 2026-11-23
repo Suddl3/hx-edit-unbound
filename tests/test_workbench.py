@@ -629,6 +629,98 @@ class LevelsTests(unittest.TestCase):
         self.assertIn('nam_catalog.save_setting(PREFS, prefs)', launcher)
 
 
+class LibraryTests(unittest.TestCase):
+    """Stage 5, part 1: the NAM library as its own Workbench view: the library on this PC, read and changed by the
+    launcher (nothing on the Floor), files and folders chosen in the pane's own dialogs."""
+
+    NAM = json.dumps({'version': '0.5.4', 'architecture': 'WaveNet', 'config': {}, 'weights': [0.1, 0.2]}).encode()
+
+    def library(self):
+        import tempfile
+        from nam_library import Library
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        library = Library(Path(folder.name) / 'library')
+        return library, Path(folder.name)
+
+    def test_the_view_is_the_library_pages_own_rows_with_the_uploaded_pictures(self):
+        import nam_library
+        library, folder = self.library()
+        source = folder / 'Brit Gold.nam'
+        source.write_bytes(self.NAM)
+        try:
+            nam_library.check_nam(self.NAM)
+        except ValueError:
+            self.skipTest('the made-up capture is not a NAM file to this check')
+        identity = library.add(source, gear='amp')
+        view = workbench.library_view(library)
+        self.assertEqual([row['id'] for row in view['rows']], [identity])
+        self.assertEqual(view['rows'][0], nam_library.library_row(identity, library.entries()[identity], library.pictures))
+        self.assertEqual(view['gears'], nam_library.GEARS)
+        self.assertEqual(view['pictures'], {})
+        self.assertTrue(view['groups'])
+
+    def test_edits_are_checked_before_the_library_changes(self):
+        entries = {'abc': {'source': 'https://www.tone3000.com/tones/12'}, 'def': {'source': 'file'}}
+        check = workbench.checked_library
+        self.assertEqual(check({'do': 'gear', 'id': 'abc', 'value': 'amp'}, entries), ('gear', 'abc', 'amp'))
+        self.assertIsNone(check({'do': 'gear', 'id': 'abc', 'value': 'kazoo'}, entries))
+        self.assertIsNone(check({'do': 'gear', 'id': 'nope', 'value': 'amp'}, entries))
+        self.assertEqual(check({'do': 'instrument', 'id': 'abc', 'value': None}, entries), ('instrument', 'abc', ''))
+        self.assertIsNone(check({'do': 'instrument', 'id': 'abc', 'value': 'kazoo'}, entries))
+        self.assertEqual(check({'do': 'remove', 'id': 'def'}, entries), ('remove', 'def', None))
+        self.assertEqual(check({'do': 'openSource', 'id': 'abc'}, entries), ('openSource', 'abc', 'https://www.tone3000.com/tones/12'))
+        self.assertIsNone(check({'do': 'openSource', 'id': 'def'}, entries))            # only a TONE3000 page opens
+        self.assertIsNone(check({'do': 'iconDelete', 'value': 'graphic_eq_head'}, entries))   # only an uploaded one
+        self.assertIsNone(check({'do': 'install', 'id': 'abc'}, entries))              # nothing for the Floor here
+
+    def test_only_what_the_panes_dialog_chose_and_only_files_of_that_kind(self):
+        library, folder = self.library()
+        nam = folder / 'a.nam'; nam.write_bytes(self.NAM)
+        txt = folder / 'b.txt'; txt.write_text('x')
+        entries = {'abc': {}}
+        chosen = workbench.checked_chosen
+        self.assertEqual(chosen({'kind': 'nam', 'paths': [str(nam), str(txt)]}, entries, folder), ('nam', None, [nam]))
+        self.assertEqual(chosen({'kind': 'namFolder', 'paths': [str(folder)]}, entries, folder), ('namFolder', None, [folder]))
+        self.assertIsNone(chosen({'kind': 'export', 'id': 'nope', 'paths': [str(folder)]}, entries, folder))
+        picture = folder / 'workbench-picture-1.png'; picture.write_bytes(b'png')
+        elsewhere = folder / 'sub'; elsewhere.mkdir(); stray = elsewhere / 'workbench-picture-2.png'; stray.write_bytes(b'png')
+        self.assertEqual(chosen({'kind': 'picture', 'id': 'abc', 'paths': [str(picture)]}, entries, folder), ('picture', 'abc', [picture]))
+        self.assertIsNone(chosen({'kind': 'picture', 'id': 'abc', 'paths': [str(stray)]}, entries, folder))   # only the pane's own
+        self.assertIsNone(chosen({'kind': 'nam', 'paths': [str(txt)]}, entries, folder))
+
+    def test_import_adds_good_files_once_and_names_the_bad_ones(self):
+        import nam_library
+        try:
+            nam_library.check_nam(self.NAM)
+        except ValueError:
+            self.skipTest('the made-up capture is not a NAM file to this check')
+        library, folder = self.library()
+        (folder / 'in').mkdir()
+        (folder / 'in' / 'one.nam').write_bytes(self.NAM)
+        (folder / 'in' / 'deep').mkdir()
+        (folder / 'in' / 'deep' / 'bad.nam').write_text('not json')
+        stats = workbench.import_files(library, [folder / 'in'])
+        self.assertEqual((stats['added'], stats['same'], stats['bad']), (1, 0, ['bad.nam']))
+        self.assertEqual(workbench.import_files(library, [folder / 'in' / 'one.nam'])['same'], 1)
+
+    def test_the_pane_chooses_files_and_the_page_cannot_say_what_was_chosen(self):
+        pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
+        self.assertIn('if ((string)name == "choose") { Choose(value as Dictionary<string, object>); return; }', pane)
+        self.assertIn('if ((string)name == "chosen") return;', pane)
+        self.assertIn('"workbench-picture-"', pane)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn('chosen = checked_chosen(value, library.entries(), tempfile.gettempdir())', launcher)
+        self.assertIn('edit = checked_library(value, library.entries())', launcher)
+        self.assertIn('library.subscribe(library_changed)', launcher)
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("const OLD_PAGES = new Set(['tone']);", page)       # the library no longer opens the old window
+        body = page[page.index('// ---- NAM library: every capture'):page.index('function libraryRow(')]
+        self.assertEqual(set(__import__('re').findall(r"ask\('choose', \{kind: '([a-zA-Z]+)'", body)), {'picture', 'export'})
+        self.assertIn("ask('choose', {kind});", body)                     # the Import menu: nam, namFolder
+        self.assertNotIn('localStorage', page)
+
+
 class SplitMoveTests(unittest.TestCase):
     """Stage 2: the split or the mixer moved along lane A (HX Edit's own move with "split" / "join")."""
 
@@ -1209,7 +1301,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose'})
 
 
 if __name__ == '__main__':

@@ -116,6 +116,95 @@ def prefs_after(settings, value):
     return prefs({PREFS: {'levels': value['levels']}})
 
 
+# The Workbench's NAM library (stage 5, part 1): the library on this PC, read and changed here, not in a session.
+# Nothing here touches the Floor. A file or a folder is chosen in the pane's own dialog ("choose" -> "chosen").
+LIBRARY_EDITS = ('gear', 'instrument', 'icon', 'iconDelete', 'remove', 'openSource')
+CHOOSE = ('nam', 'namFolder', 'picture', 'export')
+TONE3000_HOSTS = ('www.tone3000.com', 'tone3000.com')
+
+
+def library_view(library):
+    """What the Workbench's NAM library draws: each capture (nam_library.library_row), the pictures uploaded by the
+    player (as data: URIs: the pane cannot reach the library's folder), the picture picker's groups and the choices."""
+    import capture_icons
+    import nam_library
+    pictures = getattr(library, 'pictures', None)
+    rows = [nam_library.library_row(key, value, pictures) for key, value in library.entries().items()]
+    uploaded = nam_library.uploaded_pictures(pictures) if pictures else []
+    return {'rows': rows,
+            'pictures': {ident: nam_library.uploaded_data_uri(Path(pictures) / f'{ident}.png') for ident in uploaded},
+            'groups': ([{'label': 'Your pictures', 'ids': uploaded[::-1], 'uploaded': True}] if uploaded else [])
+                      + capture_icons.picker_groups(),
+            'gears': dict(nam_library.GEARS), 'instruments': dict(nam_library.INSTRUMENTS)}
+
+
+def checked_library(value, entries):
+    """The page's library edit as (do, capture id, value), or None: a known edit, of a capture in the library."""
+    import nam_library
+    if not isinstance(value, dict) or value.get('do') not in LIBRARY_EDITS:
+        return None
+    do, identity, choice = value['do'], value.get('id'), value.get('value')
+    if do == 'iconDelete':
+        return (do, None, choice) if isinstance(choice, str) and nam_library.UPLOADED.fullmatch(choice) else None
+    if not isinstance(identity, str) or identity not in entries:
+        return None
+    if do == 'gear':
+        return (do, identity, choice) if choice in nam_library.GEARS else None
+    if do == 'instrument':
+        return (do, identity, choice or '') if choice in ('', None, *nam_library.INSTRUMENTS) else None
+    if do == 'icon':
+        return (do, identity, choice or '') if choice in ('', None) or (isinstance(choice, str) and len(choice) <= 40) else None
+    if do == 'openSource':
+        source = str((entries[identity] or {}).get('source') or '')
+        from urllib.parse import urlsplit
+        where = urlsplit(source)
+        return (do, identity, source) if where.scheme == 'https' and where.netloc in TONE3000_HOSTS else None
+    return do, identity, None
+
+
+def checked_chosen(value, entries, temp_folder):
+    """What the pane's own dialog chose ({kind, id, paths}), checked: (kind, capture id or None, [Path]), or None.
+    nam: .nam files; namFolder: one folder; picture: the PNG the pane made in the temp folder; export: one folder."""
+    if not isinstance(value, dict) or value.get('kind') not in CHOOSE:
+        return None
+    kind, identity, paths = value['kind'], value.get('id'), value.get('paths')
+    if not isinstance(paths, list) or not paths or len(paths) > 500 or not all(isinstance(p, str) and p for p in paths):
+        return None
+    paths = [Path(p) for p in paths]
+    if kind in ('picture', 'export') and (not isinstance(identity, str) or identity not in entries):
+        return None
+    if kind == 'nam':
+        paths = [p for p in paths if p.suffix.lower() == '.nam' and p.is_file()]
+    elif kind in ('namFolder', 'export'):
+        paths = [p for p in paths[:1] if p.is_dir()]
+    elif kind == 'picture':
+        folder = Path(temp_folder).resolve()
+        paths = [p for p in paths[:1] if p.is_file() and p.resolve().parent == folder and p.name.startswith('workbench-picture-')
+                 and p.suffix.lower() == '.png']
+    return (kind, identity if kind in ('picture', 'export') else None, paths) if paths else None
+
+
+def import_files(library, paths, limit=2000):
+    """Add the .nam files (a folder: every .nam in it and its subfolders) to the library, as the library window's
+    Import does: nothing is converted, nothing goes on the Floor. {added, same, bad}."""
+    import nam_library
+    stats = {'added': 0, 'same': 0, 'bad': []}
+    files = []
+    for path in paths:
+        files += sorted(path.rglob('*.nam')) if path.is_dir() else [path]
+    for path in files[:limit]:
+        try:
+            data = path.read_bytes()
+            nam_library.check_nam(data)
+        except (OSError, ValueError):
+            stats['bad'].append(path.name)
+            continue
+        new = library.add_data(data, path.name, source='file', notify=False)[1]
+        stats['added' if new else 'same'] += 1
+    library.changed()
+    return stats
+
+
 def setting_on(settings):
     """Whether the Workbench is shown at launch: only once it has been switched on (settings.json "workbench": true)."""
     return isinstance(settings, dict) and settings.get(SETTING) is True
@@ -131,6 +220,7 @@ class WorkbenchView(focus_view.FocusView):
         self.options = {}
         self.pins = []
         self.prefs = prefs({})
+        self.library = None
         self.costs = dsp_costs.DspCosts(costs_file)
         self.clock = clock
         self._seen = None
@@ -154,6 +244,10 @@ class WorkbenchView(focus_view.FocusView):
     def show_pins(self, pins):
         """The pinned presets ("setlist:number") for the page."""
         self.queue.put(('pins', [str(k) for k in pins] if isinstance(pins, list) else []))
+
+    def show_library(self, view):
+        """The NAM library (library_view) for the page."""
+        self.queue.put(('library', view if isinstance(view, dict) else {}))
 
     def show_prefs(self, kept):
         """The Workbench's kept choices (prefs) for the page."""
@@ -182,6 +276,11 @@ class WorkbenchView(focus_view.FocusView):
             if self.page_ready:
                 self._write('P', {'type': 'prefs', 'prefs': value})
             return
+        if kind == 'library':
+            self.library = value
+            if self.page_ready:
+                self._write('P', {'type': 'library', 'library': value})
+            return
         if kind == 'session':
             if self.page_ready:
                 self._write('P', {'type': 'session', **value})
@@ -201,6 +300,8 @@ class WorkbenchView(focus_view.FocusView):
             self._write('P', {'type': 'options', 'options': self.options})
             self._write('P', {'type': 'pins', 'pins': self.pins})
             self._write('P', {'type': 'prefs', 'prefs': self.prefs})
+            if self.library is not None:
+                self._write('P', {'type': 'library', 'library': self.library})
             self._show_costs()
         if kind in ('state', 'dsp'):
             # (the meter's figures and each path's block count, as the measuring sees them, for the trace)

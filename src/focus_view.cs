@@ -59,6 +59,56 @@ sealed class FocusView : Form
         PostMessage(GetAncestor(parent, 2), 0x0111, (IntPtr)command, IntPtr.Zero);   // GA_ROOT, WM_COMMAND
     }
 
+    // The Workbench's NAM library: its files and folders are chosen here, in Windows' own dialogs over HX Edit, and only
+    // the paths go to the launcher ({"type":"action","name":"chosen","value":{kind, id, paths}}): the page itself cannot
+    // read files, and its messages are kept small. A picture is made a PNG of at most 256 px here (the library keeps
+    // only those). kind: nam (.nam files), namFolder (a folder of them), picture (an image), export (a folder).
+    sealed class Owner : IWin32Window { public IntPtr Handle { get; set; } }
+    void Choose(Dictionary<string, object> value)
+    {
+        object kindValue, idValue;
+        if (value == null || !value.TryGetValue("kind", out kindValue) || !(kindValue is string)) return;
+        string kind = (string)kindValue, id = value.TryGetValue("id", out idValue) ? idValue as string : null;
+        var owner = new Owner { Handle = parent == IntPtr.Zero ? Handle : GetAncestor(parent, 2) };
+        var paths = new List<string>();
+        try
+        {
+            if (kind == "nam")
+            {
+                using (var dialog = new OpenFileDialog { Filter = "NAM captures (*.nam)|*.nam", Multiselect = true, Title = "Import NAM files" })
+                    if (dialog.ShowDialog(owner) == DialogResult.OK) paths.AddRange(dialog.FileNames);
+            }
+            else if (kind == "namFolder" || kind == "export")
+            {
+                using (var dialog = new FolderBrowserDialog { Description = kind == "export" ? "Export the capture to this folder" : "Import every .nam file in this folder and its subfolders" })
+                    if (dialog.ShowDialog(owner) == DialogResult.OK) paths.Add(dialog.SelectedPath);
+            }
+            else if (kind == "picture")
+            {
+                using (var dialog = new OpenFileDialog { Filter = "Pictures (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp", Title = "Choose a picture" })
+                    if (dialog.ShowDialog(owner) == DialogResult.OK)
+                        using (var image = Image.FromFile(dialog.FileName))
+                        {
+                            double scale = Math.Min(1.0, 256.0 / Math.Max(image.Width, image.Height));
+                            int w = Math.Max(1, (int)Math.Round(image.Width * scale)), h = Math.Max(1, (int)Math.Round(image.Height * scale));
+                            using (var small = new Bitmap(w, h))
+                            {
+                                using (var g = Graphics.FromImage(small))
+                                {
+                                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                                    g.DrawImage(image, 0, 0, w, h);
+                                }
+                                string made = Path.Combine(Path.GetTempPath(), "workbench-picture-" + Guid.NewGuid().ToString("N") + ".png");
+                                small.Save(made, System.Drawing.Imaging.ImageFormat.Png);
+                                paths.Add(made);
+                            }
+                        }
+            }
+        }
+        catch (Exception error) { Send(new { type = "action", name = "notice", value = "That file could not be read: " + error.Message }); return; }
+        if (paths.Count > 0) Send(new { type = "action", name = "chosen", value = new { kind = kind, id = id, paths = paths } });
+    }
+
     readonly IntPtr parent;
     readonly string profile, page;
     readonly List<KeyValuePair<string, string>> hosts;
@@ -259,6 +309,8 @@ sealed class FocusView : Form
                 // (undo, redo: HX Edit's own entries, through the launcher and the script: its Ctrl+Shift+Z did not reach HX Edit while
                 // the Workbench is shown, seen 2026-11-23)
                 if ((string)name == "save") { PressInEditor(0x53, false); return; }      // Ctrl+S: HX Edit's File > Save Preset
+                if ((string)name == "choose") { Choose(value as Dictionary<string, object>); return; }
+                if ((string)name == "chosen") return;                    // (only the pane's own dialog says what was chosen)
                 if ((string)name == "export") { int command; if (value is string && Exports.TryGetValue((string)value, out command)) MenuInEditor(command); return; }
                 Send(new { type = "action", name = (string)name, value = value });
             };

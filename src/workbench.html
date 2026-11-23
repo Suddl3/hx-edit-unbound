@@ -248,6 +248,74 @@
   .lvprog u i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: #b070e0; }
   .lvempty { padding: 28px 20px; color: var(--dim); line-height: 1.5; max-width: 620px; }
   .lvempty b { color: var(--ink); display: block; font-size: 16px; margin-bottom: 4px; }
+  /* ---- NAM library: every capture on this PC; filters, picture cards, one capture's side ------------------------- */
+  .lib2 { display: grid; grid-template-columns: 196px minmax(0, 1fr) 372px; height: 100%; min-height: 0; }
+  .lf { border-right: 1px solid var(--line); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
+  .lf h5 { padding: 12px 10px 5px; }
+  .fr { display: flex; justify-content: space-between; align-items: center; height: 30px; padding: 0 10px; border-radius: 7px; color: var(--dim); text-align: left; flex: none; }
+  .fr:hover { color: var(--ink); } .fr.on { background: var(--raise2); color: var(--ink); }
+  .fr em { font-style: normal; color: var(--faint); font-size: 12px; }
+  .lf .grow { flex: 1; min-height: 12px; }
+  .slots { margin: 0 4px; padding: 11px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); display: grid; gap: 7px; font-size: 12px; color: var(--dim); line-height: 1.35; flex: none; }
+  .slots b { color: var(--ink); font-weight: 600; font-size: 13px; }
+  .slots u { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: #262a33; text-decoration: none; }
+  .slots u i { background: #b070e0; } .slots u s { background: #f23091; }
+  .slots .key { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+  .lm2 { padding: 14px 20px 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 14px; min-width: 0; min-height: 0; }
+  .lm2 .head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; position: relative; }
+  .lm2 .head .search { width: 250px; height: 34px; }
+  .lm2 .head .sp { flex: 1; }
+  .cg5 { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; align-content: start; overflow-y: auto; min-height: 0; padding-bottom: 16px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .cc { position: relative; height: 172px; border-radius: 11px; background: #15181e; border: 1px solid var(--line); display: grid; grid-template-rows: 1fr auto auto; justify-items: center; padding: 10px 10px 9px; min-width: 0; text-align: center; }
+  .cc:hover { border-color: #4a5060; }
+  .cc img { height: 82px; width: 100%; object-fit: contain; align-self: center; filter: drop-shadow(0 8px 6px rgb(0 0 0 / .55)); }
+  .cc b { font-weight: 600; font-size: 13.5px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cc small { color: var(--dim); font-size: 11.5px; }
+  .cc .where { position: absolute; left: 8px; top: 8px; height: 19px; padding: 0 7px; border-radius: 5px; font-size: 11px; display: flex; align-items: center; color: var(--faint); border: 1px solid #2a2e38; }
+  .cc .where.fl { color: #d9bcf5; border-color: rgb(176 112 224 / .5); background: rgb(176 112 224 / .14); }
+  .cc .lt { position: absolute; right: 8px; top: 8px; height: 19px; padding: 0 6px; border-radius: 5px; font-size: 11px; display: flex; align-items: center; color: #8fd3c2; border: 1px solid rgb(99 192 168 / .4); }
+  .cc.on { border-color: #b070e0; box-shadow: 0 0 0 1px #b070e0; background: #1b1723; }
+  .lrows { display: grid; align-content: start; overflow-y: auto; min-height: 0; padding-bottom: 16px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .lr2 { display: grid; grid-template-columns: 40px minmax(0, 1fr) 110px 70px 90px 90px; gap: 12px; align-items: center; height: 46px; padding: 0 10px; border-radius: 8px; text-align: left; }
+  .lr2:hover { background: var(--raise); } .lr2.on { background: rgb(176 112 224 / .16); box-shadow: inset 2px 0 0 #b070e0; }
+  .lr2 img { width: 38px; height: 38px; object-fit: contain; }
+  .lr2 b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .lr2 span { color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lr2.h { height: 26px; color: var(--faint); font-size: 11.5px; } .lr2.h:hover { background: none; }
+  .cd { border-left: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 172px minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+  .cd .hero { position: relative; background: #000 center 62% / cover no-repeat; display: grid; place-items: center; border-bottom: 1px solid var(--line); }
+  .cd .hero::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(12 13 16 / .35), rgb(12 13 16 / .75)); }
+  .cd .hero img { position: relative; height: 128px; max-width: 80%; object-fit: contain; filter: drop-shadow(0 14px 10px rgb(0 0 0 / .7)); }
+  .cd .hero .btn { position: absolute; right: 12px; bottom: 12px; height: 26px; font-size: 12px; background: rgb(20 22 27 / .8); }
+  .cd .body { padding: 14px 18px; display: grid; align-content: start; gap: 13px; min-height: 0; overflow-y: auto; }
+  .cd h3 { margin: 0; font-size: 21px; font-weight: 600; font-stretch: 86%; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; overflow-wrap: anywhere; }
+  .cd h3 span { color: var(--faint); font-size: 12px; font-weight: 400; font-stretch: 100%; white-space: nowrap; }
+  .kv2 { display: grid; grid-template-columns: 84px 1fr; gap: 7px 10px; margin: 0; align-items: center; font-size: 13px; }
+  .kv2 dt { color: var(--dim); } .kv2 dd { margin: 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .kv2 select { height: 28px; border-radius: 7px; background: var(--raise); border: 1px solid var(--line); color: var(--ink); font: inherit; padding: 0 6px; }
+  .vers { display: grid; gap: 5px; }
+  .ver { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 44px; padding: 4px 10px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); }
+  .ver.on { border-color: rgb(176 112 224 / .6); background: rgb(176 112 224 / .1); }
+  .ver .rd { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid #5a606c; }
+  .ver.on .rd { border-color: #b070e0; background: radial-gradient(#b070e0 45%, transparent 50%); }
+  .ver b { font-weight: 600; display: block; line-height: 1.2; } .ver small { color: var(--dim); font-size: 11.5px; }
+  .ver em { font-style: normal; color: var(--ink); font-size: 12.5px; text-align: right; line-height: 1.2; } .ver em small { display: block; }
+  .cd .foot { border-top: 1px solid var(--line); padding: 12px 18px; display: flex; gap: 8px; }
+  .cd .foot .sp { flex: 1; }
+  .btn.sm { height: 26px; padding: 0 9px; font-size: 12px; }
+  .lmenu { position: absolute; z-index: 9; top: 40px; right: 0; width: 250px; padding: 6px; border-radius: 10px; background: #15171c; box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgb(0 0 0 / .75); display: grid; }
+  .lmenu button { text-align: left; padding: 7px 10px; border-radius: 6px; } .lmenu button:hover { background: var(--raise2); }
+  .lmenu small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
+  /* the picture picker */
+  .picks { max-height: min(60vh, 520px); overflow-y: auto; display: grid; gap: 10px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .picks h6 { margin: 4px 0 0; color: var(--dim); font-size: 12px; font-weight: 500; }
+  .picks .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
+  .picks .grid button { position: relative; height: 64px; border-radius: 8px; background: #101216; border: 1px solid var(--line); display: grid; place-items: center; }
+  .picks .grid button:hover { border-color: #5a606c; } .picks .grid button.on { border-color: #b070e0; box-shadow: 0 0 0 1px #b070e0; }
+  .picks .grid img { width: 52px; height: 52px; object-fit: contain; }
+  .picks .grid i { position: absolute; right: 2px; top: 2px; width: 16px; height: 16px; border-radius: 4px; font-style: normal; font-size: 11px; line-height: 16px; color: var(--dim); background: #000a; }
+  .picks .grid i:hover { color: #ff8a80; }
+  .modal > div.wide { width: min(760px, calc(100% - 40px)); }
+
   /* a question asked before something is done (a scan that loads other presets, an Apply that saves, a recording) */
   .modal { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .55); display: grid; place-items: center; }
   .modal > div { width: min(480px, calc(100% - 40px)); background: #15171c; border-radius: 12px; box-shadow: 0 0 0 1px #3a3f4b, 0 30px 80px rgb(0 0 0 / .7); padding: 18px 20px; display: grid; gap: 14px; }
@@ -1628,7 +1696,7 @@ const THINGS = {
 };
 // The tools still shown by their old page (library_card.html in the TONE3000 window), which the launcher places over
 // the frame's body (TonePreview.place_over) until each has its own view here.
-const OLD_PAGES = new Set(['library', 'tone']);
+const OLD_PAGES = new Set(['tone']);
 const levelsIn = v => v.full === 'level' || (!v.full && v.half === 'level');
 function setView(action, name) {
   const next = workbenchView(view, action, name);
@@ -1677,6 +1745,7 @@ function drawFrames() {
     if (full === 'presets') { shownGrid = ''; drawPresetGrid(); }
     if (full === 'look') { shownLook = ''; drawLook(); }
     if (full === 'level') { shownLevels = ''; drawLevels(); }
+    if (full === 'library') { shownLib = ''; drawLibrary(); }
   } else if (half) {
     const thing = THINGS[half], box = $('toolCard'), icon = el('div', 'bigicon'), words = el('div'), row = el('div', 'btnrow');
     icon.innerHTML = RAIL_ICON[thing.icon];
@@ -2438,6 +2507,198 @@ function drawLevels() {
   list.scrollTop = scroll;
   if (typing) { const again = body.querySelector('input[data-id="' + typing + '"]'); if (again) again.focus(); }
 }
+// ---- NAM library: every capture on this PC (stage 5, part 1) --------------------------------------------------------
+// The library itself ({type: "library"}: workbench.library_view, sent again whenever it changes). Its edits go to the
+// launcher ("library" {do, id, value}: workbench.checked_library), files and folders are chosen in the pane's own
+// dialogs ("choose" {kind, id}). Nothing here touches the Floor; putting a capture on it comes next (part 2).
+let lib = null, libWhere = 'all', libGear = null, libInstrument = '', libQuery = '', libSort = 'newest', libLayout = 'pictures', libSelected = '', shownLib = '';
+function libPicture(ident) {
+  // a picture id: an uploaded one (a data: URI in the message), else one of the built-in capture pictures
+  if (!ident) return [];
+  if (lib && lib.pictures && lib.pictures[ident]) return [lib.pictures[ident]];
+  return captureUrls({icon: ident});
+}
+const onFloor = row => (row.irSlots || []).length > 0;
+const libDate = when => { const d = new Date(when + 'T12:00:00'); return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); };
+function libRows() {
+  const rows = ((lib && lib.rows) || []).filter(row =>
+    (libWhere === 'all' || (libWhere === 'floor') === onFloor(row)) && (libGear === null || row.gear === libGear) &&
+    (!libInstrument || row.instrument === libInstrument || row.instrument === 'any') &&
+    (!libQuery || String(row.name).toLowerCase().includes(libQuery)));
+  const by = {newest: (a, b) => String(b.added).localeCompare(String(a.added)) || a.name.localeCompare(b.name),
+              name: (a, b) => a.name.localeCompare(b.name),
+              kind: (a, b) => String(a.gearLabel).localeCompare(String(b.gearLabel)) || a.name.localeCompare(b.name),
+              slot: (a, b) => ((a.irSlots || [])[0] || 999) - ((b.irSlots || [])[0] || 999) || a.name.localeCompare(b.name)}[libSort];
+  return rows.sort(by);
+}
+const libAsk = (doing, row, value) => ask('library', {do: doing, id: row ? row.id : null, value});
+function libFromWords(row) {
+  const source = String(row.source || '');
+  if (/^https:\/\/(www\.)?tone3000\.com\//.test(source)) return 'tone3000';
+  return source === 'file' ? 'file' : source ? 'other' : '';
+}
+function picturePicker(row) {
+  const shade = el('div', 'modal'), box = el('div', 'wide'), picks = el('div', 'picks'), close = () => shade.remove();
+  const head = el('div', 'lkrow'), title = el('b', '', 'Picture for ' + row.name); title.style.fontSize = '16px';
+  const upload = el('button', 'btn', 'Upload a picture…'); upload.title = 'A picture of your own from this PC (made 256 px; kept in the library)';
+  upload.onclick = () => { close(); ask('choose', {kind: 'picture', id: row.id}); };
+  const auto = el('button', 'btn', 'Automatic'); auto.title = 'The picture picked from its name and kind';
+  auto.onclick = () => { close(); libAsk('icon', row, ''); };
+  const cancel = el('button', 'btn', 'Cancel'); cancel.onclick = close;
+  const sp = el('span'); sp.style.flex = '1';
+  head.append(title, sp, upload, auto, cancel);
+  for (const group of (lib && lib.groups) || []) {
+    const grid = el('div', 'grid');
+    for (const ident of group.ids) {
+      const b = el('button', ident === row.icon && row.iconChosen ? 'on' : '');
+      b.title = ident; b.append(image(libPicture(ident), '', true, true));
+      b.onclick = () => { close(); libAsk('icon', row, ident); };
+      if (group.uploaded) {
+        const x = el('i', '', '×'); x.title = 'Delete this uploaded picture (captures using it go back to their automatic one)';
+        x.onclick = async e => { e.stopPropagation(); close(); if (await confirmBox('Delete this uploaded picture? Captures that use it go back to their automatic picture.', 'Delete')) ask('library', {do: 'iconDelete', id: null, value: ident}); };
+        b.append(x);
+      }
+      grid.append(b);
+    }
+    picks.append(el('h6', '', group.label), grid);
+  }
+  box.append(head, picks); shade.append(box);
+  shade.onclick = e => { if (e.target === shade) close(); };
+  document.body.append(shade);
+}
+function libSide(row) {
+  const side = el('aside', 'cd');
+  if (!row) { side.append(el('div'), el('div', 'lvempty', 'Pick a capture to see it here.')); return side; }
+  const hero = el('div', 'hero'), change = el('button', 'btn', 'Change picture…');
+  hero.style.backgroundImage = catalog.scenes.studio ? `url("${sceneThumb('studio')}")` : '';
+  change.onclick = () => picturePicker(row);
+  hero.append(image(libPicture(row.icon), '', false), change);
+  const body = el('div', 'body'), h = el('h3', '', row.name);
+  h.append(el('span', '', row.added ? 'added ' + libDate(row.added) : ''));
+  const kv = el('dl', 'kv2'), gear = el('select'), inst = el('select');
+  for (const [key, label] of Object.entries(lib.gears || {})) gear.append(new Option(label, key, false, key === row.gear));
+  if (!lib.gears[row.gear]) gear.prepend(new Option('Unsorted', '', true, true));
+  gear.onchange = () => libAsk('gear', row, gear.value);
+  inst.append(new Option('Automatic (' + ((lib.instruments || {})[row.instrument] || row.instrument) + ')', '', false, !row.instrumentChosen));
+  for (const [key, label] of Object.entries(lib.instruments || {})) inst.append(new Option(label, key, false, row.instrumentChosen && key === row.instrument));
+  inst.onchange = () => libAsk('instrument', row, inst.value);
+  const from = el('dd'), kind = libFromWords(row);
+  if (kind === 'tone3000') { from.append('TONE3000 · '); const link = el('button', 'linkish', 'open its page'); link.onclick = () => libAsk('openSource', row); from.append(link); }
+  else from.append(kind === 'file' ? 'A file on this PC' : kind ? row.source : '—');
+  const slots = row.irSlots || [], floor = el('dd');
+  if (slots.length) { const b = el('b', '', (slots.length > 1 ? 'Slots ' : 'Slot ') + slots.join(', ')); b.style.fontWeight = '600'; floor.append(b); if (row.slotState && row.slotState !== 'verified') floor.append(el('span', 'note2', '(being checked)')); }
+  else floor.append(el('span', 'note2', (row.pendingSlots || []).length ? 'Going to slot ' + row.pendingSlots.join(', ') + '…' : 'Not on the Floor yet'));
+  const gearDd = el('dd'); gearDd.append(gear, inst);
+  kv.append(el('dt', '', 'Kind'), gearDd, el('dt', '', 'From'), from, el('dt', '', 'On the Floor'), floor);
+  // the versions: the original and the lighter ones made from it; the Floor plays the ticked one
+  const vers = el('div', 'vers'), list = [{key: 'original', label: 'Original', block: 'NAM A2 Lite'}, ...(row.versions || [])];
+  for (const v of list) {
+    const line = el('div', 'ver' + (v.key === (row.defaultVersion || 'original') ? ' on' : '')), words = el('div');
+    words.append(el('b', '', v.label), el('small', '', v.key === 'original' ? 'as it came' : [v.block, v.quality && v.quality !== 'unknown' ? v.quality : '', Number.isFinite(v.error) ? 'error ' + v.error.toFixed(3) : ''].filter(Boolean).join(' · ')));
+    line.append(el('span', 'rd'), words, el('em', '', v.block === 'NAM A2 Lite' ? '' : v.block));
+    vers.append(line);
+  }
+  const versBox = el('div'); versBox.style.cssText = 'display:grid;gap:7px';
+  versBox.append(el('h5', '', 'Versions · the Floor plays the ticked one'), vers);
+  body.append(h, kv, versBox);
+  const foot = el('div', 'foot'), exp = el('button', 'btn', 'Export…'), remove = el('button', 'btn danger', 'Remove…'), sp = el('span', 'sp');
+  exp.title = 'Copy the capture’s .nam file to a folder of your choice'; exp.onclick = () => ask('choose', {kind: 'export', id: row.id});
+  remove.title = 'Remove it from the library on this PC (the Floor keeps what it has)';
+  remove.onclick = async () => { if (await confirmBox('Remove “' + row.name + '” from the library on this PC? Its file and its versions are deleted here. ' + (slots.length ? 'The Floor keeps it in slot ' + slots.join(', ') + '.' : ''), 'Remove')) libAsk('remove', row); };
+  foot.append(sp, exp, remove);
+  side.append(hero, body, foot);
+  return side;
+}
+function drawLibrary() {
+  if (view.full !== 'library' || !catalog || !state) return;
+  const body = $('vbody');
+  if (!lib) { if (!body.querySelector('.waiting')) body.replaceChildren(el('div', 'waiting', 'Reading the library…')); return; }
+  const rows = libRows(), all = lib.rows || [];
+  if (!rows.some(r => r.id === libSelected)) libSelected = rows.length ? rows[0].id : '';   // (the side shows one of those listed)
+  const key = JSON.stringify([lib, libWhere, libGear, libInstrument, libQuery, libSort, libLayout, libSelected, (state.captures || []).length, (state.irs || []).length]);
+  if (key === shownLib && body.querySelector('.lib2')) return;
+  shownLib = key;
+  // the frame is made once: the search box keeps its caret
+  if (!body.querySelector('.lib2')) {
+    const box = el('div', 'lib2'), main = el('div', 'lm2'), head = el('div', 'head');
+    const find = el('label', 'search'); find.innerHTML = ICON.search;
+    const input = el('input'); input.type = 'search'; input.placeholder = 'Search the library'; input.spellcheck = false;
+    input.oninput = () => { libQuery = input.value.trim().toLowerCase(); drawLibrary(); };
+    find.append(input);
+    const sort = el('select', 'lvpick'); for (const [v, w] of [['newest', 'Newest first'], ['name', 'By name'], ['kind', 'By kind'], ['slot', 'By Floor slot']]) sort.append(new Option(w, v));
+    sort.onchange = () => { libSort = sort.value; drawLibrary(); };
+    const layout = el('div', 'seg2 layout');
+    for (const [v, w] of [['pictures', 'Pictures'], ['list', 'List']]) { const b = el('button', v === libLayout ? 'on' : '', w); b.dataset.v = v; b.onclick = () => { libLayout = v; layout.querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.v === v)); drawLibrary(); }; layout.append(b); }
+    const t3k = el('button', 'btn'); t3k.innerHTML = RAIL_ICON.cloud; t3k.firstChild.style.cssText = 'width:15px;height:15px'; t3k.append('Find more on TONE3000'); t3k.onclick = () => setView('open', 'tone');
+    const imp = el('button', 'btn pri', 'Import .nam files ▾');
+    imp.title = 'Add NAM files from this PC to the library. Nothing is put on the Floor.';
+    imp.onclick = () => {
+      const open = head.querySelector('.lmenu'); if (open) { open.remove(); return; }
+      const menu = el('div', 'lmenu');
+      for (const [kind, words, note] of [['nam', 'NAM files…', 'Choose one or more .nam files'], ['namFolder', 'A folder…', 'Every .nam file in it and its subfolders']]) {
+        const b = el('button', '', words); b.append(el('small', '', note)); b.onclick = () => { menu.remove(); ask('choose', {kind}); }; menu.append(b);
+      }
+      head.append(menu);
+    };
+    head.append(find, sort, layout, el('span', 'sp'), t3k, imp);
+    main.append(head, el('div', 'cg5'));
+    box.append(el('aside', 'lf'), main, el('aside', 'cd'));
+    body.replaceChildren(box);
+  }
+  // filters, with counts
+  const filters = el('aside', 'lf'), count = test => all.filter(test).length;
+  const fr = (words, n, on, pick) => { const b = el('button', 'fr' + (on ? ' on' : '')); b.append(el('span', '', words), el('em', 'num', String(n))); b.onclick = pick; return b; };
+  filters.append(el('h5', '', 'Library'),
+    fr('All captures', all.length, libWhere === 'all', () => { libWhere = 'all'; drawLibrary(); }),
+    fr('On the Floor', count(onFloor), libWhere === 'floor', () => { libWhere = 'floor'; drawLibrary(); }),
+    fr('Only on this PC', count(r => !onFloor(r)), libWhere === 'pc', () => { libWhere = 'pc'; drawLibrary(); }),
+    el('h5', '', 'Kind'));
+  for (const [gear, label] of Object.entries(lib.gears || {})) { const n = count(r => r.gear === gear); if (n) filters.append(fr(label, n, libGear === gear, () => { libGear = libGear === gear ? null : gear; drawLibrary(); })); }
+  filters.append(el('h5', '', 'Instrument'));
+  for (const [inst, label] of [['guitar', 'Guitar'], ['bass', 'Bass']]) filters.append(fr(label, count(r => r.instrument === inst || r.instrument === 'any'), libInstrument === inst, () => { libInstrument = libInstrument === inst ? '' : inst; drawLibrary(); }));
+  // the Floor's 128 IR slots: captures and plain IRs share them
+  const caps = (state.captures || []).length, irs = (state.irs || []).length, meter = el('div', 'slots'), bar = el('u'), ci = el('i'), ii = el('s');
+  ci.style.width = (100 * caps / 128) + '%'; ii.style.width = (100 * irs / 128) + '%'; bar.append(ci, ii);
+  const keys = el('span'), k1 = el('i', 'key'), k2 = el('i', 'key'); k1.style.background = '#b070e0'; k2.style.background = '#f23091';
+  keys.append(k1, caps + ' captures  ', k2, irs + ' IRs');
+  meter.append(el('b', '', (caps + irs) + ' of 128 slots used'), bar, keys, el('span', '', 'Captures and IRs share the Floor’s 128 IR slots.'));
+  filters.append(el('span', 'grow'), meter);
+  body.querySelector('.lf').replaceWith(filters);
+  // the captures: pictures or a list
+  let list;
+  if (libLayout === 'pictures') {
+    list = el('div', 'cg5');
+    for (const row of rows) {
+      const card = el('button', 'cc' + (row.id === libSelected ? ' on' : '')), slots = row.irSlots || [];
+      card.append(el('span', 'where' + (slots.length ? ' fl' : ''), slots.length ? 'Floor · slot ' + slots.join(', ') : (row.pendingSlots || []).length ? 'Going to the Floor…' : 'On this PC'));
+      const light = (row.versions || []).find(v => v.key === row.defaultVersion);
+      if (light) card.append(el('span', 'lt', light.label));
+      card.append(image(libPicture(row.icon), '', true, true), el('b', '', row.name), el('small', '', (row.gearLabel || 'Unsorted') + (libFromWords(row) === 'tone3000' ? ' · from TONE3000' : libFromWords(row) === 'file' ? ' · from a file' : '')));
+      card.title = row.name;
+      card.onclick = () => { libSelected = row.id; drawLibrary(); };
+      list.append(card);
+    }
+  } else {
+    list = el('div', 'lrows');
+    const h = el('div', 'lr2 h'); for (const w of ['', 'Name', 'Kind', 'Instrument', 'On the Floor', 'Added']) h.append(el('span', '', w)); list.append(h);
+    for (const row of rows) {
+      const line = el('button', 'lr2' + (row.id === libSelected ? ' on' : ''));
+      line.append(image(libPicture(row.icon), '', true, true), el('b', '', row.name), el('span', '', row.gearLabel || 'Unsorted'),
+        el('span', '', (lib.instruments || {})[row.instrument] || row.instrument || ''), el('span', 'num', (row.irSlots || []).length ? 'slot ' + row.irSlots.join(', ') : '—'), el('span', '', row.added ? libDate(row.added) : ''));
+      line.onclick = () => { libSelected = row.id; drawLibrary(); };
+      list.append(line);
+    }
+  }
+  if (!rows.length) list.append(el('p', 'note2', all.length ? 'No capture matches.' : 'No captures yet. Import .nam files, or find some on TONE3000.'));
+  const old = body.querySelector('.cg5, .lrows'), scroll = old ? old.scrollTop : 0;
+  reusable = gather(body);
+  try {
+    old.replaceWith(list);
+    body.querySelector('.cd').replaceWith(libSide(all.find(r => r.id === libSelected)));
+  } finally { reusable = null; }
+  list.scrollTop = scroll;
+  $('vhead').querySelector('.sub').textContent = THINGS.library.sub + ' · ' + all.length + ' capture' + (all.length === 1 ? '' : 's');
+}
 function libraryRow(kind, c, on) {
   const row = el('button', 'caprow' + (on ? ' on' : '')), [name, sub] = kind.words(c);
   const words = el('div'); words.append(el('b', '', name), el('small', '', sub));
@@ -2509,7 +2770,7 @@ function render() {
   drawRail();
   drawDrawer();
   if (!view.full) { drawChain(); drawPanel(); } else { drawMini(); if (view.full === 'presets') drawPresetGrid(); }
-  drawLook(); drawLevels();
+  drawLook(); drawLevels(); drawLibrary();
 }
 function receive(message) {
   if (!message || typeof message !== 'object') return;
@@ -2536,6 +2797,7 @@ function receive(message) {
     return;
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
+  else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
   else if (message.type === 'session') { levelSessionMessage(message.kind, message.data || {}); return; }
   else if (message.type === 'prefs') {
     const kept = message.prefs && message.prefs.levels;

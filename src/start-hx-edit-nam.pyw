@@ -512,6 +512,61 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     elif do in LEVEL_COMMANDS and (argument is None or (isinstance(argument, str) and len(argument) <= 20000)):
                         preview.workbench_action(do + (':' + argument if argument else ''))
                     return
+                if name == 'library' and isinstance(value, dict):
+                    # The Workbench's NAM library: the library on this PC changed here (workbench.checked_library):
+                    # a capture's kind, instrument or picture, an uploaded picture deleted, a capture removed, its
+                    # TONE3000 page opened. Nothing touches the Floor.
+                    if library is None or not workbench_on[0] or focus_on[0]:
+                        return
+                    if value.get('do') == 'view':
+                        workbench.show_library(library_view(library))
+                        return
+                    edit = checked_library(value, library.entries())
+                    if edit is None:
+                        return
+                    do, identity, choice = edit
+                    try:
+                        if do == 'gear':
+                            library.update(identity, gear=choice)
+                        elif do == 'instrument':
+                            library.set_instrument(identity, choice or None)
+                        elif do == 'icon':
+                            library.set_icon(identity, choice)
+                        elif do == 'iconDelete':
+                            library.remove_picture(choice)
+                        elif do == 'remove':
+                            library.remove(identity)
+                        elif do == 'openSource':
+                            os.startfile(choice)               # (a TONE3000 page, checked: in the player's browser)
+                    except (OSError, ValueError, KeyError) as error:
+                        workbench.notice(f'Library: {error}')
+                    return
+                if name == 'notice':
+                    workbench.notice(value if isinstance(value, str) else '')   # (the pane's own word: a file it could not read)
+                    return
+                if name == 'chosen':
+                    # The pane's own Windows dialog (focus_view.cs Choose; the page cannot send this): .nam files or a
+                    # folder to import, a picture (made 256 px PNG by the pane), a folder to export a capture to.
+                    if library is None:
+                        return
+                    chosen = checked_chosen(value, library.entries(), tempfile.gettempdir())
+                    if chosen is None:
+                        return
+                    kind, identity, paths = chosen
+                    def run_chosen():
+                        try:
+                            if kind in ('nam', 'namFolder'):
+                                from tone_preview import import_summary
+                                workbench.notice(import_summary(import_files(library, paths)))
+                            elif kind == 'picture':
+                                library.set_icon(identity, library.add_picture(paths[0].read_bytes()))
+                                paths[0].unlink(missing_ok=True)
+                            elif kind == 'export':
+                                workbench.notice(f'Exported to {library.export(identity, paths[0])}')
+                        except (OSError, ValueError, KeyError) as error:
+                            workbench.notice(f'Library: {error}')
+                    Thread(target=run_chosen, daemon=True).start()
+                    return
                 if name == 'prefs':
                     # The Workbench's own choices that outlive the page (the Levels page's target, metric, offsets):
                     # kept in settings.json, checked by workbench.prefs_after, never in the page.
@@ -580,13 +635,23 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if workbench is not None:
                 workbench.on_action = workbench_action
                 workbench.show_options({'level': bool(preview.level)})
-                from workbench import LEVEL_COMMANDS, PINS, PREFS, pinned, pins_after, prefs, prefs_after
+                from workbench import (LEVEL_COMMANDS, PINS, PREFS, checked_chosen, checked_library, import_files,
+                                       library_view, pinned, pins_after, prefs, prefs_after)
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
                 workbench.show_prefs(prefs(nam_catalog.load_settings()))
                 if preview is not None:
                     # the Workbench's own session (Levels): what it shows goes to the page; it says when it ends
                     preview.workbench_sink = workbench.show_session
                     preview.on_workbench_closed = lambda: workbench.show_session('closed', {})
+                if library is not None:
+                    # the NAM library for the Workbench's own view: now, and again whenever it changes
+                    def library_changed():
+                        try:
+                            workbench.show_library(library_view(library))
+                        except (OSError, ValueError) as error:
+                            trace({'type': 'workbench', 'event': 'library-view-failed', 'error': str(error)})
+                    library.subscribe(library_changed)
+                    library_changed()
                 workbench.show_look(nam_catalog.load_settings())
                 if workbench_start:
                     after_resume.append(lambda: workbench_mode(True, keep=False))
