@@ -1417,10 +1417,12 @@ function drawRail() {
     button('NAM library', 'library', 'un', 'The NAM library (add captures to the Floor): opens over the panel below the chain', () => openTool('library')));
 }
 // A tool of the rail opens over the panel below the chain (the launcher places its window there; the Workbench and
-// its chain stay): the panel's place in the page's own pixels. Its own Close button puts the panel back. panelRect() {
+// its chain stay): the panel's place in the page's own pixels. Its own Close button puts the panel back.
+function panelRect() {
   const r = $('insp').getBoundingClientRect(), k = window.devicePixelRatio || 1;
   return {x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k)};
-} openTool(name) {
+}
+function openTool(name) {
   ask('tool', {name, ...panelRect()});
 }
 function setDrawer(which) {

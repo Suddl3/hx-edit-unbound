@@ -866,6 +866,20 @@ class ScriptTests(unittest.TestCase):
 
 
 class WiringTests(unittest.TestCase):
+    @unittest.skipUnless(NODE, 'needs Node')
+    def test_the_pages_own_script_parses(self):
+        # (a stray character in an edit once left the page "Waiting for HX Edit" with no rail, 2026-11-23)
+        import re
+        import subprocess
+        import tempfile
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        script = re.findall(r'<script>(.*?)</script>', page, re.S)[-1]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'page.js'
+            path.write_text(script, encoding='utf-8')
+            done = subprocess.run([NODE, '--check', str(path)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr[:400])
+
     def test_the_launcher_shows_one_pane_at_a_time_and_keeps_the_choice(self):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         for piece in ('from workbench import WorkbenchView, setting_on', 'shown = workbench_on[0] and not focus_on[0]',
