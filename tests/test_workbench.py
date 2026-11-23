@@ -520,6 +520,115 @@ class FloorLookTests(unittest.TestCase):
             self.assertEqual(changed['floorLook']['assign']['category']['delay'], scenes[0])
 
 
+class LevelsTests(unittest.TestCase):
+    """Stage 4 of the views: Levels as its own Workbench view, on the library page's own LevelFlow, run in a session
+    without a window (tone_preview.WorkbenchSession)."""
+
+    ROWS = [
+        {'preset': 6, 'setlist': 3, 'name': 'John Mayer Style', 'snapshot': 1, 'snapshots': [1, 2], 'lufs': -17.8, 'peak': -9.0, 'level': 0.0},
+        {'preset': 6, 'setlist': 3, 'name': 'John Mayer Style', 'snapshot': 3, 'lufs': -11.6, 'peak': -3.0, 'level': 1.5},
+        {'preset': 7, 'setlist': 3, 'name': 'Strat Work', 'snapshot': 1, 'lufs': -14.2, 'peak': -6.0, 'level': 0.0},
+        {'preset': 7, 'setlist': 3, 'name': 'Strat Work', 'snapshot': 2, 'lufs': -30.0, 'peak': -20.0, 'level': 0.0},
+        {'preset': 7, 'setlist': 3, 'name': 'Strat Work', 'snapshot': 3, 'lufs': -16.0, 'peak': -0.5, 'level': 0.0}]
+
+    def plan(self, choice):
+        return run_js(['workbench_layout.js'], f'(() => {{ const p = workbenchLevelPlan({json.dumps(self.ROWS)}, {json.dumps(choice)}); '
+                                               f'return {{target: workbenchLevelTarget({json.dumps(self.ROWS)}, {json.dumps(choice)}), '
+                                               f'plan: p.map(r => [r.preset, r.snapshot, r.change, r.held, r.use, r.output]), changes: workbenchLevelChanges(p)}}; }})()')
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_the_plan_is_the_library_pages_own_sums(self):
+        out = self.plan({'metric': 'lufs', 'target': 'middle', 'offsets': {}})
+        self.assertEqual(out['target']['value'], -16.0)                 # median of -30, -17.8, -16, -14.2, -11.6
+        plan = {(r[0], r[1]): r for r in out['plan']}
+        self.assertEqual(plan[(6, 1)][2], 1.8)                         # -16 - -17.8
+        self.assertEqual(plan[(6, 1)][5], 1.8)                         # the output Level after Apply
+        self.assertEqual(plan[(6, 3)][2], -4.4)
+        self.assertEqual(plan[(7, 1)][2], -1.8)
+        self.assertIn('more than 12 dB away', plan[(7, 2)][3])          # held: not applied
+        self.assertEqual(plan[(7, 3)][2], 0)                           # on target: nothing to do
+        # Apply names a group of alike snapshots by its first one (LevelFlow.apply changes the whole group)
+        self.assertEqual(out['changes'], {'6': {'1': 1.8, '3': -4.4}, '7': {'1': -1.8}})
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_offsets_a_presets_own_level_a_peak_ceiling_and_skips(self):
+        key = '3:6:John Mayer Style:3'
+        out = self.plan({'metric': 'lufs', 'target': 'custom', 'custom': -14, 'offsets': {key: {'dB': 3}}})
+        plan = {(r[0], r[1]): r for r in out['plan']}
+        self.assertEqual(plan[(6, 3)][2], 0.6)                         # a lead kept +3: to -11, not to -14
+        self.assertEqual(plan[(6, 1)][3], '')                          # +3.8 dB peaks at -5.2: fine
+        self.assertEqual(plan[(7, 3)][3], 'would peak at +1.5 dBFS')   # +2 dB on a -0.5 peak: held
+        self.assertFalse(plan[(7, 3)][4])
+        out = self.plan({'metric': 'lufs', 'target': 'preset:7', 'offsets': {}, 'skipped': [6]})
+        self.assertEqual(out['target']['value'], -14.2)                # Strat Work's main sound (the first, all of one size)
+        self.assertNotIn('6', out['changes'])
+
+    def test_the_session_without_a_window_runs_the_level_page_and_hands_its_view_on(self):
+        import tempfile
+        from queue import Queue
+        from threading import Event
+        from unittest.mock import Mock
+        from nam_library import Library
+        from tone_preview import TonePreview, WorkbenchSession
+        from test_nam_level import FakeHelix
+        folder = tempfile.mkdtemp()
+        di = Path(folder, 'di.wav')
+        di.write_bytes(b'RIFF')
+        seen = []
+        detached = Event()
+        session = WorkbenchSession(detached, lambda kind, data: seen.append((kind, data)))
+        preview = TonePreview(Mock(), folder, Path(folder, 'tools', 'nam2ir.py'), detached, Mock(),
+                              browser_factory=Mock(), library=Library(Path(folder, 'library')), level=True, level_di=di,
+                              level_files={'restore_file': Path(folder, 'r.json'), 'records_file': Path(folder, 'u.json'),
+                                           'guitar_file': Path(folder, 'guitar.json')})
+        helix = FakeHelix()
+        preview.command = lambda session_id, action, **data: helix.command(action, **data)
+        preview.initial_level = preview.initial_library = True
+        session.actions.put('levelApply:' + json.dumps({'changes': {'30': {'1': -2.0}}, 'target': {'value': -14.0, 'metric': 'lufs'}}))
+        session.actions.put({'close': 'workbench'})
+        preview.browse(session, 1, '')
+        statuses = [data for kind, data in seen if kind == 'status']
+        level = [s for s in statuses if s.get('levelPage')]
+        self.assertTrue(level)                                         # opened straight on the Level page
+        self.assertEqual(level[-1]['level']['current']['preset']['preset'], 30)
+        # only what the Workbench draws goes to it, and Apply is checked as from the library page
+        self.assertLessEqual(set(statuses[-1]), set(WorkbenchSession.SHOWN))
+        self.assertTrue(any('has not been measured' in str(s.get('text', '')) for s in statuses))
+
+    def test_the_workbench_session_is_its_own_and_one_at_a_time(self):
+        preview_src = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
+        self.assertIn("self.workbench = bool(payload.get('workbench')) and self.headless", preview_src)
+        self.assertIn('WorkbenchSession(self.detached, self._to_workbench) if self.workbench else', preview_src)
+        script = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        self.assertIn("if (options.workbench && active) {\n      if (!active.workbench) return false;", script)
+        self.assertIn("level: !!options.level || options.workbench === 'level'", script)
+        sidebar = (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8')
+        self.assertIn("value.action === 'workbench' && value.id === 'level'", sidebar)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("preview_free(lambda: sidebar_action('workbench', 'level'))", launcher)
+        self.assertIn("elif do in LEVEL_COMMANDS and (argument is None or (isinstance(argument, str) and len(argument) <= 20000)):", launcher)
+        self.assertIn('preview_free(open_tool)', launcher)        # an old tool's window waits for the Levels session to close
+        self.assertEqual(workbench.LEVEL_COMMANDS, ('levelOpen', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel'))
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertNotIn("'level'", page[page.index('const OLD_PAGES'):page.index('const OLD_PAGES') + 60])
+        asked = set(__import__('re').findall(r"ask\('levels', \{do: '([a-zA-Z]+)'", page))
+        self.assertEqual(asked, {'open', 'close', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel'})
+        # closing Levels while it scans or applies is asked first (closing puts the presets back)
+        self.assertIn("if (levelsIn(view) && !levelsIn(next) && levelRunning()) {", page)
+
+    def test_the_levels_choices_are_kept_in_settings_and_checked(self):
+        kept = workbench.prefs({'workbenchPrefs': {'levels': {
+            'metric': 'peak', 'target': 'preset:6', 'custom': -14, 'snapshots': '4', 'signal': 'g1',
+            'offsets': {'3:6:John Mayer Style:2': {'dB': 3, 'when': 'today'}, 'nope': {'dB': 1}, '3:6:X:1': {'dB': 40}}}}})['levels']
+        self.assertEqual((kept['metric'], kept['target'], kept['custom'], kept['snapshots'], kept['signal']), ('peak', 'preset:6', -14.0, '4', 'g1'))
+        self.assertEqual(kept['offsets'], {'3:6:John Mayer Style:2': {'dB': 3.0, 'when': 'today'}})
+        fallback = workbench.prefs({'workbenchPrefs': {'levels': {'metric': 'x', 'target': 'everything', 'custom': True, 'snapshots': 9}}})['levels']
+        self.assertEqual((fallback['metric'], fallback['target'], fallback['custom'], fallback['snapshots']), ('lufs', 'middle', None, 'all'))
+        self.assertIsNone(workbench.prefs_after({}, {'levels': 3}))
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn('nam_catalog.save_setting(PREFS, prefs)', launcher)
+
+
 class SplitMoveTests(unittest.TestCase):
     """Stage 2: the split or the mixer moved along lane A (HX Edit's own move with "split" / "join")."""
 
@@ -1100,7 +1209,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs'})
 
 
 if __name__ == '__main__':

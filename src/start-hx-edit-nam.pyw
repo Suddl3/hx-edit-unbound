@@ -453,6 +453,18 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 if x < 0 or y < 0 or w < 200 or h < 120:
                     return None
                 return {'visible': True, 'x': int(pane['x']) + x, 'y': int(pane['y']) + y, 'w': w, 'h': h}
+            def preview_free(then, keep_workbench=False):
+                # TonePreview runs one session at a time (HX Edit's script allows one): the one open closes first,
+                # as its own Close does, then `then` runs. keep_workbench: the Workbench's own session may stay.
+                def wait():
+                    alive = preview.thread is not None and preview.thread.is_alive()
+                    if alive and not (keep_workbench and preview.workbench):
+                        preview.close_window('workbench')
+                        deadline = time.monotonic() + 8
+                        while preview.thread is not None and preview.thread.is_alive() and time.monotonic() < deadline:
+                            time.sleep(.05)
+                    then()
+                Thread(target=wait, daemon=True).start()
             def workbench_tool_closed():
                 workbench.set_raise(True)
                 workbench.tool_closed()                      # (the page closes the frame it sat in)
@@ -469,13 +481,44 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         else:
                             unbound_choice(value['name'])
                         return
-                    preview.on_browser_closed = workbench_tool_closed
-                    preview.place_over(place)
-                    workbench.set_raise(False)
-                    if value['name'] == 'tone':
-                        sidebar_action('catalog', '')
+                    def open_tool():
+                        preview.on_browser_closed = workbench_tool_closed
+                        preview.place_over(place)
+                        workbench.set_raise(False)
+                        if value['name'] == 'tone':
+                            sidebar_action('catalog', '')
+                        else:
+                            unbound_choice(value['name'])
+                    if preview.workbench_open():
+                        preview_free(open_tool)              # (the Workbench's Levels session closes first)
                     else:
-                        unbound_choice(value['name'])
+                        open_tool()
+                    return
+                if name == 'levels' and isinstance(value, dict):
+                    # The Workbench's own Levels page (nam_level_flow.LevelFlow in a session without a window,
+                    # TonePreview.WorkbenchSession): open, close, or one of the library page's own Level commands,
+                    # which the session checks as it checks them from that page.
+                    if preview is None or not preview.level or not workbench_on[0] or focus_on[0]:
+                        return
+                    do, argument = value.get('do'), value.get('arg')
+                    if do == 'open':
+                        if preview.workbench_open():
+                            preview.workbench_action('levelOpen')
+                        else:
+                            preview_free(lambda: sidebar_action('workbench', 'level'))
+                    elif do == 'close':
+                        if preview.workbench_open():
+                            preview.close_window('workbench')
+                    elif do in LEVEL_COMMANDS and (argument is None or (isinstance(argument, str) and len(argument) <= 20000)):
+                        preview.workbench_action(do + (':' + argument if argument else ''))
+                    return
+                if name == 'prefs':
+                    # The Workbench's own choices that outlive the page (the Levels page's target, metric, offsets):
+                    # kept in settings.json, checked by workbench.prefs_after, never in the page.
+                    prefs = prefs_after(nam_catalog.load_settings(), value)
+                    if prefs is not None:
+                        nam_catalog.save_setting(PREFS, prefs)
+                        workbench.show_prefs(prefs)
                     return
                 if name == 'pin':
                     # A preset pinned or unpinned on the Presets view: kept in settings.json, never in the page.
@@ -537,8 +580,13 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if workbench is not None:
                 workbench.on_action = workbench_action
                 workbench.show_options({'level': bool(preview.level)})
-                from workbench import PINS, pinned, pins_after
+                from workbench import LEVEL_COMMANDS, PINS, PREFS, pinned, pins_after, prefs, prefs_after
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
+                workbench.show_prefs(prefs(nam_catalog.load_settings()))
+                if preview is not None:
+                    # the Workbench's own session (Levels): what it shows goes to the page; it says when it ends
+                    preview.workbench_sink = workbench.show_session
+                    preview.on_workbench_closed = lambda: workbench.show_session('closed', {})
                 workbench.show_look(nam_catalog.load_settings())
                 if workbench_start:
                     after_resume.append(lambda: workbench_mode(True, keep=False))

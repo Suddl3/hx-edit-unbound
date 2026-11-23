@@ -229,7 +229,69 @@ function workbenchRailOn(view, name) {
   return view.full ? view.full === name : view.drawer === name || view.half === name;
 }
 
+// ---- Levels: from a scan to what Apply sets (the library page's own sums, library_card.html renderLevel) ------------
+// rows: LevelFlow's measured rows ({preset, setlist, name, snapshot, snapshots, lufs, peak, level, varies, note});
+// choice: {metric: 'lufs'|'peak', target: 'middle'|'custom'|'preset:<n>', custom, offsets: {key: {dB}}, skipped: [preset]}.
+//   target for a row = target + its offset; change = that - loudness now (0 within the measuring wobble);
+//   held (not applied): a note from the scan, more than 12 dB away, or a peak over -1 dBFS after the change.
+// tone_preview / nam_level_flow check every change again before anything is applied.
+const WORKBENCH_LEVEL_TRIM = 12, WORKBENCH_LEVEL_CEILING = -1;
+const workbenchRound1 = v => Math.round(v * 10) / 10 + 0;
+const workbenchLevelKey = row => [row.setlist ?? '', row.preset, row.name || '', row.snapshot].join(':');
+function workbenchLevelOffset(choice, row) {
+  const kept = (choice.offsets || {})[workbenchLevelKey(row)];
+  return Number(kept && kept.dB) || 0;
+}
+function workbenchLevelTarget(rows, choice) {
+  // {value, why}: the middle of the scan (each sound without its offset), as loud as a preset's main sound (its
+  // group with the most snapshots), or the player's own number
+  const metric = choice.metric === 'peak' ? 'peak' : 'lufs', count = row => (row.snapshots || [row.snapshot]).length;
+  if (choice.target === 'custom') {
+    const typed = Number(choice.custom);
+    return choice.custom !== null && choice.custom !== '' && Number.isFinite(typed) ? {value: typed, why: 'your own level'} : {value: null, why: 'type a level'};
+  }
+  if (typeof choice.target === 'string' && choice.target.startsWith('preset:')) {
+    const number = Number(choice.target.slice(7)), mine = rows.filter(row => row.preset === number && Number.isFinite(row[metric]));
+    if (mine.length) {
+      const main = mine.reduce((a, b) => count(b) > count(a) ? b : a);
+      return {value: workbenchRound1(main[metric] - workbenchLevelOffset(choice, main)), why: 'as loud as ' + String(number).padStart(3, '0') + ' ' + (main.name || '')};
+    }
+  }
+  const values = rows.map(row => row[metric] - workbenchLevelOffset(choice, row)).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!values.length) return {value: null, why: 'the middle of what you scanned'};
+  const m = values.length >> 1, median = values.length % 2 ? values[m] : (values[m - 1] + values[m]) / 2;
+  return {value: Math.round(median * 2) / 2 + 0, why: 'the middle of what you scanned'};
+}
+function workbenchLevelPlan(rows, choice) {
+  const metric = choice.metric === 'peak' ? 'peak' : 'lufs', target = workbenchLevelTarget(rows, choice).value;
+  const skipped = new Set(choice.skipped || []);
+  return rows.map(row => {
+    const now = row[metric], offset = workbenchLevelOffset(choice, row);
+    const after = target == null ? null : workbenchRound1(target + offset);
+    let change = after == null || !Number.isFinite(now) ? null : workbenchRound1(after - now);
+    if (change != null && Math.abs(change) <= (row.varies ? 1.0 : 0.5)) change = 0;   // (the edge counts as on target)
+    let held = row.note || '';
+    if (!held) {
+      if (!Number.isFinite(change)) held = 'not measured';
+      else if (Math.abs(change) > WORKBENCH_LEVEL_TRIM) held = 'more than ' + WORKBENCH_LEVEL_TRIM + ' dB away: check the sound itself';
+      else if (Number.isFinite(row.peak) && row.peak + change > WORKBENCH_LEVEL_CEILING) {
+        const p = row.peak + change; held = 'would peak at ' + (p > 0 ? '+' : p < 0 ? '−' : '') + Math.abs(p).toFixed(1) + ' dBFS';
+      }
+    }
+    const output = Number.isFinite(row.level) && Number.isFinite(change) ? workbenchRound1(row.level + change) : null;
+    return {...row, key: workbenchLevelKey(row), now, offset, after, change, held, output, use: !held && change !== 0 && !skipped.has(row.preset)};
+  });
+}
+function workbenchLevelChanges(plan) {
+  // What Apply sends: {preset: {snapshot: dB}} of the rows in use, a group of alike snapshots by its first one
+  // (LevelFlow.apply keys its rows so and changes the whole group; another snapshot of it would be refused)
+  const changes = {};
+  for (const row of plan) if (row.use) (changes[row.preset] = changes[row.preset] || {})[row.snapshot] = row.change;
+  return changes;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
-                     WORKBENCH_SIZES, workbenchView, workbenchRailOn };
+                     WORKBENCH_SIZES, workbenchView, workbenchRailOn,
+                     workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

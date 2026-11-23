@@ -10,6 +10,7 @@ the same reading of the preset, the same click on HX Edit's chain to select a bl
 adds what the page draws with on top of Focus Mode's catalog. Nothing here talks to the device.
 """
 import json
+import re
 import time
 from pathlib import Path
 
@@ -78,6 +79,43 @@ def pins_after(settings, value):
     return pins + ([] if key in pins else [key]) if on else [k for k in pins if k != key]
 
 
+# The Workbench's own Levels page: the library page's Level commands it may send into its session (tone_preview
+# browse() checks each one's argument as it does from that page).
+LEVEL_COMMANDS = ('levelOpen', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel')
+PREFS = 'workbenchPrefs'               # settings.json: the page's choices that outlive it (the Levels page's)
+LEVEL_KEY = re.compile(r'[^:]{0,4}:\d{1,3}:[^\n]{0,40}:\d{1,2}')
+
+
+def prefs(settings):
+    """The Workbench's kept choices, as settings.json has them, anything malformed left out:
+    {"levels": {"metric": "lufs"|"peak", "target": "middle"|"custom"|"preset:<n>", "custom": float|None,
+     "snapshots": "all"|"4"|"1", "signal": str, "offsets": {"setlist:preset:name:snapshot": {"dB", "when"}}}}"""
+    found = settings.get(PREFS) if isinstance(settings, dict) else None
+    levels = found.get('levels') if isinstance(found, dict) and isinstance(found.get('levels'), dict) else {}
+    kept = {'metric': 'peak' if levels.get('metric') == 'peak' else 'lufs',
+            'target': levels['target'] if isinstance(levels.get('target'), str) and re.fullmatch(r'middle|custom|preset:\d{1,3}', levels['target']) else 'middle',
+            'custom': float(levels['custom']) if isinstance(levels.get('custom'), (int, float)) and not isinstance(levels.get('custom'), bool)
+                      and -60 <= levels['custom'] <= 0 else None,
+            'snapshots': levels['snapshots'] if levels.get('snapshots') in ('all', '4', '1') else 'all',
+            'signal': levels['signal'][:64] if isinstance(levels.get('signal'), str) else '',
+            'offsets': {}}
+    offsets = levels.get('offsets') if isinstance(levels.get('offsets'), dict) else {}
+    for key, value in list(offsets.items())[:2000]:
+        if not isinstance(key, str) or not LEVEL_KEY.fullmatch(key) or not isinstance(value, dict):
+            continue
+        db = value.get('dB')
+        if isinstance(db, (int, float)) and not isinstance(db, bool) and db and -12 <= db <= 12:
+            kept['offsets'][key] = {'dB': round(float(db), 1), 'when': str(value.get('when') or '')[:40]}
+    return {'levels': kept}
+
+
+def prefs_after(settings, value):
+    """The kept choices once the page's {"levels": {...}} replaces them, or None for a request that is not one."""
+    if not isinstance(value, dict) or not isinstance(value.get('levels'), dict):
+        return None
+    return prefs({PREFS: {'levels': value['levels']}})
+
+
 def setting_on(settings):
     """Whether the Workbench is shown at launch: only once it has been switched on (settings.json "workbench": true)."""
     return isinstance(settings, dict) and settings.get(SETTING) is True
@@ -92,6 +130,7 @@ class WorkbenchView(focus_view.FocusView):
     def __init__(self, resources, *, costs_file=dsp_costs.FILE, clock=time.monotonic, **options):
         self.options = {}
         self.pins = []
+        self.prefs = prefs({})
         self.costs = dsp_costs.DspCosts(costs_file)
         self.clock = clock
         self._seen = None
@@ -116,6 +155,19 @@ class WorkbenchView(focus_view.FocusView):
         """The pinned presets ("setlist:number") for the page."""
         self.queue.put(('pins', [str(k) for k in pins] if isinstance(pins, list) else []))
 
+    def show_prefs(self, kept):
+        """The Workbench's kept choices (prefs) for the page."""
+        self.queue.put(('prefs', kept if isinstance(kept, dict) else prefs({})))
+
+    def show_session(self, kind, data):
+        """What the Workbench's own session shows (TonePreview.WorkbenchSession): "status" with the Level view, or
+        "closed" when the session has ended. Only what JSON carries."""
+        try:
+            data = json.loads(json.dumps(data if isinstance(data, dict) else {}, default=str))
+        except (TypeError, ValueError):
+            data = {}
+        self.queue.put(('session', {'kind': str(kind), 'data': data}))
+
     def tool_closed(self):
         """The tool's window over the page closed by itself (its own Close, Esc): the page closes its frame."""
         self.queue.put(('toolClosed', None))
@@ -124,6 +176,15 @@ class WorkbenchView(focus_view.FocusView):
         if kind == 'toolClosed':
             if self.page_ready:
                 self._write('P', {'type': 'toolClosed'})
+            return
+        if kind == 'prefs':
+            self.prefs = value
+            if self.page_ready:
+                self._write('P', {'type': 'prefs', 'prefs': value})
+            return
+        if kind == 'session':
+            if self.page_ready:
+                self._write('P', {'type': 'session', **value})
             return
         if kind == 'pins':
             self.pins = value
@@ -139,6 +200,7 @@ class WorkbenchView(focus_view.FocusView):
         if kind == 'pane' and isinstance(value, dict) and value.get('type') == 'ready':
             self._write('P', {'type': 'options', 'options': self.options})
             self._write('P', {'type': 'pins', 'pins': self.pins})
+            self._write('P', {'type': 'prefs', 'prefs': self.prefs})
             self._show_costs()
         if kind in ('state', 'dsp'):
             # (the meter's figures and each path's block count, as the measuring sees them, for the trace)

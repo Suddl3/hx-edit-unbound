@@ -430,6 +430,13 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function openBrowser(window, options = {}) {
     if (!profile.navigation || !window || window.isNull()) return false;
     if (active?.abandoned) { active.reopen = null; abandonSession(); }
+    // The Workbench's own session (its Levels page): no window, no NAM block. One session at a time, as any: with
+    // another one open it is not started (the launcher closes that one first); with its own, its page comes up.
+    if (options.workbench && active) {
+      if (!active.workbench) return false;
+      send({type:'toneAction',session:active.id,action:options.workbench === 'level' ? 'levelOpen' : options.workbench});
+      return true;
+    }
     if (active) {
       if (options.headless) {
         if (active.headless || active.cleanupRequested || active.quarantined) return false;
@@ -456,11 +463,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     active = { id: ++nextSession, navigation: true, bound: false, controller: NULL, editor: NULL,
       window, valid: false, panel, layout: JSON.stringify(bounds), tile: tiles[0],
-      targetVersion: ++targetVersion, context: contextVersion, headless:!!options.headless };
+      targetVersion: ++targetVersion, context: contextVersion, headless:!!options.headless, workbench:!!options.workbench };
     namView.setBrowserSessionActive?.(true);
     send({ type: 'toneStart', session: active.id, window: window.toUInt32(), bounds,
-      tile: tiles[0], profile: '', navigation: true, library: !!options.library, level: !!options.level, look: !!options.look,
-      headless:!!options.headless, libraryAction:options.libraryAction });
+      tile: tiles[0], profile: '', navigation: true, library: !!options.library,
+      level: !!options.level || options.workbench === 'level', look: !!options.look,
+      headless:!!options.headless, libraryAction:options.libraryAction, workbench:!!options.workbench });
     autoBindSelected();
     publishTarget();
     return true;

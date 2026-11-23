@@ -61,6 +61,43 @@ class _LibraryActionSession:
         pass
 
 
+class WorkbenchSession:
+    """The Workbench's own pages (its Levels) running a session's work without a window: the page's requests come in
+    as the session's actions (TonePreview.workbench_action), the same strings the library page posts, and what the
+    session would show its window ("status": the Level view, the message) goes to the Workbench page (forward). The
+    session stays open until the Workbench closes it (close_window) or HX Edit ends it."""
+    error = None
+    close_reason = None
+    # (what of a status the Workbench page draws; the rest is the library window's)
+    SHOWN = ('text', 'busy', 'level', 'can_level', 'levelPage')
+
+    def __init__(self, detached, forward):
+        self.actions = Queue()
+        self.detached = detached
+        self.forward = forward
+
+    def wait_ready(self):
+        return True
+
+    def send(self, kind, **data):
+        if kind == 'status' and self.forward:
+            self.forward('status', {key: data[key] for key in self.SHOWN if key in data})
+
+    def next_action(self):
+        while not self.detached.is_set():
+            try:
+                return self.actions.get(timeout=1)
+            except Empty:
+                continue
+        return None
+
+    def is_set(self):
+        return self.detached.is_set()
+
+    def close(self):
+        pass
+
+
 def import_summary(stats):
     """The status line after "Import NAM files": what was added, what was there already, what was not a capture."""
     added, same, bad = stats['added'], stats['same'], stats['bad']
@@ -130,6 +167,11 @@ class TonePreview:
         # the launcher while a tool is opened from the Workbench's rail (place_over), cleared when the window closes.
         self.bounds_override = None
         self.on_browser_closed = None
+        # The Workbench's own session (its Levels page, WorkbenchSession): what it shows goes to workbench_sink(kind,
+        # data); on_workbench_closed() when it ends.
+        self.workbench = False
+        self.workbench_sink = None
+        self.on_workbench_closed = None
         self.session = None
         self.tile = None
         self.profile = ''
@@ -251,6 +293,26 @@ class TonePreview:
         if self.browser and isinstance(self.placed(), dict):
             self.browser.send('bounds', **self.placed())
 
+    def _to_workbench(self, kind, data):
+        if self.workbench_sink:
+            try:
+                self.workbench_sink(kind, data)
+            except Exception:    # (the page's copy only: the session goes on)
+                pass
+
+    def workbench_open(self):
+        """Whether the Workbench's own session is running (its Levels page)."""
+        return (self.workbench and self.thread is not None and self.thread.is_alive() and self.browser is not None
+                and not self.close_intent.is_set())
+
+    def workbench_action(self, action):
+        """One of the Workbench page's requests, as the session's action (the library page's own strings)."""
+        browser = self.browser
+        if self.workbench and isinstance(browser, WorkbenchSession) and isinstance(action, str):
+            browser.actions.put(action)
+            return True
+        return False
+
     def close_window(self, reason='workbench'):
         """Close the tool's window as its own Close does (the Workbench closed the frame it sat in)."""
         browser = self.browser
@@ -310,6 +372,7 @@ class TonePreview:
                     self.initial_library = bool(payload.get('library')) or self.initial_level or self.initial_look
                     self.initial_action = payload.get('libraryAction')
                     self.headless = bool(payload.get('headless'))
+                    self.workbench = bool(payload.get('workbench')) and self.headless
                     self.close_reason = None
                     self.close_intent.clear()
                     self.bounds = payload['bounds']
@@ -405,7 +468,8 @@ class TonePreview:
                 if not self.library:
                     raise ToneError(KEY_HELP)
                 client_id = ''  # the local library still works without a TONE3000 key
-            browser = self.browser = (_LibraryActionSession(self.initial_action, self.detached, self.sidebar_status)
+            browser = self.browser = (WorkbenchSession(self.detached, self._to_workbench) if self.workbench else
+                                      _LibraryActionSession(self.initial_action, self.detached, self.sidebar_status)
                                       if self.headless else self.browser_factory(window, self.placed(), self.detached))
             # Native HX Edit grants foreground permission only on an explicit
             # Browse click. This carries identity; it never focuses a window.
@@ -417,7 +481,7 @@ class TonePreview:
                 if not (self.library and (self.initial_library or not client_id)):  # browse() sends the library card
                     browser.send('card', html=render_card(library=bool(self.library)), has_tone=False)
                 if self.navigation:
-                    if self.headless and not self.target_ready.wait(5):
+                    if self.headless and not self.workbench and not self.target_ready.wait(5):
                         raise ToneError('HX Edit did not report the selected NAM block. Nothing was loaded.')
                     browser.send('target', **{key: value for key, value in self.navigation_state.items() if key != 'type'})
                 try:
@@ -469,6 +533,11 @@ class TonePreview:
                 browser.close()
                 self.browser = None
                 self._trace('browser', 'closed', session, started=started)
+                if self.workbench and self.on_workbench_closed:
+                    try:
+                        self.on_workbench_closed()
+                    except Exception:    # (the Workbench's own bookkeeping: never the session's close)
+                        pass
                 if self.bounds_override is not None:
                     self.bounds_override = None
                     if self.on_browser_closed:
