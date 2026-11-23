@@ -796,8 +796,9 @@ class FocusView:
         return {'action': 'moveSplit', 'dsp': dsp, 'id': node['id'], 'place': place}
 
     # The controllers the Bypass and controllers tab offers: HX Edit's own numbers, checked against its tab
-    # (2026-11-22/23): 0 None (the assignment taken away), 1 EXP Pedal 1, 2 EXP Pedal 2, 18 MIDI CC, 19 Snapshots.
-    CONTROLLERS = (0, 1, 2, 18, 19)
+    # (2026-11-22/23): 0 None (the assignment taken away), 1-3 EXP Pedal 1-3, 4 Variax Volume, 5 Variax Tone,
+    # Footswitch n = n + 5 (HX Edit offers no Footswitch 6, 11, and nothing at 17), 18 MIDI CC, 19 Snapshots.
+    CONTROLLERS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19)
 
     def checked_assign(self, value):
         """The Bypass and controllers tab's request, as the command for focus_view.js, or None: a block's footswitch

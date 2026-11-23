@@ -852,7 +852,11 @@ let panelTab = 'controls';
 const snapHeld = new Map();                    // "dsp:id:snapshot:key" -> a value set in a snapshot that is not on
 // HX Edit's controller numbers, as checked against its own Bypass/Controller Assign tab (2026-11-22: Fassel Position on
 // EXP Pedal 2 = 2, Kinky Boost Drive and Boost on Snapshots = 19); the others still show their number.
-const CONTROLLERS = {0: 'None', 1: 'EXP Pedal 1', 2: 'EXP Pedal 2', 18: 'MIDI CC', 19: 'Snapshots'};   // (0, 1, 18: seen with the chain probe)
+// (0, 1, 18 seen with the chain probe; 3-6 and 16 set in HX Edit's own tab and read here, 2026-11-23: Footswitch n is
+// n + 5. HX Edit offers no Footswitch 6 (11) and nothing at 17 on the Floor, so neither is offered here.)
+const CONTROLLERS = {0: 'None', 1: 'EXP Pedal 1', 2: 'EXP Pedal 2', 3: 'EXP Pedal 3', 4: 'Variax Volume', 5: 'Variax Tone',
+  ...Object.fromEntries([1, 2, 3, 4, 5, 7, 8, 9, 10, 11].map(n => [n + 5, 'Footswitch ' + n])), 18: 'MIDI CC', 19: 'Snapshots'};
+const CONTROLLER_CHOICES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19];
 const assigned = c => c.controller !== undefined && c.controller !== 0;
 const controllerName = code => CONTROLLERS[code] || 'controller ' + treeText(code);
 function treeText(value) {
@@ -910,7 +914,7 @@ function bypassView(block, list) {
   for (const p of list) {
     const c = a.controls[p.id] || {}, row = el('tr'), by = el('select', 'pick');
     if (!CONTROLLERS[c.controller ?? 0]) by.append(new Option(controllerName(c.controller), '', true, true)), by.firstChild.disabled = true;
-    for (const code of [0, 1, 2, 18, 19]) by.append(new Option(code === 0 ? '—' : CONTROLLERS[code], code, false, (c.controller ?? 0) === code));
+    for (const code of CONTROLLER_CHOICES) by.append(new Option(code === 0 ? '—' : CONTROLLERS[code], code, false, (c.controller ?? 0) === code));
     by.onchange = () => assign('controller', Number(by.value), p.id);
     const range = (field, now) => {
       const cell = el('td', 'num');
