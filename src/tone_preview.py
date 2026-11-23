@@ -126,6 +126,10 @@ class TonePreview:
         self._library_notification_pending = None
         self.browser = None
         self.bounds = None
+        # Where the Workbench wants the tool's window instead of HX Edit's panel (its lower panel), or None: set by
+        # the launcher while a tool is opened from the Workbench's rail (place_over), cleared when the window closes.
+        self.bounds_override = None
+        self.on_browser_closed = None
         self.session = None
         self.tile = None
         self.profile = ''
@@ -236,6 +240,17 @@ class TonePreview:
             if self.payload_callback:
                 self.payload_callback(self.library.payload_metadata())
 
+    def placed(self):
+        """Where the tool's window goes: over the Workbench's lower panel while it asks (bounds_override), else over
+        HX Edit's own panel as tone_view reports it."""
+        return dict(self.bounds_override) if isinstance(self.bounds_override, dict) else self.bounds
+
+    def place_over(self, bounds):
+        """The Workbench's lower panel in HX Edit's window ({visible, x, y, w, h}), or None for HX Edit's own panel."""
+        self.bounds_override = dict(bounds) if isinstance(bounds, dict) else None
+        if self.browser and isinstance(self.placed(), dict):
+            self.browser.send('bounds', **self.placed())
+
     def receive(self, payload):
         if payload['type'] == 'toneReply':
             self.replies.put(payload)
@@ -262,7 +277,7 @@ class TonePreview:
             if payload['session'] == self.session:
                 self.bounds = payload['bounds']
                 if self.browser:
-                    self.browser.send('bounds', **self.bounds)
+                    self.browser.send('bounds', **self.placed())
         elif payload['type'] == 'toneDismiss':
             # HX Edit picked another model or tile under the pane: close it like Close does
             if payload['session'] == self.session and self.browser:
@@ -382,7 +397,7 @@ class TonePreview:
                     raise ToneError(KEY_HELP)
                 client_id = ''  # the local library still works without a TONE3000 key
             browser = self.browser = (_LibraryActionSession(self.initial_action, self.detached, self.sidebar_status)
-                                      if self.headless else self.browser_factory(window, self.bounds, self.detached))
+                                      if self.headless else self.browser_factory(window, self.placed(), self.detached))
             # Native HX Edit grants foreground permission only on an explicit
             # Browse click. This carries identity; it never focuses a window.
             browser_pid = getattr(getattr(browser, 'process', None), 'pid', None)
@@ -445,6 +460,13 @@ class TonePreview:
                 browser.close()
                 self.browser = None
                 self._trace('browser', 'closed', session, started=started)
+                if self.bounds_override is not None:
+                    self.bounds_override = None
+                    if self.on_browser_closed:
+                        try:
+                            self.on_browser_closed()
+                        except Exception:    # (the Workbench's own bookkeeping: never the browser's close)
+                            pass
                 if self.sidebar_status and not self.headless:
                     # A cancelled download sends no final status of its own; do not leave the NAM
                     # sidebar showing "Downloading…" with Load/Use disabled.

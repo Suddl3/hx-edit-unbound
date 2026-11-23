@@ -444,8 +444,15 @@ class SplitMoveTests(unittest.TestCase):
         put = page[page.index('function putLibrary('):page.index('function liftLibrary(')]
         self.assertIn('!kind.fits(block)', put)                                  # a click never changes a block's kind
         self.assertIn("if (isNam(block)) button.classList.add('nam-drop'); if (isIr(block)) button.classList.add('ir-drop');", page)
-        for tool in ("ask('menu', 'look')", "ask('menu', 'level')", "ask('menu', 'library')"):
+        for tool in ("openTool('look')", "openTool('level')", "openTool('library')", "openTool('tone')"):
             self.assertIn(tool, page)
+        self.assertIn("ask('tool', {name, ...panelRect()});", page)        # a tool over the panel below the chain
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        for piece in ('preview.place_over(place)', 'workbench.set_raise(False)', 'preview.on_browser_closed = workbench_tool_closed',
+                      "sidebar_action('catalog', '')", 'preview.place_over(None)'):
+            self.assertIn(piece, launcher)
+        self.assertIn('if (show && raise) SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0013);', (ROOT / 'focus_view.cs').read_text(encoding='utf-8'))
+        self.assertIn("browser_factory(window, self.placed(), self.detached)", (ROOT / 'tone_preview.py').read_text(encoding='utf-8'))
         # the slot a capture or an IR asks for is one the drawer was shown (checked_add / checked_capture / checked_ir)
         self.view.state['captures'] = [{'slot': 21, 'name': 'Brit Gold Crunch'}]
         self.view.state['irs'] = [{'slot': 8, 'name': 'Mesa OS 4x12'}]
@@ -902,7 +909,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace'})
 
 
 if __name__ == '__main__':

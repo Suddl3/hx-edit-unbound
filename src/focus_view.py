@@ -577,6 +577,7 @@ class FocusView:
         self.on = False
         self.window = None
         self.bounds = None
+        self.raised = True            # the pane above HX Edit's other child windows (set_raise)
         self.state = None
         self.page_ready = False
         self.failed = None
@@ -635,6 +636,11 @@ class FocusView:
 
     def set_on(self, on):
         self.queue.put(('on', bool(on)))
+
+    def set_raise(self, on):
+        """Whether the pane keeps itself above HX Edit's other child windows (False while a tool's window is placed over
+        the Workbench's lower panel)."""
+        self.queue.put(('raise', bool(on)))
 
     def with_pictures(self, state):
         """The state with a picture for every capture: its own when it has one of the pack's, else the one the library
@@ -994,7 +1000,8 @@ class FocusView:
 
     def _place(self):
         bounds = self.bounds if isinstance(self.bounds, dict) else None
-        self._write('C', {'visible': bool(self.on and bounds), **({key: int(bounds[key]) for key in ('x', 'y', 'w', 'h')} if bounds else {})})
+        self._write('C', {'visible': bool(self.on and bounds), 'raise': self.raised,
+                          **({key: int(bounds[key]) for key in ('x', 'y', 'w', 'h')} if bounds else {})})
 
     def _show_state(self):
         if self.page_ready and self.state is not None:
@@ -1009,7 +1016,10 @@ class FocusView:
             self._write('P', {'type': 'look', 'look': self.look})
 
     def _handle(self, kind, value):
-        if kind == 'on':
+        if kind == 'raise':
+            self.raised = bool(value)
+            self._place()
+        elif kind == 'on':
             self.on = value
             if value:
                 self.failed = None

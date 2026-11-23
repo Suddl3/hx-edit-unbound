@@ -320,6 +320,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             workbench_on = [False]
             def workbench_show():
                 shown = workbench_on[0] and not focus_on[0]
+                if not shown and preview is not None and preview.bounds_override is not None:
+                    preview.place_over(None)             # (a tool over the Workbench goes back over HX Edit's own panel)
+                    if workbench is not None:
+                        workbench.set_raise(True)
                 if workbench is not None:
                     workbench.set_on(shown)
                 meter.set_chain_option('focusMode', focus_on[0] or workbench_on[0])
@@ -432,7 +436,48 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # "Save for the Floor": the file the Floor's picture tool reads, as Save on the Floor look page.
                     if focus is not None and focus_on[0]:
                         Thread(target=focus_look_save, daemon=True).start()
+            def workbench_panel(value):
+                # The Workbench's lower panel as the page measured it (its own pixels), in HX Edit's window: where a
+                # tool's window goes instead of HX Edit's own panel. None when it is not a sensible rectangle.
+                pane = workbench.bounds if isinstance(workbench.bounds, dict) else None
+                if not pane or not isinstance(value, dict):
+                    return None
+                found = [value.get(key) for key in ('x', 'y', 'w', 'h')]
+                if any(isinstance(n, bool) or not isinstance(n, (int, float)) for n in found):
+                    return None
+                x, y, w, h = (int(round(n)) for n in found)
+                w, h = min(w, int(pane['w']) - x), min(h, int(pane['h']) - y)
+                if x < 0 or y < 0 or w < 200 or h < 120:
+                    return None
+                return {'visible': True, 'x': int(pane['x']) + x, 'y': int(pane['y']) + y, 'w': w, 'h': h}
+            def workbench_tool_closed():
+                workbench.set_raise(True)
             def workbench_action(name, value):
+                if name == 'tool' and isinstance(value, dict) and value.get('name') in ('look', 'level', 'library', 'tone'):
+                    # A tool from the Workbench's rail, over its lower panel (the Workbench stays): its window is placed
+                    # there (TonePreview.place_over) and the pane stops raising itself above it until it closes.
+                    place = workbench_panel(value)
+                    if preview is None or place is None or (value['name'] == 'level' and not preview.level):
+                        workbench_mode(False)                    # (as before: the tool opens on HX Edit's own screen)
+                        if value['name'] == 'tone':
+                            sidebar_action('catalog', '')
+                        else:
+                            unbound_choice(value['name'])
+                        return
+                    preview.on_browser_closed = workbench_tool_closed
+                    preview.place_over(place)
+                    workbench.set_raise(False)
+                    if value['name'] == 'tone':
+                        sidebar_action('catalog', '')
+                    else:
+                        unbound_choice(value['name'])
+                    return
+                if name == 'toolPlace':
+                    # The Workbench was resized while a tool sits over its lower panel: the tool follows.
+                    place = workbench_panel(value)
+                    if place is not None and preview is not None and preview.bounds_override is not None:
+                        preview.place_over(place)
+                    return
                 if name == 'menu':
                     # The page's Editor | Focus switch and its Unbound menu. The tools are panels of HX Edit's own
                     # screen, which the pane would cover: the Workbench steps aside for them.

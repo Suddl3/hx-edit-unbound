@@ -56,7 +56,7 @@ sealed class FocusView : Form
     readonly Timer watch = new Timer { Interval = 250 };
     readonly List<string> waiting = new List<string>();   // messages for the page that came before it loaded
     Rectangle place, applied;
-    bool wanted, loaded, started, closing;
+    bool wanted, loaded, started, closing, raise = true;
 
     FocusView(IntPtr parent, string profile, string page, List<KeyValuePair<string, string>> hosts, TextWriter output)
     {
@@ -118,7 +118,7 @@ sealed class FocusView : Form
         }
         // Stay above HX Edit's other child windows (the NAM tab raises itself when it lays out):
         // SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE. The keyboard focus is never taken here.
-        if (show) SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0013);
+        if (show && raise) SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0013);
     }
 
     void Post(string message)
@@ -171,6 +171,9 @@ sealed class FocusView : Form
         object value;
         if (message.TryGetValue("close", out value) && value is bool && (bool)value) { Shutdown(); return; }
         wanted = message.TryGetValue("visible", out value) && value is bool && (bool)value;
+        // "raise": false while one of the Unbound tools sits over the Workbench's lower panel (the launcher places
+        // the tool's window there): the pane then stops raising itself above HX Edit's other child windows.
+        if (message.TryGetValue("raise", out value) && value is bool) raise = (bool)value;
         try
         {
             if (message.ContainsKey("x"))

@@ -28,6 +28,10 @@ function installNamSidebar(namView) {
           // The Level button by the DSP meter: the Level page, docked where the library opens.
           const opened=toneView.openBrowser(window,{level:true,dockPanel:navigationBanner.dockPanel()});
           if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then press Level again.',busy:false});
+        } else if (value.action === 'catalog') {
+          // The Workbench's TONE3000 button: the TONE3000 catalog, as HX Edit's own TONE3000 button opens it.
+          const opened=toneView.openBrowser(window,{dockPanel:navigationBanner.dockPanel()});
+          if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then press TONE3000 again.',busy:false});
         } else if (value.action === 'look') {
           // HX Unbound menu, Floor look: what Focus View shows on the Floor, in its own window.
           const opened=toneView.openBrowser(window,{look:true,dockPanel:navigationBanner.dockPanel()});

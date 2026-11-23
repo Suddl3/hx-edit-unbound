@@ -875,8 +875,8 @@ function capturePanel(block) {
   change.innerHTML = ICON.swap + 'Change capture'; change.onclick = () => openPicker('captures');
   row.append(change); box.append(row);
   const later = el('p', 'later', "The capture's light version, its level and A/B compare are in the NAM library for now. "), open = el('button', '', 'Open the NAM library');
-  open.title = 'Opens on HX Edit\'s own screen (the Workbench steps aside)';
-  open.onclick = () => ask('menu', 'library');
+  open.title = 'Opens over the panel below the chain';
+  open.onclick = () => openTool('library');
   later.append(open); box.append(later);
   return box;
 }
@@ -1333,7 +1333,7 @@ function openMenu() {
   closePresets();
   const menu = $('menu'), item = (words, note, choice) => {
     const button = el('button'); button.append(el('span', '', words)); if (note) button.lastChild.append(el('small', '', note));
-    button.onclick = () => { closeMenu(); ask('menu', choice); };
+    button.onclick = () => { closeMenu(); if (['look', 'level', 'library'].includes(choice)) openTool(choice); else ask('menu', choice); };
     return button;
   };
   menu.replaceChildren(
@@ -1341,9 +1341,9 @@ function openMenu() {
     item('Classic screen', "HX Edit's own screen, with everything the Workbench does not have yet. Back here: Unbound menu > Workbench.", 'classic'),
     item('Focus Mode', 'The selected block, large, in its scene', 'focus'),
     el('hr'), el('h6', '', 'Tools'),
-    ...(options.level ? [item('Level presets…', "Opens on HX Edit's own screen", 'level')] : []),
-    item('Floor look…', "Opens on HX Edit's own screen", 'look'),
-    item('NAM library…', "Opens on HX Edit's own screen", 'library'));
+    ...(options.level ? [item('Level presets…', 'Opens over the panel below the chain', 'level')] : []),
+    item('Floor look…', 'Opens over the panel below the chain', 'look'),
+    item('NAM library…', 'Opens over the panel below the chain', 'library'));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
 }
 function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
@@ -1362,6 +1362,7 @@ function toast(words) {
 // (checked_ir). A click puts it on the selected block of that kind only.
 const RAIL_ICON = {
   capture: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="10" cy="10" r="3"/></svg>',
+  cloud: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M6 15.5a3.5 3.5 0 0 1-.4-7A4.5 4.5 0 0 1 14.3 8a3.7 3.7 0 0 1-.3 7.5z"/></svg>',
   ir: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10h3l1.5-5 3 11 2.5-8 1.5 4H18"/></svg>',
   floor: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2" y="6" width="16" height="9" rx="1.5"/><circle cx="6" cy="12" r="1"/><circle cx="10" cy="12" r="1"/><circle cx="14" cy="12" r="1"/><path d="M5 8.5h6"/></svg>',
   level: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 16V9M10 16V4M15 16v-5"/></svg>',
@@ -1410,9 +1411,17 @@ function drawRail() {
     return b;
   };
   $('rail').replaceChildren(opener('captures'), opener('irs'), el('div', 'sep'),
-    button('Floor look', 'floor', 'un', "Floor look: opens on HX Edit's own screen", () => ask('menu', 'look')),
-    ...(options.level ? [button('Levels', 'level', 'un', "Level presets: opens on HX Edit's own screen", () => ask('menu', 'level'))] : []),
-    button('NAM library', 'library', 'un', "The NAM library (add captures to the Floor): opens on HX Edit's own screen", () => ask('menu', 'library')));
+    button('TONE3000', 'cloud', '', 'Find captures on TONE3000: opens over the panel below the chain', () => openTool('tone')), el('div', 'sep'),
+    button('Floor look', 'floor', 'un', 'Floor look: opens over the panel below the chain', () => openTool('look')),
+    ...(options.level ? [button('Levels', 'level', 'un', 'Level presets: opens over the panel below the chain', () => openTool('level'))] : []),
+    button('NAM library', 'library', 'un', 'The NAM library (add captures to the Floor): opens over the panel below the chain', () => openTool('library')));
+}
+// A tool of the rail opens over the panel below the chain (the launcher places its window there; the Workbench and
+// its chain stay): the panel's place in the page's own pixels. Its own Close button puts the panel back. panelRect() {
+  const r = $('insp').getBoundingClientRect(), k = window.devicePixelRatio || 1;
+  return {x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k)};
+} openTool(name) {
+  ask('tool', {name, ...panelRect()});
 }
 function setDrawer(which) {
   const was = drawer;
@@ -1420,7 +1429,7 @@ function setDrawer(which) {
   if (was !== which) { capKind = ''; capQuery = ''; $('drawer').replaceChildren(); }   // (each drawer its own search)
   shownDrawer = '';
   drawRail(); drawDrawer();
-  if (!was !== !which) requestAnimationFrame(() => { if (catalog && state) drawChain(true); });   // (the chain has less, or more, room)
+  if (!was !== !which) requestAnimationFrame(() => { if (catalog && state) drawChain(true); ask('toolPlace', panelRect()); });   // (the chain has less, or more, room; a tool over the panel follows it)
 }
 function drawDrawer() {
   const box = $('drawer'), kind = DRAWERS[drawer];
@@ -1592,7 +1601,7 @@ addEventListener('keydown', e => {
 });
 drawRail(); drawDrawer();
 let resizing = 0;
-addEventListener('resize', () => { cancelAnimationFrame(resizing); resizing = requestAnimationFrame(() => { if (catalog && state) drawChain(); }); });
+addEventListener('resize', () => { cancelAnimationFrame(resizing); resizing = requestAnimationFrame(() => { if (catalog && state) drawChain(); ask('toolPlace', panelRect()); }); });
 </script>
 </body>
 </html>

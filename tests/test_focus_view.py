@@ -392,7 +392,7 @@ class PaneDriverTests(unittest.TestCase):
         self.assertTrue(self.wait(lambda: self.panes))
         self.assertEqual(self.panes[0].command[1], '4242')
         self.assertTrue(self.wait(lambda: self.lines('C')))
-        self.assertEqual(self.lines('C')[-1], {'visible': True, 'x': 0, 'y': 41, 'w': 1920, 'h': 913})
+        self.assertEqual(self.lines('C')[-1], {'visible': True, 'raise': True, 'x': 0, 'y': 41, 'w': 1920, 'h': 913})
 
     def test_the_bars_dsp_meters_and_snapshot_choice(self):
         self.view.set_on(True)
@@ -495,7 +495,7 @@ class PaneDriverTests(unittest.TestCase):
         self.view.receive({'type': 'focusState', 'state': {'blocks': [{'dsp': 0}], 'selected': None, 'values': {}}})
         self.assertTrue(self.wait(lambda: len(self.lines('P')) >= 3))
         self.view.set_on(False)
-        self.assertTrue(self.wait(lambda: self.lines('C')[-1] == {'visible': False, 'x': 0, 'y': 41, 'w': 1920, 'h': 913}))
+        self.assertTrue(self.wait(lambda: self.lines('C')[-1] == {'visible': False, 'raise': True, 'x': 0, 'y': 41, 'w': 1920, 'h': 913}))
         self.assertFalse(self.view.receive({'type': 'navigationBanner'}))   # not one of this pane's messages
 
     def test_a_value_set_in_the_page_is_one_control_of_the_shown_block_inside_its_range(self):
