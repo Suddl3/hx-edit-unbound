@@ -198,6 +198,10 @@
   .tabview input.pick { width: 170px; } .tabview select.pick { max-width: 190px; }
   .tabview .seg { display: inline-flex; border: 1px solid #3a3f4b; border-radius: 7px; overflow: hidden; }
   .tabview .seg button { padding: 5px 10px; color: var(--dim); } .tabview .seg button.on { background: var(--raise2); color: var(--ink); }
+  /* the split's type in its card: HX Edit's four, two by two */
+  .seg.kinds { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #3a3f4b; border-radius: 7px; overflow: hidden; width: 100%; }
+  .seg.kinds button { padding: 6px 4px; color: var(--dim); font-size: 12px; } .seg.kinds button.on { background: var(--raise2); color: var(--ink); }
+  .seg.kinds button:hover:not(.on) { color: var(--ink); }
   .tabview td input.range { width: 110px; vertical-align: middle; margin-right: 8px; accent-color: rgb(var(--c)); }
   .sgrid input.range { flex: 1; min-width: 40px; margin-right: 6px; accent-color: rgb(var(--c)); }
   .sgrid > div { flex-wrap: nowrap; } .sgrid > div.num > span { flex: none; width: 52px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -462,7 +466,7 @@ function drawPath(p, g, now) {
   };
   const slot = (place, y, lane, offered) => {
     // An empty place: click to add a block here; while a block is dragged, a place it can go.
-    const plus = el('button', 'slot spot' + (picking && picking.place && picking.dsp === p.dsp && picking.lane === lane && picking.place === place ? ' picking' : ''), '+');
+    const plus = el('button', 'slot spot' + (picking && picking.empty && picking.dsp === p.dsp && picking.lane === lane && picking.place === place ? ' picking' : ''), '+');
     plus.style.cssText = `left:${g.px(place) + g.tile / 2}px;top:${y}px` + (offered ? ';visibility:hidden' : '');
     plus.dataset.dsp = p.dsp; plus.dataset.lane = lane; plus.dataset.place = place;
     if (offered) plus.classList.add('offered');              // lane B on a path without one: shown only while dragging
@@ -753,7 +757,7 @@ function card(block, picker) {
   }
   // The split's type, as HX Edit's panel offers it (focus_view.checked_split_type checks the same)
   if (block.id === 'split') {
-    const types = el('span', 'seg');
+    const types = el('div', 'seg kinds');
     types.title = "The split's type (HX Edit's Split Y, A/B, Crossover, Dynamic). Undo puts the old one back.";
     for (const [text, symbol] of SPLIT_TYPES) {
       const b = el('button', block.model === symbol ? 'on' : '', text);
@@ -814,7 +818,7 @@ function placeTarget() {
 }
 function drawPanel() {
   const panel = $('insp'), block = current();
-  if (picking && picking.place) { drawPicker(placeTarget()); return; }
+  if (picking && picking.empty) { drawPicker(placeTarget()); return; }
   if (!block) {
     picking = false;
     const key = 'empty:' + (state.blocks.length ? 1 : 0);
@@ -1040,7 +1044,7 @@ function categoryOf(block) {
 }
 let lastCategory = '';
 function openPlacePicker(dsp, lane, place) {
-  picking = {place: true, dsp, lane, place}; pickQuery = '';
+  picking = {empty: true, dsp, lane, place};   // (empty, not place: place 0 is a place too) pickQuery = '';
   pickedCategory = lastCategory || ((catalog.lists || [])[0] || {}).name || ''; pickedTab = '';
   shownPanel = ''; shownChain = '';
   drawChain(true); drawPanel();
@@ -1055,7 +1059,7 @@ function openPicker(tab) {
 }
 function closePicker() {
   if (!picking) return;
-  const place = picking.place;
+  const place = picking.empty;
   picking = false; shownPanel = ''; drawPanel();
   if (place) drawChain(true);
 }
@@ -1294,7 +1298,7 @@ function receive(message) {
     // or an undo)
     if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();
     if (picking && picking.block && !(current() && isChain(current()))) picking = false;
-    if (picking && picking.place && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
+    if (picking && picking.empty && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
   }
   else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
   else if (message.type === 'dspCosts') { costs = message.costs && typeof message.costs === 'object' ? message.costs : {}; shownPanel = ''; }
