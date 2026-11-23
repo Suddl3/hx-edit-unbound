@@ -428,6 +428,25 @@ class SplitMoveTests(unittest.TestCase):
         for label in ('Give lane B its own input', 'Give lane B its own output', 'Put the split back', 'Put the mixer back'):
             self.assertIn(label, page)
 
+    def test_the_captures_drawer_adds_or_swaps_through_the_checked_requests(self):
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        body = page[page.index('function liftCapture('):page.index('// ---- everything together')]
+        # onto an empty place: a NAM block with the capture (checked_add with a slot); onto a NAM block: its capture
+        self.assertIn("chainAsk('add', {dsp: Number(over.dataset.dsp), lane: Number(over.dataset.lane), place: Number(over.dataset.place), slot: c.slot})", body)
+        self.assertIn("ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot})", body)
+        self.assertIn("under.closest('.tile.nam-drop')", body)                       # only NAM blocks take a swap
+        self.assertIn('fitsOn(engine, Number(target.dataset.dsp))', body)          # a path without room is greyed
+        put = page[page.index('function putCapture('):page.index('function liftCapture(')]
+        self.assertIn('!isNam(block)', put)                                      # a click never turns a block into NAM
+        self.assertIn("if (isNam(block)) button.classList.add('nam-drop');", page)
+        for tool in ("ask('menu', 'look')", "ask('menu', 'level')", "ask('menu', 'library')"):
+            self.assertIn(tool, page)
+        # and the slot a capture asks for is one on the Floor (checked_add / checked_capture refuse others)
+        self.view.state['captures'] = [{'slot': 21, 'name': 'Brit Gold Crunch'}]
+        self.view.state['blocks'].append({'dsp': 0, 'id': 'block2', 'model': 'HD2_DelayTest', 'position': 0, 'path': 0, 'enabled': True})
+        self.assertIsNone(self.view.checked_capture({'dsp': 0, 'id': 'block2', 'slot': 22}))
+        self.assertEqual(self.view.checked_capture({'dsp': 0, 'id': 'block2', 'slot': 21})['slot'], 21)
+
     def test_the_splits_type_is_one_of_hx_edits_four(self):
         kind = lambda dsp, which, symbol: self.view.checked_split_type({'dsp': dsp, 'id': which, 'symbol': symbol})
         self.assertEqual(kind(0, 'split', 'HD2_AppDSPFlowSplitAB'), {'action': 'splitType', 'dsp': 0, 'symbol': 'HD2_AppDSPFlowSplitAB'})

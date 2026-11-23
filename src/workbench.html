@@ -36,7 +36,44 @@
   .led { width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--c)); box-shadow: 0 0 8px rgb(var(--c) / .9); flex: none; }
   .led.off { background: #3a3e48; box-shadow: none; }
 
-  .app { height: 100%; display: grid; grid-template-rows: 58px auto minmax(0, 1fr); }
+  .app { height: 100%; display: grid; grid-template: 58px auto minmax(0, 1fr) / 68px auto minmax(0, 1fr); }
+  .app > .top { grid-column: 1 / -1; }
+  .app > .board { grid-column: 3; grid-row: 2; min-width: 0; } .app > .insp { grid-column: 3; grid-row: 3; min-width: 0; }
+
+  /* ---- the library rail and its drawer ------------------------------------------------------------------- */
+  .rail { grid-column: 1; grid-row: 2 / 4; border-right: 1px solid var(--line); background: var(--panel); display: grid; align-content: start; gap: 4px; padding: 10px 6px; }
+  .rail button { display: grid; justify-items: center; gap: 4px; padding: 9px 0 7px; border-radius: 9px; color: var(--dim); font-size: 10.5px; }
+  .rail button:hover { color: var(--ink); }
+  .rail button svg { width: 20px; height: 20px; }
+  .rail button.on { background: var(--raise2); color: var(--ink); }
+  .rail button.un { color: var(--unbound); }
+  .rail .sep { height: 1px; background: var(--line); margin: 6px 8px; }
+  .drawer { grid-column: 2; grid-row: 2 / 4; width: 268px; border-right: 1px solid var(--line); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; min-height: 0; padding-top: 12px; }
+  .drawer h3 { margin: 0 14px 8px; font-size: 17px; font-weight: 600; font-stretch: 86%; display: flex; justify-content: space-between; align-items: baseline; }
+  .drawer h3 span { font-size: 12px; color: var(--dim); font-weight: 400; font-stretch: 100%; }
+  .drawer .find { margin: 0 10px 8px; height: 32px; border-radius: 8px; background: var(--raise); display: flex; align-items: center; gap: 8px; padding: 0 10px; color: var(--faint); }
+  .drawer .find svg { width: 14px; height: 14px; flex: none; }
+  .drawer .find input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--ink); font: inherit; }
+  .kindchips { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 10px 6px; }
+  .kindchips button { height: 24px; padding: 0 9px; border-radius: 12px; border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 5px; color: var(--dim); font-size: 12px; }
+  .kindchips button b { font-weight: 400; color: var(--faint); font-size: 11px; }
+  .kindchips button.on { background: var(--raise2); color: var(--ink); border-color: #3a3f4b; }
+  .caplist { overflow-y: auto; min-height: 0; padding-bottom: 8px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .caplist .grp { padding: 10px 14px 4px; color: var(--faint); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; }
+  .caprow { width: calc(100% - 8px); display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: center; height: 46px; padding: 0 12px 0 10px; margin: 0 4px;
+            border-radius: 8px; text-align: left; touch-action: none; cursor: grab; }
+  .caprow:hover { background: var(--raise); }
+  .caprow img { width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 3px 3px rgb(0 0 0 / .5)); }
+  .caprow b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .caprow small { color: var(--dim); font-size: 11.5px; }
+  .caprow em { font-style: normal; color: var(--faint); font-size: 11.5px; }
+  .caprow.on { background: rgb(176 112 224 / .16); box-shadow: inset 2px 0 0 #b070e0; } .caprow.on em { color: #c99cf0; }
+  .caprow.lifted { opacity: .4; }
+  .drawer .none { padding: 14px; color: var(--faint); font-size: 12.5px; line-height: 1.45; }
+  .dfoot { border-top: 1px solid var(--line); padding: 10px 12px; color: var(--faint); font-size: 11.5px; line-height: 1.4; }
+  /* a capture dragged onto the chain: the places it can go, and the NAM blocks whose capture it can take */
+  .board.dragging.capture-drag .tile.nam-drop { box-shadow: 0 0 0 1px rgb(176 112 224 / .55); }
+  .board.dragging .tile.over { border-color: #f0c94a; box-shadow: 0 0 0 2px #f0c94a, 0 10px 30px rgb(240 201 74 / .25); }
 
   /* ---- the top bar ------------------------------------------------------------------------------------- */
   .top { position: relative; z-index: 6; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
@@ -312,6 +349,9 @@
     <div class="toast" id="toast" role="status" hidden></div>
   </header>
 
+  <nav class="rail" id="rail" aria-label="Library"></nav>
+  <aside class="drawer" id="drawer" aria-label="Captures on the Floor" hidden></aside>
+
   <section class="board" id="board" aria-label="Signal chain"></section>
 
   <section class="insp" id="insp" aria-label="The selected block"></section>
@@ -456,6 +496,7 @@ function drawPath(p, g, now) {
     const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (same(block, now) ? ' on' : '') + (block.id === 'pending' ? ' coming' : ''));
     button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - 52}px;width:${g.tile}px`;
     button.dataset.dsp = p.dsp; button.dataset.lane = y === YA ? 0 : 1; button.dataset.place = place;   // (laneBranch)
+    button.dataset.id = block.id; if (isNam(block)) button.classList.add('nam-drop');                 // (a capture dragged from the drawer)
     const led = el('span', 'led' + (block.enabled ? '' : ' off'));
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
     button.append(led, image(pictures(block), 'pic', true), strip);
@@ -1275,6 +1316,138 @@ function toast(words) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { line.hidden = true; }, 6000);
 }
 
+// ---- the library rail and the Captures drawer ----------------------------------------------------------------------
+// The rail: Captures opens the drawer beside the chain; the tools still open on HX Edit's own screen (as the Unbound
+// menu's). The drawer lists the captures on the Floor (state.captures) by kind: drag one onto a "+" for a NAM block
+// with it there (focus_view.checked_add, slot), or onto a NAM block to swap its capture (checked_capture); a click
+// puts it on the selected NAM block.
+const RAIL_ICON = {
+  capture: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="10" cy="10" r="3"/></svg>',
+  floor: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2" y="6" width="16" height="9" rx="1.5"/><circle cx="6" cy="12" r="1"/><circle cx="10" cy="12" r="1"/><circle cx="14" cy="12" r="1"/><path d="M5 8.5h6"/></svg>',
+  level: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 16V9M10 16V4M15 16v-5"/></svg>',
+  library: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 4.5h4v11H3zM8 4.5h4v11H8z"/><path d="M13 5.2l3.7-1 2.6 10.6-3.7 1z"/></svg>',
+};
+let drawerOpen = false, capKind = '', capQuery = '', shownDrawer = '', shownRail = '';
+function drawRail() {
+  const key = [drawerOpen, !!options.level].join('|');
+  if (key === shownRail) return;
+  shownRail = key;
+  const button = (words, icon, cls, title, onclick) => {
+    const b = el('button', cls); b.innerHTML = RAIL_ICON[icon]; b.append(words); b.title = title; b.onclick = onclick; return b;
+  };
+  const caps = button('Captures', 'capture', drawerOpen ? 'on' : '', 'The captures on the Floor: drag one onto the chain', () => setDrawer(!drawerOpen));
+  caps.setAttribute('aria-pressed', drawerOpen);
+  $('rail').replaceChildren(caps, el('div', 'sep'),
+    button('Floor look', 'floor', 'un', "Floor look: opens on HX Edit's own screen", () => ask('menu', 'look')),
+    ...(options.level ? [button('Levels', 'level', 'un', "Level presets: opens on HX Edit's own screen", () => ask('menu', 'level'))] : []),
+    button('NAM library', 'library', 'un', "The NAM library (add captures to the Floor): opens on HX Edit's own screen", () => ask('menu', 'library')));
+}
+function setDrawer(open) {
+  drawerOpen = open;
+  shownDrawer = '';
+  drawRail(); drawDrawer();
+  requestAnimationFrame(() => { if (catalog && state) drawChain(true); });   // (the chain has less, or more, room)
+}
+function drawDrawer() {
+  const box = $('drawer');
+  box.hidden = !drawerOpen;
+  if (!drawerOpen || !catalog || !state) return;
+  const all = (state.captures || []).filter(c => c && Number.isInteger(c.slot)).slice().sort((a, b) => a.slot - b.slot);
+  const now = current(), inUse = now && isNam(now) ? now.slot : null;
+  const key = JSON.stringify([all.map(c => [c.slot, c.name, c.icon, c.gear]), capKind, capQuery, inUse]);
+  if (key === shownDrawer) return;
+  shownDrawer = key;
+  const kinds = namKinds().map(k => k.name), kindOfCap = c => namKind(c);
+  const counts = new Map(); for (const c of all) counts.set(kindOfCap(c), (counts.get(kindOfCap(c)) || 0) + 1);
+  if (capKind && !counts.has(capKind)) capKind = '';
+  const head = el('h3', '', 'Captures'); head.append(el('span', '', all.length + ' on the Floor'));
+  // the search keeps its box (and the caret) while the list under it is redrawn
+  let find = box.querySelector('.find');
+  if (!find) {
+    find = el('label', 'find'); find.innerHTML = ICON.search;
+    const input = el('input'); input.type = 'search'; input.placeholder = 'Search captures'; input.setAttribute('aria-label', 'Search captures');
+    input.oninput = () => { capQuery = input.value.trim().toLowerCase(); drawDrawer(); };
+    find.append(input);
+  }
+  const chips = el('div', 'kindchips');
+  const chip = (words, kind, count) => {
+    const b = el('button', capKind === kind ? 'on' : '', words); b.append(el('b', 'num', String(count)));
+    b.onclick = () => { capKind = capKind === kind && kind ? '' : kind; drawDrawer(); };
+    return b;
+  };
+  chips.append(chip('All', '', all.length), ...kinds.filter(k => counts.has(k)).map(k => chip(k, k, counts.get(k))));
+  const list = el('div', 'caplist');
+  const shown = all.filter(c => (!capKind || kindOfCap(c) === capKind) && (!capQuery || String(c.name).toLowerCase().includes(capQuery)));
+  for (const kind of kinds) {
+    const rows = shown.filter(c => kindOfCap(c) === kind);
+    if (!rows.length) continue;
+    list.append(el('div', 'grp', kind));
+    for (const c of rows) list.append(captureRow(c, c.slot === inUse));
+  }
+  if (!shown.length) list.append(el('div', 'none', all.length ? 'No capture matches.' : 'No captures on the Floor yet. Add some with the NAM library (in the rail).'));
+  const foot = el('div', 'dfoot', 'Drag a capture onto a "+" to add a NAM block, or onto a NAM block to swap its capture. Click: put it on the selected NAM block. Undo takes it back.');
+  reusable = gather(box);
+  try { box.replaceChildren(head, find, chips, list, foot); } finally { reusable = null; }
+}
+function captureRow(c, on) {
+  const row = el('button', 'caprow' + (on ? ' on' : ''));
+  const words = el('div'); words.append(el('b', '', c.name || 'IR slot ' + c.slot), el('small', '', namKind(c)));
+  row.append(image(captureUrls(c), '', true, true), words, el('em', 'num', on ? 'in use' : 'slot ' + c.slot));
+  row.title = (c.name || '') + ' (IR slot ' + c.slot + ')';
+  row.onpointerdown = event => liftCapture(event, c, row);
+  return row;
+}
+function putCapture(c) {
+  const block = current();
+  if (!block || !isChain(block) || !isNam(block)) { toast('Select a NAM block first, or drag the capture onto the chain.'); return; }
+  if (block.slot !== c.slot) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
+}
+// A capture dragged from the drawer: onto an empty place (a NAM block with it, where its path has room for one) or
+// onto a NAM block of the chain (its capture swapped). As a block's drag, nothing opens while it is held.
+function liftCapture(event, c, row) {
+  if (event.button !== 0) return;
+  const start = {x: event.clientX, y: event.clientY}, engine = {model: catalog.nam[0], dsp: -1};
+  let held = null, over = null;
+  const board = $('board');
+  const move = e => {
+    if (!held) {
+      if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 7) return;
+      held = true; dragging = {capture: c};
+      board.classList.add('dragging', 'capture-drag'); row.classList.add('lifted');
+      for (const target of board.querySelectorAll('.slot.spot')) target.classList.toggle('off-path', !fitsOn(engine, Number(target.dataset.dsp)));
+      const ghost = el('div', 'ghost'); ghost.style.setProperty('--c', NAM_TINT.join(' '));
+      ghost.append(image(captureUrls(c), '', true));
+      document.body.append(ghost); held = ghost;
+    }
+    held.style.left = (e.clientX - 46) + 'px'; held.style.top = (e.clientY - 46) + 'px';
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    let near = under && (under.closest('.tile.nam-drop') || under.closest('.slot.spot:not(.off-path)'));
+    if (near && near.style.visibility === 'hidden') near = null;
+    let best = Infinity;
+    if (!near) for (const slot of board.querySelectorAll('.slot.spot:not(.off-path)')) {
+      if (slot.style.visibility === 'hidden') continue;
+      const r = slot.getBoundingClientRect(), dx = Math.abs(e.clientX - (r.left + r.width / 2)), dy = Math.abs(e.clientY - (r.top + r.height / 2));
+      if (dx < 44 && dy < 44 && dx * dx + dy * dy < best) { best = dx * dx + dy * dy; near = slot; }
+    }
+    if (over !== near) { if (over) over.classList.remove('over'); over = near || null; if (near) near.classList.add('over'); }
+    held.classList.toggle('aimed', !!near);
+  };
+  const up = () => {
+    removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+    if (!held) { putCapture(c); return; }                        // (not moved: a click)
+    held.remove(); row.classList.remove('lifted');
+    if (over) over.classList.remove('over');
+    board.classList.remove('dragging', 'capture-drag');
+    dragging = null;
+    if (over && over.classList.contains('tile')) {
+      const block = state.blocks.find(b => b.dsp === Number(over.dataset.dsp) && b.id === over.dataset.id);
+      if (block && block.slot !== c.slot) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
+    } else if (over) chainAsk('add', {dsp: Number(over.dataset.dsp), lane: Number(over.dataset.lane), place: Number(over.dataset.place), slot: c.slot});
+    drawChain(true);
+  };
+  addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+}
+
 // ---- everything together -----------------------------------------------------------------------------------------
 // Redo: worked out from HX Edit's undo position as it changes (workbenchRedo); a redo asked for here is one.
 let redoTrack = null, redoAskedAt = 0;
@@ -1283,6 +1456,8 @@ function render() {
   const preset = state.preset ? state.preset.setlist + ':' + state.preset.number : '';
   redoTrack = workbenchRedo(redoTrack, state.undoAt, preset, Date.now() - redoAskedAt < 3000);
   drawBar();
+  drawRail();
+  drawDrawer();
   drawChain();
   drawPanel();
 }
@@ -1302,7 +1477,7 @@ function receive(message) {
   }
   else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
   else if (message.type === 'dspCosts') { costs = message.costs && typeof message.costs === 'object' ? message.costs : {}; shownPanel = ''; }
-  else if (message.type === 'options') { options = message.options || {}; return; }
+  else if (message.type === 'options') { options = message.options || {}; drawRail(); return; }
   else if (message.type === 'notice') { toast(message.text); if (snapHeld.size) { snapHeld.clear(); shownPanel = ''; render(); } return; }   // (a change refused: shown as it is)
   else if (message.type === 'shown') { visible = message.shown === true; if (!visible) { closePresets(); closeMenu(); $('toast').hidden = true; } else render(); return; }
   else return;
@@ -1334,6 +1509,7 @@ addEventListener('keydown', e => {
   if (e.key !== 'Escape' || !visible) return;
   if (!$('presetList').hidden) closePresets(); else if (!$('menu').hidden) closeMenu(); else if (picking) closePicker();
 });
+drawRail(); drawDrawer();
 let resizing = 0;
 addEventListener('resize', () => { cancelAnimationFrame(resizing); resizing = requestAnimationFrame(() => { if (catalog && state) drawChain(); }); });
 </script>
