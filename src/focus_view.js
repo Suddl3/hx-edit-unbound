@@ -220,10 +220,24 @@ function focusPaneBounds(sf, ed, main) {
 // calls go to the trace with their arguments and outcome, so a change made on HX Edit's own screen (its menu's
 // "Restore Split", say) can be done the same way here. Reads only; changes nothing; a few hundred lines at most.
 function focusChainProbe(base) {
-  let budget = 400;
+  let budget = 900;
+  // A Variant as the edit buffer passes them (target_binding decode): type at +0, the value at +8; a string is a
+  // String object there (its representation at +4: length at +4, characters at +16). Else a bare String object.
+  const chars = object => {
+    const rep = object.add(4).readPointer(); if (rep.isNull()) return null;
+    const length = rep.add(4).readU32(); if (length < 1 || length > 128) return null;
+    const s = rep.add(16).readPointer().readUtf8String(length); return /^[\x20-\x7e]{1,128}$/.test(s) ? s : null;
+  };
   const text = p => {
-    try { const rep = p.add(4).readPointer(); if (rep.isNull()) return null; const s = rep.add(0x10).readPointer().readCString(64); return /^[\x20-\x7e]{1,64}$/.test(s) ? s : null; }
-    catch (_) { return null; }
+    try {
+      const type = p.readU32();
+      if (type === 10) return chars(p.add(8).readPointer());
+      if (type === 4) return p.add(8).readS32();
+      if (type === 5) return p.add(8).readU32();
+      if (type === 8) return Math.round(p.add(8).readFloat() * 1e4) / 1e4;
+      if (type === 11) return p.add(8).readU8() !== 0;
+      return chars(p);
+    } catch (_) { return null; }
   };
   const cell = p => { try { return {type: p.readU32(), value: p.add(8).readU32()}; } catch (_) { return null; } };
   const entries = {
@@ -242,7 +256,8 @@ function focusChainProbe(base) {
           const seen = read(args);
           // (a value write is kept only for the routing — the path's shape, its ends, positions, the cursor — and for
           // what the Bypass and controllers / Snapshot values tabs show: the controller, footswitch and snapshot sections)
-          if (name === 'write' && !(typeof seen.key === 'string' && /^@(topology|input|output|position|path|cursor)/.test(seen.key)) &&
+          // (any write to the preset's own tree, dsp -1, is kept too)
+          if (name === 'write' && seen.dsp !== -1 && !(typeof seen.key === 'string' && /^@(topology|input|output|position|path|cursor)/.test(seen.key)) &&
               !(typeof seen.group === 'string' && /^(controller|footswitch|snapshot[0-7])$/.test(seen.group)) &&
               !(typeof seen.key === 'string' && /@(controller|min|max|cc|snapshot_disable|fs_)/.test(seen.key))) return;
           this.seen = seen;
@@ -263,7 +278,7 @@ function focusChainProbe(base) {
     const target = table.add(slot).readPointer(), rva = target.sub(base).toInt32();
     if (hooked.has(rva) || rva < 0x400000 || rva > 0x600000) continue;
     hooked.add(rva);
-    let left = 25;
+    let left = 60;
     try { Interceptor.attach(target, {
       onEnter(args) {
         if (left <= 0 || budget <= 0) { this.skip = true; return; }
