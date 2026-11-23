@@ -185,6 +185,19 @@
   .tabs button { padding: 0 2px 9px; color: var(--dim); font-size: 13.5px; }
   .tabs button.on { color: var(--ink); box-shadow: 0 2px 0 var(--ink); }
   .tabs button:disabled { color: var(--faint); }
+  /* stage 3: Bypass and controllers / Snapshot values (read-only for now) */
+  .tabview { padding: 14px 6px; display: grid; align-content: start; gap: 12px; overflow-y: auto; min-height: 0; }
+  .tabview .strip { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  .tabview .chip { height: 26px; padding: 0 10px; border-radius: 7px; display: inline-flex; align-items: center; background: var(--raise2); border: 1px solid #3a3f4b; }
+  .tabview .chip.on { border-color: rgb(var(--c)); background: rgb(var(--c) / .14); } .tabview .chip.ghost { background: none; border-style: dashed; color: var(--dim); }
+  .tabview table { border-collapse: collapse; width: 100%; }
+  .tabview th { text-align: left; font-weight: 400; color: var(--faint); font-size: 12px; padding: 0 10px 6px; }
+  .tabview td { padding: 7px 10px; border-top: 1px solid #1d2027; } .tabview td.name { font-weight: 600; } .tabview td.now { color: rgb(var(--c)); } .tabview td.dim { color: var(--faint); }
+  .tabview .tabnote { color: var(--faint); font-size: 12px; margin: 0; }
+  .sgrid { display: grid; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .sgrid > div { padding: 0 12px; min-height: 38px; display: flex; align-items: center; border-top: 1px solid #1d2027; }
+  .sgrid .hd { border-top: 0; display: grid; align-content: center; color: var(--dim); font-size: 12px; } .sgrid .hd b { color: var(--ink); font-size: 13px; }
+  .sgrid .cur { background: rgb(var(--c) / .1); } .sgrid .name { font-weight: 600; }
   .knobs { display: flex; flex-wrap: wrap; gap: 22px 6px; align-content: center; justify-content: center; padding: 14px 0; overflow-y: auto; min-height: 0;
            scrollbar-width: thin; scrollbar-color: #444 transparent; }
   .knobs.s { gap: 14px 2px; }
@@ -790,7 +803,8 @@ function drawPanel() {
   }
   if (picking) { drawPicker(block); return; }
   const list = controlsOf(block), nam = !!capture(block);
-  const key = JSON.stringify(['block', block.dsp, block.id, block.model, block.enabled, block.slot ?? 0, title(block), nam && (state.captures || []).length, dsp && dsp[block.dsp], costs[block.model] ?? null]);
+  const key = JSON.stringify(['block', block.dsp, block.id, block.model, block.enabled, block.slot ?? 0, title(block), nam && (state.captures || []).length, dsp && dsp[block.dsp], costs[block.model] ?? null,
+                              panelTab, panelTab === 'controls' ? null : [state.assign, state.snapshots, state.snapshot, state.values]]);
   panel.style.setProperty('--c', tint(block).join(' '));
   panel.classList.toggle('off', !block.enabled);
   if (key !== shownPanel) {
@@ -798,18 +812,74 @@ function drawPanel() {
     shownPanel = key;
     panel.className = 'insp' + (nam ? ' nam' : '') + (block.enabled ? '' : ' off');
     const ctl = el('div', 'ctl'), tabs = el('div', 'tabs'), knobs = el('div', 'knobs' + (list.length > 9 ? ' s' : ''));
-    const controls = el('button', 'on', 'Controls'), bypass = el('button', '', 'Bypass and controllers'), values = el('button', '', 'Snapshot values');
-    bypass.disabled = values.disabled = true;
-    bypass.title = values.title = 'Comes in a later stage. Use the classic screen for now.';
-    tabs.append(controls, bypass, values);
-    knobs.replaceChildren(...list.map(p => { const item = control(p); wireControl(item, p, block, () => fill(item, p)); return item; }));
-    if (!list.length) knobs.append(el('div', 'empty', 'This block has no controls.'));
-    ctl.append(tabs, knobs);
+    // (the tabs: the knobs, or what HX Edit keeps about them: read-only for now, stage 3 step 1)
+    for (const [name, label] of [['controls', 'Controls'], ['bypass', 'Bypass and controllers'], ['snaps', 'Snapshot values']]) {
+      const tab = el('button', panelTab === name ? 'on' : '', label);
+      tab.onclick = () => { panelTab = name; shownPanel = ''; drawPanel(); };
+      tabs.append(tab);
+    }
+    if (panelTab === 'controls') {
+      knobs.replaceChildren(...list.map(p => { const item = control(p); wireControl(item, p, block, () => fill(item, p)); return item; }));
+      if (!list.length) knobs.append(el('div', 'empty', 'This block has no controls.'));
+      ctl.append(tabs, knobs);
+    } else ctl.append(tabs, panelTab === 'bypass' ? bypassView(block, list) : snapshotView(block, list));
     reusable = gather(panel);
     try { panel.replaceChildren(card(block, false), ctl, ...(nam ? [capturePanel(block)] : [])); } finally { reusable = null; }
   }
   const knobs = panel.querySelector('.knobs');
-  list.forEach((p, i) => { const item = knobs.children[i]; if (item) fill(item, p); });
+  if (knobs) list.forEach((p, i) => { const item = knobs.children[i]; if (item) fill(item, p); });
+}
+
+// ---- stage 3: what HX Edit keeps about a block's controls (read-only for now) ---------------------------------------
+// state.assign (focus_view.js focusAssign): controls {key: {controller, min, max, cc, snapshotOff}}, footswitch
+// {index, label, color, momentary, enabled}, snapshots [{on, values}]. Controller numbers are shown as HX Edit stores
+// them until their names are checked against HX Edit's own tab.
+let panelTab = 'controls';
+function treeText(value) {
+  if (value && typeof value === 'object' && 'unsupportedType' in value) return '(kind ' + value.unsupportedType + ')';
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  return value === undefined ? '' : String(value);
+}
+function bypassView(block, list) {
+  const box = el('div', 'tabview'), a = state.assign;
+  if (!a) { box.append(el('div', 'empty', 'Reading what HX Edit keeps for this block…')); return box; }
+  const fs = a.footswitch, strip = el('div', 'strip');
+  strip.append(el('b', '', 'On and off'));
+  const has = Object.keys(fs).length;
+  strip.append(el('span', 'chip' + (has ? ' on' : ' ghost'), has ? ['switch ' + treeText(fs.index), fs.label ? '“' + fs.label + '”' : '', fs.momentary === undefined ? '' : (fs.momentary ? 'momentary' : 'latching'),
+    fs.color === undefined ? '' : 'colour ' + treeText(fs.color), fs.enabled === undefined ? '' : (fs.enabled ? 'enabled' : 'not enabled')].filter(Boolean).join(' · ') : 'nothing stored'));
+  box.append(strip);
+  const table = el('table', 'assign'), head = el('tr');
+  for (const h of ['Control', 'Now', 'Controller', 'Min', 'Max', 'MIDI CC', 'Snapshots']) head.append(el('th', '', h));
+  table.append(head);
+  for (const p of list) {
+    const c = a.controls[p.id] || {}, row = el('tr');
+    row.append(el('td', 'name', p.name), el('td', 'now num', shown(p, valueOf(p.id))),
+               el('td', c.controller === undefined ? 'dim' : '', c.controller === undefined ? '—' : 'controller ' + treeText(c.controller)),
+               el('td', 'num', c.min === undefined ? '' : (typeof c.min === 'number' ? shown(p, c.min) : treeText(c.min))),
+               el('td', 'num', c.max === undefined ? '' : (typeof c.max === 'number' ? shown(p, c.max) : treeText(c.max))),
+               el('td', 'num', treeText(c.cc)), el('td', '', c.snapshotOff === undefined ? '' : (c.snapshotOff ? 'off' : 'on')));
+    table.append(row);
+  }
+  box.append(table, el('p', 'tabnote', 'Read-only for now: what HX Edit keeps for this block, to check against its own Bypass/Controller Assign tab. Assigning comes next.'));
+  return box;
+}
+function snapshotView(block, list) {
+  const box = el('div', 'tabview'), a = state.assign;
+  if (!a) { box.append(el('div', 'empty', 'Reading what HX Edit keeps for this block…')); return box; }
+  const names = (state.snapshots || []).slice(0, 8), count = Math.max(1, names.length), grid = el('div', 'sgrid');
+  grid.style.gridTemplateColumns = `130px repeat(${count}, minmax(0, 1fr))`;
+  grid.append(el('div', 'hd', 'This block'));
+  for (let s = 0; s < count; s++) { const h = el('div', 'hd' + (s === state.snapshot ? ' cur' : '')); h.append(el('span', '', 'Snapshot ' + (s + 1)), el('b', '', names[s] || '')); grid.append(h); }
+  grid.append(el('div', 'name', 'On / off'));
+  for (let s = 0; s < count; s++) { const on = a.snapshots[s] && a.snapshots[s].on; grid.append(el('div', s === state.snapshot ? 'cur' : '', on === undefined ? '—' : on === true ? 'on' : on === false ? 'off' : treeText(on))); }
+  const changing = list.filter(p => a.snapshots.some(s => s.values[p.id] !== undefined));
+  for (const p of changing) {
+    grid.append(el('div', 'name', p.name));
+    for (let s = 0; s < count; s++) { const v = a.snapshots[s] && a.snapshots[s].values[p.id]; grid.append(el('div', 'num' + (s === state.snapshot ? ' cur' : ''), v === undefined ? '—' : typeof v === 'number' || typeof v === 'boolean' ? shown(p, v) : treeText(v))); }
+  }
+  box.append(grid, el('p', 'tabnote', changing.length ? 'Read-only for now. Values that change per snapshot, as HX Edit keeps them.' : 'No control of this block changes per snapshot (as read). Read-only for now.'));
+  return box;
 }
 
 // ---- the picker: another model or a capture for the selected block -------------------------------------------------

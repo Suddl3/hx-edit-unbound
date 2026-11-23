@@ -65,7 +65,7 @@ function installTargetBinding(options = {}) {
     if (type === 8) return { type, value: value.add(8).readFloat() };
     if (type === 10) return { type, value: nativeString(value.add(8).readPointer()) };
     if (type === 11) return { type, value: value.add(8).readU8() !== 0 };   // a switch (@enabled, Polarity, …)
-    fail('unsupported native parameter type');
+    fail(`unsupported native parameter type ${type}`);
   }
   function editorReady(editor) {
     if (editor.isNull() || !editor.readPointer().equals(base.add(0x963dfc))) return false;
@@ -224,6 +224,20 @@ function installTargetBinding(options = {}) {
       if (!editorReady(editor) || !groupPattern.test(group) || !keyPattern.test(key)) return undefined;
       return parameter({editor, dsp: -1, blockName: group}, key).value;
     } catch (_) { return undefined; }
+  }
+  // The Workbench's Bypass and controllers / Snapshot values tabs: the preset's own tree, as HX Edit's controller
+  // view reads it (0x1b72cd: dsp -1, the group "controller", the key "dsp0.block1.Gain.@controller"), and the same
+  // for "footswitch" and "snapshot0".."snapshot7" (the sections of a preset file). Read-only; undefined when not there.
+  const treePattern = /^(?:controller|footswitch|snapshot[0-7])$/, pathPattern = /^[A-Za-z0-9_ .@+-]{1,120}$/;
+  function peekTree(editor, group, key) {
+    try {
+      if (!editorReady(editor) || !treePattern.test(group) || !pathPattern.test(key)) return undefined;
+      return parameter({editor, dsp: -1, blockName: group}, key).value;
+    } catch (error) {
+      // (there, but of a kind decode does not read yet: said so, for the trace)
+      const kind = /unsupported native parameter type (\d+)/.exec(String(error.message));
+      return kind ? {unsupportedType: Number(kind[1])} : undefined;
+    }
   }
   // Recalls a snapshot (0..7) as HX Edit's own snapshot control and Level presets do: "@current_snapshot" of
   // "global", one write with the single-change flag. Nothing is saved.
@@ -539,7 +553,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel,
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, recallSnapshot, setValue, setIndex, setModel, addModel,
            removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 

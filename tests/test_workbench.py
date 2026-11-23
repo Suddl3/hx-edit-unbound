@@ -443,6 +443,36 @@ class SplitMoveTests(unittest.TestCase):
             self.assertIn(f"node.onclick = () => {{ if (!dragDone) ask('select', {{dsp: p.dsp, id: '{which}'}}); }};", page)
             self.assertIn(f"el('span', 'node movable' + (same(p.{which}, now) ? ' on' : ''))", page)
 
+class AssignReadTests(unittest.TestCase):
+    """Stage 3 step 1: what HX Edit keeps about a block's controls, read from the preset's tree (read-only)."""
+
+    def test_the_tree_is_read_where_hx_edits_own_controller_view_reads_it(self):
+        tree = {('controller', 'dsp0.block1.Gain.@controller'): 2, ('controller', 'dsp0.block1.Gain.@min'): 4.0,
+                ('controller', 'dsp0.block1.Gain.@max'): 10.0, ('controller', 'dsp0.block1.Level.@cc'): 11,
+                ('footswitch', 'dsp0.block1.@fs_index'): 5, ('footswitch', 'dsp0.block1.@fs_customlabel'): 'Teemah!',
+                ('snapshot0', 'blocks.dsp0.block1'): True, ('snapshot3', 'blocks.dsp0.block1'): False,
+                ('snapshot2', 'controllers.dsp0.block1.Treble.@value'): 8.0}
+        fake = 'const T = ' + json.dumps({f'{g}|{k}': v for (g, k), v in tree.items()}) + '; const tree = (g, k) => T[g + "|" + k];'
+        got = run_js(['focus_view.js'], '(() => { ' + fake + ' return focusAssign(tree, {dsp: 0, id: "block1"}, ["Gain", "Treble", "Level"]); })()')
+        self.assertEqual(got['controls'], {'Gain': {'controller': 2, 'min': 4.0, 'max': 10.0}, 'Level': {'cc': 11}})
+        self.assertEqual(got['footswitch'], {'index': 5, 'label': 'Teemah!'})
+        self.assertEqual(len(got['snapshots']), 8)
+        self.assertEqual(got['snapshots'][0], {'on': True, 'values': {}})
+        self.assertEqual(got['snapshots'][2], {'values': {'Treble': 8.0}})
+        self.assertEqual(got['snapshots'][3], {'on': False, 'values': {}})
+
+    def test_reading_only_through_the_tree_reader_and_the_tabs_are_open(self):
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        body = binding[binding.index('function peekTree('):binding.index('// Recalls a snapshot')]
+        self.assertIn("parameter({editor, dsp: -1, blockName: group}, key).value", body)
+        self.assertNotIn('writeValue', body)
+        self.assertIn("const treePattern = /^(?:controller|footswitch|snapshot[0-7])$/", binding)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("assign = focusAssign((group, key) => targetBinding.peekTree(editor, group, key), chosen, parameters[chosen.model] || []);", script)
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertNotIn('bypass.disabled = values.disabled = true;', page)
+        self.assertIn("ctl.append(tabs, panelTab === 'bypass' ? bypassView(block, list) : snapshotView(block, list));", page)
+
 class DspCostTests(unittest.TestCase):
     """A block's DSP, measured from the path's meter when exactly one block comes or goes (dsp_costs.py)."""
 

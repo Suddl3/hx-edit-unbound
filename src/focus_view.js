@@ -133,6 +133,39 @@ function focusRoom(view, loads, now, next, dsp) {
   return after <= view.budget ? null : `DSP ${dsp + 1} has no room for that model (${after} of ${view.budget}).`;
 }
 
+// What moves a block's controls and how its snapshots differ (the Workbench's Bypass and controllers / Snapshot
+// values tabs), from the preset's tree as HX Edit's own controller view reads it (target_binding peekTree):
+//   controller "dsp0.block1.Gain.@controller" / "@min" / "@max" / "@cc" / "@snapshot_disable";
+//   footswitch "dsp0.block1.@fs_index" / "@fs_customlabel" / "@fs_customcolor" / "@fs_momentary" / "@fs_enabled";
+//   snapshot0..7 "blocks.dsp0.block1" (on or off) and "controllers.dsp0.block1.Gain.@value".
+// Only what is there is kept. tree(group, key) -> a value or undefined. Pure: tests run it.
+function focusAssign(tree, block, keys) {
+  const at = `dsp${block.dsp}.${block.id}`, kept = value => value !== undefined && value !== null;
+  const controls = {};
+  for (const key of keys) {
+    const found = {};
+    for (const [name, field] of [['controller', '@controller'], ['min', '@min'], ['max', '@max'], ['cc', '@cc'], ['snapshotOff', '@snapshot_disable']]) {
+      const value = tree('controller', `${at}.${key}.${field}`);
+      if (kept(value)) found[name] = value;
+    }
+    if (Object.keys(found).length) controls[key] = found;
+  }
+  const footswitch = {};
+  for (const [name, field] of [['index', '@fs_index'], ['label', '@fs_customlabel'], ['color', '@fs_customcolor'], ['ledColor', '@fs_ledcolor'],
+                               ['momentary', '@fs_momentary'], ['enabled', '@fs_enabled']]) {
+    const value = tree('footswitch', `${at}.${field}`);
+    if (kept(value)) footswitch[name] = value;
+  }
+  const snapshots = [];
+  for (let s = 0; s < 8; s++) {
+    const values = {};
+    for (const key of keys) { const value = tree('snapshot' + s, `controllers.${at}.${key}.@value`); if (kept(value)) values[key] = value; }
+    const on = tree('snapshot' + s, `blocks.${at}`);
+    snapshots.push({...(kept(on) ? {on} : {}), values});
+  }
+  return {dsp: block.dsp, id: block.id, controls, footswitch, snapshots};
+}
+
 // The models' costs measured on the Floor's own meter (the Workbench's dsp_costs.py), each in place of HX Edit's
 // estimate: {symbol: used units}, only plausible figures kept.
 function focusMeasured(found) {
@@ -239,7 +272,7 @@ function installFocusView(options, parts) {
   // changed, and every two seconds in any case.
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
-  let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [];
+  let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [], assign = null, assignTraced = '';
   let header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null]};   // the top bar's preset, snapshot names and preset list (full readings)
   let namesWord = '';                                        // the last outcome of reading the preset list, for the trace
   // A preset that comes up with nothing selected gets its first block selected, a few tries per preset load and
@@ -497,6 +530,21 @@ function installFocusView(options, parts) {
       // Something to undo: HX Edit's own undo position (as tone_view reads it).
       // (undoAt: that position itself, for the Workbench's redo button)
       try { state.undoAt = editor.add(0x294).readS32(); state.undo = state.undoAt > 0; } catch (_) { state.undo = null; state.undoAt = null; }
+      // The selected block's controllers, footswitch and snapshot values (focusAssign), read with each full reading
+      // and kept between them; the first reading of each block goes to the trace (what HX Edit answered).
+      const chosen = state.selected && state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id);
+      if (chosen && full) {
+        const began2 = Date.now();
+        assign = focusAssign((group, key) => targetBinding.peekTree(editor, group, key), chosen, parameters[chosen.model] || []);
+        const name = chosen.dsp + ':' + chosen.id + ':' + chosen.model;
+        if (name !== assignTraced) {
+          assignTraced = name;
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'assign-read', ms: Date.now() - began2, block: chosen.id, controls: assign.controls,
+                footswitch: assign.footswitch, snapshots: assign.snapshots.map(s => ({on: s.on, n: Object.keys(s.values).length}))});
+        }
+      }
+      if (!chosen) assign = null;
+      state.assign = assign && chosen && assign.dsp === chosen.dsp && assign.id === chosen.id ? assign : null;
       if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: full ? 'read' : 'read-values', ms: Date.now() - began, blocks: state.blocks.length, selected: !!state.selected}); }
       if (full) {
         const key = state.preset ? state.preset.setlist + ':' + state.preset.number : '';
@@ -642,5 +690,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusMeasured, focusCaptures, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusMeasured, focusAssign, focusCaptures, installFocusView };
 }
