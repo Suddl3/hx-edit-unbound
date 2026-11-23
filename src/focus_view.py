@@ -829,6 +829,29 @@ class FocusView:
             return {**command, 'value': float(new)} if number and 0.0 <= new <= 1.0 else None
         return None
 
+    def checked_snap_value(self, value):
+        """The Snapshot values grid's request: a value of the selected block in one snapshot, or its on/off there, as
+        the command for focus_view.js (which recalls that snapshot, writes, and recalls the one that was on), or None.
+        Only a control that snapshots move (its controller is Snapshots, 19, as the tab read it) or the block's
+        on/off, checked as a knob's value is (checked_set)."""
+        state = self.state if isinstance(self.state, dict) else {}
+        snapshot = value.get('snapshot') if isinstance(value, dict) else None
+        count = min(len(state.get('snapshots') or []), 8)
+        if isinstance(snapshot, bool) or not isinstance(snapshot, int) or not 0 <= snapshot < count:
+            return None
+        selected, assign = state.get('selected') or {}, state.get('assign') or {}
+        if (value.get('dsp'), value.get('id')) != (selected.get('dsp'), selected.get('id')) or \
+                (assign.get('dsp'), assign.get('id')) != (selected.get('dsp'), selected.get('id')):
+            return None
+        key = value.get('key')
+        controls = assign.get('controls') if isinstance(assign.get('controls'), dict) else {}
+        if key != '@enabled' and (controls.get(key) or {}).get('controller') != 19:
+            return None
+        checked = self.checked_set({'dsp': value.get('dsp'), 'id': value.get('id'), 'key': key, 'value': value.get('value'), 'phase': 'single'})
+        if not checked:
+            return None
+        return {'action': 'snapValue', 'dsp': checked['dsp'], 'id': checked['id'], 'snapshot': snapshot, 'key': key, 'value': checked['value']}
+
     def checked_route(self, value):
         """The Workbench's request to give lane B its own input or output in place of the split or the mixer (HX Edit's
         "Create Input" / "Create Output"), or to put the split or the mixer back, or None: only what the path's shape

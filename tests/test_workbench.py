@@ -513,6 +513,42 @@ class AssignWriteTests(unittest.TestCase):
             self.assertIn(piece, script)
         self.assertIn("'assign': view.checked_assign", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
 
+class SnapshotWriteTests(unittest.TestCase):
+    """Stage 3 step 3: a value in another snapshot, changed as HX Edit changes one (recall, write, recall back)."""
+
+    def setUp(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe', costs_file=None)
+        self.addCleanup(self.view.close)
+        self.key = self.view.catalog()['models']['HD2_DelayTest']['params'][0]['id']
+        self.view.state = {'blocks': [{'dsp': 0, 'id': 'block1', 'model': 'HD2_DelayTest', 'position': 1, 'path': 0, 'enabled': True}],
+                           'selected': {'dsp': 0, 'id': 'block1'}, 'snapshots': ['A', 'B', 'C'], 'snapshot': 0,
+                           'assign': {'dsp': 0, 'id': 'block1', 'controls': {self.key: {'controller': 19}}, 'footswitch': {}, 'snapshots': []}}
+
+    def test_only_snapshot_moved_controls_and_the_on_off_of_the_selected_block_in_a_snapshot_of_the_preset(self):
+        ask = lambda **v: self.view.checked_snap_value({'dsp': 0, 'id': 'block1', **v})
+        got = ask(snapshot=2, key=self.key, value=0.5)
+        self.assertEqual((got['action'], got['snapshot'], got['key']), ('snapValue', 2, self.key))
+        self.assertEqual(ask(snapshot=1, key='@enabled', value=False)['value'], False)
+        self.assertIsNone(ask(snapshot=3, key=self.key, value=0.5))                         # only 3 snapshots
+        self.assertIsNone(ask(snapshot=True, key=self.key, value=0.5))
+        self.view.state['assign']['controls'] = {self.key: {'controller': 1}}               # a pedal moves it, not snapshots
+        self.assertIsNone(ask(snapshot=1, key=self.key, value=0.5))
+        self.view.state['selected'] = {'dsp': 1, 'id': 'block1'}
+        self.assertIsNone(ask(snapshot=1, key='@enabled', value=False))                     # not the selected block
+
+    def test_the_snapshot_is_recalled_written_and_recalled_back(self):
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        body = script[script.index("command.action === 'snapValue'"):script.index("command.action === 'route'")]
+        self.assertLess(body.index('targetBinding.recallSnapshot(editor, command.snapshot)'), body.index('targetBinding.setValue('))
+        self.assertLess(body.index('targetBinding.setValue('), body.index('finally {'))
+        self.assertIn('if (away) targetBinding.recallSnapshot(editor, now);', body[body.index('finally {'):])
+        self.assertIn("'snapValue': view.checked_snap_value", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("const change = (s, key, value) => ask('snapValue', {dsp: block.dsp, id: block.id, snapshot: s, key, value});", page)
+
 class DspCostTests(unittest.TestCase):
     """A block's DSP, measured from the path's meter when exactly one block comes or goes (dsp_costs.py)."""
 
@@ -726,7 +762,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("value.pane === 'workbench' ? 'workbench' : 'focus'", script)   # Focus Mode's own messages carry no pane
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@tempo')", script)
         # Still only values, a model, a capture, a snapshot and a click on the chain are ever written.
-        self.assertEqual(script.count('targetBinding.setValue('), 4)
+        self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)
         self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 2))   # (a swap; a capture added)
 
 
@@ -774,7 +810,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue'})
 
 
 if __name__ == '__main__':
