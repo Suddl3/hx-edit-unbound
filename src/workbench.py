@@ -82,6 +82,25 @@ def pins_after(settings, value):
 # The Workbench's own Levels page: the library page's Level commands it may send into its session (tone_preview
 # browse() checks each one's argument as it does from that page).
 LEVEL_COMMANDS = ('levelOpen', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel')
+# ... and the NAM library's Floor actions (stage 5 part 2), the library page's own: load / use a capture on the NAM block
+# selected in HX Edit, preview one in User IR 128 there (end: put the block back), replace a taken slot.
+SESSION_PAGES = ('level', 'library')
+CAPTURE_ID = re.compile(r'[0-9a-f]{64}')
+
+
+def checked_floor(value, entries):
+    """The library page's Floor action as the session's action string, or None: load / use / pick a capture of the
+    library, end the preview, or replace slot 1..128."""
+    if not isinstance(value, dict):
+        return None
+    do, argument = value.get('do'), value.get('arg')
+    if do in ('load', 'use', 'pick'):
+        return f'{do}:{argument}' if isinstance(argument, str) and CAPTURE_ID.fullmatch(argument) and argument in entries else None
+    if do == 'end':
+        return 'end'
+    if do == 'replace':
+        return f'replace:{argument}' if isinstance(argument, int) and not isinstance(argument, bool) and 1 <= argument <= 128 else None
+    return None
 PREFS = 'workbenchPrefs'               # settings.json: the page's choices that outlive it (the Levels page's)
 LEVEL_KEY = re.compile(r'[^:]{0,4}:\d{1,3}:[^\n]{0,40}:\d{1,2}')
 

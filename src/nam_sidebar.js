@@ -32,9 +32,9 @@ function installNamSidebar(namView) {
           // The Workbench's TONE3000 button: the TONE3000 catalog, as HX Edit's own TONE3000 button opens it.
           const opened=toneView.openBrowser(window,{dockPanel:navigationBanner.dockPanel()});
           if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then press TONE3000 again.',busy:false});
-        } else if (value.action === 'workbench' && value.id === 'level') {
-          // The Workbench's own Levels page: a session without a window (TonePreview's WorkbenchSession), whose
-          // page is the Workbench's. It does not need a NAM block.
+        } else if (value.action === 'workbench' && ['level', 'library'].includes(value.id)) {
+          // The Workbench's own Levels page or NAM library: a session without a window (TonePreview's
+          // WorkbenchSession), whose page is the Workbench's. Opening it does not need a NAM block.
           const opened=toneView.openBrowser(window,{headless:true,workbench:value.id});
           if (opened === false) send({type:'toneTrace',reason:'workbench-session',stage:'not-opened'});
         } else if (value.action === 'look') {

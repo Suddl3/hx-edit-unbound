@@ -466,7 +466,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       targetVersion: ++targetVersion, context: contextVersion, headless:!!options.headless, workbench:!!options.workbench };
     namView.setBrowserSessionActive?.(true);
     send({ type: 'toneStart', session: active.id, window: window.toUInt32(), bounds,
-      tile: tiles[0], profile: '', navigation: true, library: !!options.library,
+      tile: tiles[0], profile: '', navigation: true, library: !!options.library || options.workbench === 'library',
       level: !!options.level || options.workbench === 'level', look: !!options.look,
       headless:!!options.headless, libraryAction:options.libraryAction, workbench:!!options.workbench });
     autoBindSelected();

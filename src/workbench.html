@@ -2239,19 +2239,32 @@ let levelPrefs = {metric: 'lufs', target: 'middle', custom: null, snapshots: 'al
 let levelScope = 'current', levelFrom = null, levelTo = null, shownLevels = '';
 const levelSkipped = new Set();
 const wantsLevels = () => levelsIn(view);
+// The session serves Levels or the NAM library (its Floor actions), whichever is open: the same one changes page.
+let sessionPage = '', floorStatus = null;
+const sessionWanted = () => levelsIn(view) ? 'level' : view.full === 'library' ? 'library' : '';
 function syncLevels() {
   // (opened only while the Workbench is shown; it stays open while it is hidden, so a scan goes on)
-  if (wantsLevels() && !levelSession && visible) { levelSession = 'asking'; levelAskedAt = Date.now(); ask('levels', {do: 'open'}); }
-  else if (!wantsLevels() && levelSession) { levelSession = ''; leveling = null; levelText = ''; ask('levels', {do: 'close'}); }
+  const want = sessionWanted();
+  if (want && visible && (!levelSession || want !== sessionPage)) {
+    if (!levelSession) { levelSession = 'asking'; levelAskedAt = Date.now(); }
+    sessionPage = want; ask('levels', {do: 'open', page: want});
+    if (want === 'library') { shownLib = ''; drawLibrary(); }           // ("Connecting to HX Edit…" until it answers)
+  } else if (!want && levelSession) { levelSession = ''; sessionPage = ''; leveling = null; levelText = ''; floorStatus = null; ask('levels', {do: 'close'}); }
 }
 function levelSessionMessage(kind, data) {
   if (kind === 'status') {
     if (!levelSession) return;                                // (a late word from a session already closed)
     levelSession = 'open'; leveling = data.level || leveling; levelText = data.text || ''; levelBusy = !!data.busy;
-    shownLevels = ''; drawLevels();
+    floorStatus = data;
+    shownLevels = ''; drawLevels(); shownLib = ''; drawLibrary();
   } else if (kind === 'closed') {
     const was = levelSession;
-    levelSession = ''; leveling = null;
+    levelSession = ''; leveling = null; floorStatus = null; sessionPage = '';
+    if (view.full === 'library') {
+      // (the library works without it; its Floor actions say so)
+      if (was === 'asking' && Date.now() - levelAskedAt < 4000) { syncLevels(); return; }
+      shownLib = ''; drawLibrary(); return;
+    }
     if (!wantsLevels()) return;
     // (a close and an open crossing: ask again; else the session ended on its own: its frame closes, saying why)
     if (was === 'asking' && Date.now() - levelAskedAt < 4000) { syncLevels(); return; }
@@ -2566,6 +2579,47 @@ function picturePicker(row) {
   shade.onclick = e => { if (e.target === shade) close(); };
   document.body.append(shade);
 }
+// Putting a capture on the Floor: the library page's own actions in the session (stage 5 part 2), for the NAM block
+// selected in HX Edit (the session is bound to it). Load: into the lowest empty slot, then on that block. Use: the
+// capture already on the Floor, on that block. Preview: in User IR 128 on that block until it ends (End preview, or
+// leaving the library, puts the block back). Replace: when every slot is taken, which one to use instead.
+function libFloorActions(row) {
+  const box = el('div'), fs = floorStatus || {}, busy = !!fs.busy, trial = fs.trial !== null && fs.trial !== undefined;
+  box.style.cssText = 'display:grid;gap:8px';
+  box.append(el('h5', '', 'On the Floor'));
+  if (!fs.navigation && levelSession !== 'open') { box.append(el('span', 'note2', levelSession ? 'Connecting to HX Edit…' : 'Not connected to HX Edit: the Floor actions are not available. Open the library again to retry.')); return box; }
+  const verified = ['verified', 'partial'].includes(row.slotState) && (row.irSlots || []).length, pending = (row.pendingSlots || []).length > 0;
+  const line = el('div', 'btnrow'), put = el('button', 'btn pri', verified ? 'Use on the selected block' : 'Put on the Floor');
+  put.disabled = busy || !fs.can_install || pending;
+  put.title = pending ? 'It is still being checked on the Floor.' : !fs.can_install ? (trial ? 'End the preview first.' : 'Select a NAM block in the chain first (Back to the chain), then come back.')
+    : verified ? 'Put this capture (already in slot ' + row.irSlots.join(', ') + ') on the selected NAM block. The preset is not saved.'
+    : 'Load it into the lowest empty slot of the Floor and put it on the selected NAM block. The preset is not saved.';
+  put.onclick = () => ask('levels', {do: verified ? 'use' : 'load', arg: row.id});
+  const hear = el('button', 'btn', trial ? 'End preview' : 'Preview');
+  hear.disabled = busy || (!trial && !fs.can_audition);
+  hear.title = trial ? 'Put the selected block back as it was' : fs.can_audition ? 'Try it on the selected NAM block in User IR 128. Nothing is kept until you put it on the Floor.' : 'Select a NAM block in the chain first.';
+  hear.onclick = () => ask('levels', trial ? {do: 'end'} : {do: 'pick', arg: row.id});
+  line.append(put, hear);
+  box.append(line);
+  // every slot taken: choose one to replace (the presets this editor has seen use it are named)
+  const taken = Array.isArray(fs.replace) ? fs.replace : [];
+  if (taken.length) {
+    const pick = el('select', 'lvpick'), go = el('button', 'btn danger', 'Replace');
+    for (const [slot, name, users] of taken) pick.append(new Option('Slot ' + slot + ' · ' + name + (users && users.length ? ' · used by ' + users.length + (users.length === 1 ? ' preset' : ' presets') : ''), slot));
+    pick.value = taken[taken.length - 1][0];
+    go.disabled = busy;
+    go.onclick = async () => {
+      const slot = Number(pick.value), entry = taken.find(t => t[0] === slot), users = (entry && entry[2]) || [];
+      if (!await confirmBox('Replace what is in slot ' + slot + (entry ? ' (' + entry[1] + ')' : '') + ' with this capture?' +
+          (users.length ? ' Presets that use it lose it: ' + users.slice(0, 8).join(', ') + (users.length > 8 ? ' and ' + (users.length - 8) + ' more' : '') + '. Presets not opened in this editor are not checked.' : ''), 'Replace')) return;
+      ask('levels', {do: 'replace', arg: slot});
+    };
+    const r = el('div', 'btnrow'); r.append(pick, go);
+    box.append(el('span', 'note2', 'Every slot on the Floor is taken. Choose one to replace:'), r);
+  }
+  if (fs.text) box.append(el('span', 'note2', fs.text));
+  return box;
+}
 function libSide(row) {
   const side = el('aside', 'cd');
   if (!row) { side.append(el('div'), el('div', 'lvempty', 'Pick a capture to see it here.')); return side; }
@@ -2590,6 +2644,7 @@ function libSide(row) {
   else floor.append(el('span', 'note2', (row.pendingSlots || []).length ? 'Going to slot ' + row.pendingSlots.join(', ') + '…' : 'Not on the Floor yet'));
   const gearDd = el('dd'); gearDd.append(gear, inst);
   kv.append(el('dt', '', 'Kind'), gearDd, el('dt', '', 'From'), from, el('dt', '', 'On the Floor'), floor);
+  const floorBox = libFloorActions(row);
   // the versions: the original and the lighter ones made from it; the Floor plays the ticked one
   const vers = el('div', 'vers'), list = [{key: 'original', label: 'Original', block: 'NAM A2 Lite'}, ...(row.versions || [])];
   for (const v of list) {
@@ -2600,7 +2655,7 @@ function libSide(row) {
   }
   const versBox = el('div'); versBox.style.cssText = 'display:grid;gap:7px';
   versBox.append(el('h5', '', 'Versions · the Floor plays the ticked one'), vers);
-  body.append(h, kv, versBox);
+  body.append(h, kv, floorBox, versBox);
   const foot = el('div', 'foot'), exp = el('button', 'btn', 'Export…'), remove = el('button', 'btn danger', 'Remove…'), sp = el('span', 'sp');
   exp.title = 'Copy the capture’s .nam file to a folder of your choice'; exp.onclick = () => ask('choose', {kind: 'export', id: row.id});
   remove.title = 'Remove it from the library on this PC (the Floor keeps what it has)';
@@ -2615,7 +2670,8 @@ function drawLibrary() {
   if (!lib) { if (!body.querySelector('.waiting')) body.replaceChildren(el('div', 'waiting', 'Reading the library…')); return; }
   const rows = libRows(), all = lib.rows || [];
   if (!rows.some(r => r.id === libSelected)) libSelected = rows.length ? rows[0].id : '';   // (the side shows one of those listed)
-  const key = JSON.stringify([lib, libWhere, libGear, libInstrument, libQuery, libSort, libLayout, libSelected, (state.captures || []).length, (state.irs || []).length]);
+  const key = JSON.stringify([lib, libWhere, libGear, libInstrument, libQuery, libSort, libLayout, libSelected, (state.captures || []).length, (state.irs || []).length,
+                              floorStatus && [floorStatus.text, floorStatus.busy, floorStatus.can_install, floorStatus.can_audition, floorStatus.trial, floorStatus.replace, floorStatus.navigation], levelSession]);
   if (key === shownLib && body.querySelector('.lib2')) return;
   shownLib = key;
   // the frame is made once: the search box keeps its caret

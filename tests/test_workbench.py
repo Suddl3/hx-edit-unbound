@@ -603,16 +603,21 @@ class LevelsTests(unittest.TestCase):
         self.assertIn("if (options.workbench && active) {\n      if (!active.workbench) return false;", script)
         self.assertIn("level: !!options.level || options.workbench === 'level'", script)
         sidebar = (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8')
-        self.assertIn("value.action === 'workbench' && value.id === 'level'", sidebar)
+        self.assertIn("value.action === 'workbench' && ['level', 'library'].includes(value.id)", sidebar)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        self.assertIn("preview_free(lambda: sidebar_action('workbench', 'level'))", launcher)
+        self.assertIn("preview_free(lambda: sidebar_action('workbench', page))", launcher)
         self.assertIn("elif do in LEVEL_COMMANDS and (argument is None or (isinstance(argument, str) and len(argument) <= 20000)):", launcher)
         self.assertIn('preview_free(open_tool)', launcher)        # an old tool's window waits for the Levels session to close
         self.assertEqual(workbench.LEVEL_COMMANDS, ('levelOpen', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel'))
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertNotIn("'level'", page[page.index('const OLD_PAGES'):page.index('const OLD_PAGES') + 60])
         asked = set(__import__('re').findall(r"ask\('levels', \{do: '([a-zA-Z]+)'", page))
-        self.assertEqual(asked, {'open', 'close', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel'})
+        self.assertEqual(asked, {'open', 'close', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel', 'replace'})
+        # the NAM library's Floor actions go through the same session (stage 5 part 2)
+        floor = set(__import__('re').findall(r"do: (?:verified \? 'use' : 'load'|trial \? \{do: 'end'\} : \{do: '([a-z]+)')", page))
+        self.assertIn("ask('levels', {do: verified ? 'use' : 'load', arg: row.id});", page)
+        self.assertIn("ask('levels', trial ? {do: 'end'} : {do: 'pick', arg: row.id});", page)
+        self.assertIn("ask('levels', {do: 'replace', arg: slot});", page)
         # closing Levels while it scans or applies is asked first (closing puts the presets back)
         self.assertIn("if (levelsIn(view) && !levelsIn(next) && levelRunning()) {", page)
 
@@ -719,6 +724,35 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual(set(__import__('re').findall(r"ask\('choose', \{kind: '([a-zA-Z]+)'", body)), {'picture', 'export'})
         self.assertIn("ask('choose', {kind});", body)                     # the Import menu: nam, namFolder
         self.assertNotIn('localStorage', page)
+
+
+class LibraryFloorTests(unittest.TestCase):
+    """Stage 5 part 2: the library's Floor actions, the library page's own, in the Workbench's session."""
+
+    def test_only_the_library_pages_floor_actions_for_a_capture_of_the_library(self):
+        capture = 'a' * 64
+        entries = {capture: {}}
+        check = workbench.checked_floor
+        self.assertEqual(check({'do': 'load', 'arg': capture}, entries), 'load:' + capture)
+        self.assertEqual(check({'do': 'use', 'arg': capture}, entries), 'use:' + capture)
+        self.assertEqual(check({'do': 'pick', 'arg': capture}, entries), 'pick:' + capture)
+        self.assertEqual(check({'do': 'end'}, entries), 'end')
+        self.assertEqual(check({'do': 'replace', 'arg': 12}, entries), 'replace:12')
+        for refused in ({'do': 'load', 'arg': 'b' * 64}, {'do': 'load', 'arg': 'x'}, {'do': 'replace', 'arg': 0},
+                        {'do': 'replace', 'arg': True}, {'do': 'replace', 'arg': '12'}, {'do': 'save', 'arg': capture}, {'do': 'remove', 'arg': capture}):
+            self.assertIsNone(check(refused, entries))
+
+    def test_the_session_opens_on_either_page_and_hands_on_what_the_floor_actions_need(self):
+        from tone_preview import WorkbenchSession
+        for field in ('can_install', 'can_audition', 'trial', 'free_slots', 'replace', 'text', 'busy'):
+            self.assertIn(field, WorkbenchSession.SHOWN)
+        sidebar = (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8')
+        self.assertIn("value.action === 'workbench' && ['level', 'library'].includes(value.id)", sidebar)
+        script = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        self.assertIn("library: !!options.library || options.workbench === 'library'", script)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("preview.workbench_action('levelOpen' if page == 'level' else 'library')", launcher)
+        self.assertIn('elif library is not None and (action := checked_floor(value, library.entries())):', launcher)
 
 
 class SplitMoveTests(unittest.TestCase):

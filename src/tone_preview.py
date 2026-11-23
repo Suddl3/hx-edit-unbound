@@ -69,7 +69,10 @@ class WorkbenchSession:
     error = None
     close_reason = None
     # (what of a status the Workbench page draws; the rest is the library window's)
-    SHOWN = ('text', 'busy', 'level', 'can_level', 'levelPage')
+    SHOWN = ('text', 'busy', 'level', 'can_level', 'levelPage',
+             # (the library page's Floor actions: the NAM block it is bound to, Preview, Load / Use, Replace)
+             'can_install', 'can_audition', 'trial', 'free_slots', 'replace', 'installed', 'navigation',
+             'block_model', 'block_slot', 'inventory')
 
     def __init__(self, detached, forward):
         self.actions = Queue()

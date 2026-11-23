@@ -501,16 +501,20 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     if preview is None or not preview.level or not workbench_on[0] or focus_on[0]:
                         return
                     do, argument = value.get('do'), value.get('arg')
+                    page = value.get('page') if value.get('page') in SESSION_PAGES else 'level'
                     if do == 'open':
+                        # (one session for either page: the NAM library's Floor actions run in it too)
                         if preview.workbench_open():
-                            preview.workbench_action('levelOpen')
+                            preview.workbench_action('levelOpen' if page == 'level' else 'library')
                         else:
-                            preview_free(lambda: sidebar_action('workbench', 'level'))
+                            preview_free(lambda: sidebar_action('workbench', page))
                     elif do == 'close':
                         if preview.workbench_open():
                             preview.close_window('workbench')
                     elif do in LEVEL_COMMANDS and (argument is None or (isinstance(argument, str) and len(argument) <= 20000)):
                         preview.workbench_action(do + (':' + argument if argument else ''))
+                    elif library is not None and (action := checked_floor(value, library.entries())):
+                        preview.workbench_action(action)
                     return
                 if name == 'library' and isinstance(value, dict):
                     # The Workbench's NAM library: the library on this PC changed here (workbench.checked_library):
@@ -635,7 +639,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if workbench is not None:
                 workbench.on_action = workbench_action
                 workbench.show_options({'level': bool(preview.level)})
-                from workbench import (LEVEL_COMMANDS, PINS, PREFS, checked_chosen, checked_library, import_files,
+                from workbench import (LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_library, import_files,
                                        library_view, pinned, pins_after, prefs, prefs_after)
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
                 workbench.show_prefs(prefs(nam_catalog.load_settings()))
