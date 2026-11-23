@@ -63,13 +63,13 @@ sealed class FocusView : Form
     // the paths go to the launcher ({"type":"action","name":"chosen","value":{kind, id, paths}}): the page itself cannot
     // read files, and its messages are kept small. A picture is made a PNG of at most 256 px here (the library keeps
     // only those). kind: nam (.nam files), namFolder (a folder of them), picture (an image), export (a folder).
-    sealed class Owner : IWin32Window { public IntPtr Handle { get; set; } }
+    sealed class DialogOwner : IWin32Window { public IntPtr Handle { get; set; } }
     void Choose(Dictionary<string, object> value)
     {
         object kindValue, idValue;
         if (value == null || !value.TryGetValue("kind", out kindValue) || !(kindValue is string)) return;
         string kind = (string)kindValue, id = value.TryGetValue("id", out idValue) ? idValue as string : null;
-        var owner = new Owner { Handle = parent == IntPtr.Zero ? Handle : GetAncestor(parent, 2) };
+        var owner = new DialogOwner { Handle = parent == IntPtr.Zero ? Handle : GetAncestor(parent, 2) };
         var paths = new List<string>();
         try
         {
