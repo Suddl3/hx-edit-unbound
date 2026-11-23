@@ -332,6 +332,15 @@ class PaneDriverTests(unittest.TestCase):
         self.assertIn('lists', sent['catalog']['catalog'])                     # Focus Mode's own catalog under it
         self.assertEqual(sent['options']['options'], {'level': True})
 
+    def test_the_page_hears_when_a_tools_window_closed_by_itself(self):
+        self.view.set_on(True)
+        self.view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 0, 'w': 1920, 'h': 954}})
+        self.assertTrue(self.wait(lambda: self.panes))
+        self.panes[0].say({'type': 'ready'})
+        self.assertTrue(self.wait(lambda: self.view.page_ready))
+        self.view.tool_closed()
+        self.assertTrue(self.wait(lambda: any(m.get('type') == 'toolClosed' for m in self.lines('P'))))
+
     def test_requests_are_checked_as_focus_modes_are(self):
         self.view.receive({'type': 'focusState', 'state': {'blocks': [{'dsp': 0, 'id': 'block0', 'model': 'HD2_DelayTest', 'enabled': True}],
                                                             'selected': {'dsp': 0, 'id': 'block0'}, 'values': {}, 'snapshots': ['A', 'B'],
@@ -341,6 +350,74 @@ class PaneDriverTests(unittest.TestCase):
         self.assertIsNone(self.view.checked_set({'dsp': 0, 'id': 'block0', 'key': 'Nope', 'value': 1, 'phase': 'single'}))
         self.assertEqual(self.view.checked_snapshot(1), {'action': 'snapshot', 'index': 1})
         self.assertEqual(self.view.checked_model({'dsp': 0, 'id': 'block0', 'symbol': 'HD2_DelayOther'})['symbol'], 'HD2_DelayOther')
+
+
+@unittest.skipUnless(NODE, 'node is not installed')
+class SizeTests(unittest.TestCase):
+    """The three sizes Nick approved (research/modern-ui/play.js): a drawer beside the chain, a tool in the lower half,
+    a full view; the rail opens each in its first size, an expand button switches sizes."""
+
+    def run_view(self, steps, start=None):
+        code = """(() => { let v = %s; const out = [];
+          for (const [action, name] of %s) { v = workbenchView(v, action, name); out.push([v.drawer, v.half, v.full]); }
+          return out; })()""" % (json.dumps(start), json.dumps(steps))
+        return run_js(['workbench_layout.js'], code)
+
+    def test_the_rail_opens_each_thing_in_its_first_size_and_closes_it_again(self):
+        self.assertEqual(self.run_view([['rail', 'presets'], ['rail', 'captures'], ['rail', 'captures']]),
+                         [['presets', '', ''], ['captures', '', ''], ['', '', '']])
+        self.assertEqual(self.run_view([['rail', 'look'], ['rail', 'level'], ['rail', 'level']]),
+                         [['', 'look', ''], ['', 'level', ''], ['', '', '']])
+        self.assertEqual(self.run_view([['rail', 'tone'], ['rail', 'library'], ['rail', 'library']]),
+                         [['', '', 'tone'], ['', '', 'library'], ['', '', '']])
+        # a drawer and a tool under the chain are open together
+        self.assertEqual(self.run_view([['rail', 'captures'], ['rail', 'look']])[-1], ['captures', 'look', ''])
+        # "open" (the Unbound menu, a link) never closes what is open
+        self.assertEqual(self.run_view([['open', 'look'], ['open', 'look']])[-1], ['', 'look', ''])
+
+    def test_expand_shrink_back_and_escape(self):
+        # Floor look: lower half -> full -> back under the chain; Esc closes the full view, then the lower half
+        self.assertEqual(self.run_view([['rail', 'look'], ['expand', 'look'], ['shrink', None]]),
+                         [['', 'look', ''], ['', 'look', 'look'], ['', 'look', '']])
+        self.assertEqual(self.run_view([['rail', 'level'], ['expand', 'level'], ['escape', None], ['escape', None]]),
+                         [['', 'level', ''], ['', 'level', 'level'], ['', 'level', ''], ['', '', '']])
+        # Presets: the drawer -> the full grid -> back to the drawer; Back to the chain keeps the drawer
+        self.assertEqual(self.run_view([['rail', 'presets'], ['expand', 'presets'], ['shrink', None]]),
+                         [['presets', '', ''], ['presets', '', 'presets'], ['presets', '', '']])
+        self.assertEqual(self.run_view([['expand', 'presets'], ['back', None]], {'drawer': 'captures'})[-1], ['captures', '', ''])
+        # a thing with one size has no other: Captures and IRs never fill the screen, TONE3000 never shrinks
+        self.assertEqual(self.run_view([['expand', 'captures'], ['expand', 'irs']]), [['', '', ''], ['', '', '']])
+        self.assertEqual(self.run_view([['rail', 'tone'], ['shrink', None]])[-1], ['', '', ''])
+        # a rail button while a full view is open: it closes and the thing opens beside or under the chain
+        self.assertEqual(self.run_view([['rail', 'tone'], ['rail', 'irs']])[-1], ['irs', '', ''])
+        # another tool's full view takes the place of the one under the chain
+        self.assertEqual(self.run_view([['rail', 'level'], ['rail', 'tone']])[-1], ['', '', 'tone'])
+
+    def test_a_block_picked_closes_levels_and_keeps_floor_look(self):
+        self.assertEqual(self.run_view([['rail', 'level'], ['select', None]])[-1], ['', '', ''])
+        self.assertEqual(self.run_view([['rail', 'look'], ['select', None]])[-1], ['', 'look', ''])
+        # a small tile in a full view's header: back to the chain, with nothing over it
+        self.assertEqual(self.run_view([['rail', 'look'], ['expand', 'look'], ['goto', None]], {'drawer': 'irs'})[-1], ['irs', '', ''])
+        # the tool's window closed by itself: its frame closes, wherever it was
+        self.assertEqual(self.run_view([['rail', 'look'], ['expand', 'look'], ['close', 'look']])[-1], ['', '', ''])
+
+    def test_the_rail_lights_what_shows(self):
+        on = lambda view, name: run_js(['workbench_layout.js'], f'workbenchRailOn({json.dumps(view)}, {json.dumps(name)})')
+        self.assertTrue(on({'drawer': 'captures', 'half': 'look', 'full': ''}, 'look'))
+        self.assertTrue(on({'drawer': 'captures', 'half': 'look', 'full': ''}, 'captures'))
+        self.assertFalse(on({'drawer': 'captures', 'half': 'look', 'full': 'tone'}, 'captures'))
+        self.assertTrue(on({'drawer': 'captures', 'half': 'look', 'full': 'tone'}, 'tone'))
+
+    def test_the_page_places_an_old_tools_window_over_its_frame_and_closes_it_with_the_frame(self):
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("const body = view.full ? $('vbody') : $('toolBody')", page)
+        self.assertIn("if (!name) { if (toolShown) { toolShown = ''; ask('toolClose'); } return; }", page)
+        self.assertIn("else if (message.type === 'toolClosed') { toolClosed(); return; }", page)
+        self.assertIn("else if (view.full || view.half) setView('escape');", page)
+        self.assertIn("if (view.half === 'level' && !view.full) setView('select');", page)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("preview.close_window('workbench')", launcher)
+        self.assertIn('workbench.tool_closed()', launcher)
 
 
 class SplitMoveTests(unittest.TestCase):
@@ -444,9 +521,9 @@ class SplitMoveTests(unittest.TestCase):
         put = page[page.index('function putLibrary('):page.index('function liftLibrary(')]
         self.assertIn('!kind.fits(block)', put)                                  # a click never changes a block's kind
         self.assertIn("if (isNam(block)) button.classList.add('nam-drop'); if (isIr(block)) button.classList.add('ir-drop');", page)
-        for tool in ("openTool('look')", "openTool('level')", "openTool('library')", "openTool('tone')"):
+        for tool in ("button('look', 'Floor look'", "button('level', 'Levels'", "button('library', 'Library'", "button('tone', 'TONE3000'"):
             self.assertIn(tool, page)
-        self.assertIn("ask('tool', {name, ...panelRect()});", page)        # a tool over the panel below the chain
+        self.assertIn("ask('tool', {name, ...rect});", page)               # a tool's window over its frame (lower half or full view)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         for piece in ('preview.place_over(place)', 'workbench.set_raise(False)', 'preview.on_browser_closed = workbench_tool_closed',
                       "sidebar_action('catalog', '')", 'preview.place_over(None)'):
@@ -923,7 +1000,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose'})
 
 
 if __name__ == '__main__':

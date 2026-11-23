@@ -452,6 +452,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 return {'visible': True, 'x': int(pane['x']) + x, 'y': int(pane['y']) + y, 'w': w, 'h': h}
             def workbench_tool_closed():
                 workbench.set_raise(True)
+                workbench.tool_closed()                      # (the page closes the frame it sat in)
             def workbench_action(name, value):
                 if name == 'tool' and isinstance(value, dict) and value.get('name') in ('look', 'level', 'library', 'tone'):
                     # A tool from the Workbench's rail, over its lower panel (the Workbench stays): its window is placed
@@ -472,6 +473,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         sidebar_action('catalog', '')
                     else:
                         unbound_choice(value['name'])
+                    return
+                if name == 'toolClose':
+                    # The Workbench closed the frame a tool sat in (Close, Back to the chain, Esc, another tool's
+                    # place): its window closes as its own Close does.
+                    if preview is not None and preview.bounds_override is not None:
+                        preview.close_window('workbench')
                     return
                 if name == 'toolPlace':
                     # The Workbench was resized while a tool sits over its lower panel: the tool follows.

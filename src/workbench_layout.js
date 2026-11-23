@@ -177,6 +177,59 @@ function workbenchRedo(track, at, preset, redoing) {
   return {preset, at, top, redo: at < top};
 }
 
+// ---- what is open beside, under or over the chain ------------------------------------------------------------------
+// The rule Nick agreed to (2026-11-23, research/modern-ui/play.js): what you use while editing stays beside the chain;
+// a job of its own gets the full screen; an expand button switches between a thing's two sizes. The first size is the
+// one the rail opens.
+//   drawer: beside the chain (left of it); half: the lower half, in place of the block panel; full: the whole work
+//   area, the chain shrunk to small tiles in the view's header.
+const WORKBENCH_SIZES = Object.freeze({
+  presets: ['drawer', 'full'], captures: ['drawer'], irs: ['drawer'],
+  look: ['half', 'full'], level: ['half', 'full'], library: ['full'], tone: ['full']});
+
+function workbenchView(view, action, name) {
+  // The next {drawer, half, full} after an action: "rail" (a rail button: opens the thing in its first size, or closes
+  // it when it is open there), "open" (the same without closing), "expand" (to its full view), "shrink" (back to its
+  // other size), "back" (Back to the chain), "close" (that thing, wherever it is), "escape" (the full view, else the
+  // lower half), "select" (a block picked in the chain: Levels gives way to the block's panel; Floor look stays and
+  // follows it), "goto" (a small tile of a full view's header: everything over the chain closes).
+  const v = {drawer: '', half: '', full: '', ...(view || {})};
+  const sizes = WORKBENCH_SIZES[name] || [];
+  const openFull = () => { v.full = name; if (v.half && v.half !== name) v.half = ''; };
+  if (action === 'rail' || action === 'open') {
+    const size = sizes[0], toggle = action === 'rail';
+    if (size === 'drawer' || size === 'half') {
+      if (v.full) { v.full = ''; v[size] = name; } else v[size] = toggle && v[size] === name ? '' : name;
+    } else if (size === 'full') {
+      if (toggle && v.full === name) v.full = ''; else openFull();
+    }
+  } else if (action === 'expand') {
+    if (sizes.includes('full')) openFull();
+  } else if (action === 'shrink') {
+    const was = v.full, size = (WORKBENCH_SIZES[was] || [])[0];
+    v.full = '';
+    if (size === 'drawer' || size === 'half') v[size] = was;
+  } else if (action === 'back') {
+    v.full = '';
+  } else if (action === 'close') {
+    for (const size of ['drawer', 'half', 'full']) if (v[size] === name) v[size] = '';
+  } else if (action === 'escape') {
+    if (v.full) v.full = ''; else v.half = '';
+  } else if (action === 'select') {
+    if (v.half === 'level') v.half = '';
+  } else if (action === 'goto') {
+    v.full = ''; v.half = '';
+  }
+  return v;
+}
+
+function workbenchRailOn(view, name) {
+  // Whether a rail button is lit: what the full view shows, else what is open beside or under the chain.
+  if (!view) return false;
+  return view.full ? view.full === name : view.drawer === name || view.half === name;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps };
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
+                     WORKBENCH_SIZES, workbenchView, workbenchRailOn };
 }

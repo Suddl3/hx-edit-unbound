@@ -81,7 +81,15 @@ class WorkbenchView(focus_view.FocusView):
         tool of the launcher's own menu."""
         return value if value in ('classic', 'focus', *TOOLS) else None
 
+    def tool_closed(self):
+        """The tool's window over the page closed by itself (its own Close, Esc): the page closes its frame."""
+        self.queue.put(('toolClosed', None))
+
     def _handle(self, kind, value):
+        if kind == 'toolClosed':
+            if self.page_ready:
+                self._write('P', {'type': 'toolClosed'})
+            return
         if kind == 'options':
             self.options = value
             if self.page_ready:

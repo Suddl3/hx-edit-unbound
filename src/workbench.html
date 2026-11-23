@@ -77,6 +77,43 @@
   .caprow .irwave, .ghost .irwave { width: 38px; height: 38px; display: grid; place-items: center; color: #f23091; }
   .caprow .irwave svg { width: 26px; height: 26px; } .ghost .irwave svg { width: 44px; height: 44px; }
   .board.dragging .tile.over { border-color: #f0c94a; box-shadow: 0 0 0 2px #f0c94a, 0 10px 30px rgb(240 201 74 / .25); }
+  /* a drawer's expand button (to the thing's full view) */
+  .xb { width: 24px; height: 24px; border-radius: 6px; display: inline-grid; place-items: center; color: var(--dim); background: var(--raise); border: 1px solid var(--line); vertical-align: middle; margin-left: 6px; }
+  .xb svg { width: 13px; height: 13px; } .xb:hover { border-color: #4a4f5b; color: var(--ink); }
+  .drawer h3 span { display: inline-flex; align-items: center; }
+  /* the Presets drawer: the loaded setlist's names */
+  .prows { overflow-y: auto; min-height: 0; padding: 0 4px 8px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .prow { width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; height: 29px; padding: 0 10px; border-radius: 7px; text-align: left; font-size: 13.5px; }
+  .prow span:first-child { color: var(--faint); } .prow span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prow:hover { background: var(--raise); }
+  .prow.cur { background: var(--raise2); box-shadow: inset 2px 0 0 #f0c94a; } .prow.cur span:first-child { color: #f0c94a; }
+  .prow.blank span:last-child { color: var(--faint); }
+
+  /* ---- a tool in the lower half (in place of the block panel), and a full view (the whole work area) ------------- */
+  .app.half > .insp { display: none; }
+  .app.full > .drawer, .app.full > .board, .app.full > .insp, .app.full > .tool { display: none !important; }
+  .tool { grid-column: 3; grid-row: 3; --c: 176 112 224; display: grid; grid-template-columns: 250px minmax(0, 1fr); min-width: 0; min-height: 0; }
+  .tool .card .bigicon { width: 64px; height: 64px; margin: 10px auto 4px; color: rgb(var(--c)); }
+  .tool .card .bigicon svg { width: 64px; height: 64px; }
+  .tool .card .btnrow { flex-wrap: wrap; }
+  .tbody { position: relative; min-width: 0; min-height: 0; }
+  .vw { grid-column: 2 / -1; grid-row: 2 / 4; --c: 176 112 224; display: grid; grid-template-rows: 52px minmax(0, 1fr); min-width: 0; min-height: 0;
+        background: radial-gradient(70% 60% at 50% 0%, #15181f 0%, var(--bg) 70%); }
+  .vhead { display: flex; align-items: center; gap: 14px; padding: 0 20px; border-bottom: 1px solid var(--line); white-space: nowrap; min-width: 0; }
+  .vhead h2 { margin: 0; font-size: 21px; font-weight: 600; font-stretch: 86%; }
+  .vhead .sub { color: var(--dim); font-size: 13px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .vhead .sp { flex: 1; }
+  .vbody { position: relative; min-width: 0; min-height: 0; }
+  /* (behind a tool's own window until it is there, or if it does not come) */
+  .waiting { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: 14px; text-align: center; line-height: 1.5; padding: 20px; }
+  /* the chain as small tiles in a full view's header: a click goes back to the chain with that block picked */
+  .mini { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+  .mini small { color: var(--faint); font-size: 11px; margin: 0 5px 0 10px; }
+  .mini button { width: 30px; height: 30px; border-radius: 7px; background: #15181e; border: 1px solid var(--line); border-bottom: 2px solid rgb(var(--c)); display: grid; place-items: center; flex: none; }
+  .mini button:hover { border-color: #5a606c; border-bottom-color: rgb(var(--c)); }
+  .mini button img { width: 22px; height: 22px; object-fit: contain; }
+  .mini button.off { opacity: .4; }
+  .mini button.on { box-shadow: 0 0 0 1px rgb(var(--c)); }
 
   /* ---- the top bar ------------------------------------------------------------------------------------- */
   .top { position: relative; z-index: 6; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
@@ -362,6 +399,15 @@
   <section class="board" id="board" aria-label="Signal chain"></section>
 
   <section class="insp" id="insp" aria-label="The selected block"></section>
+
+  <section class="tool" id="tool" aria-label="A tool under the chain" hidden>
+    <div class="card" id="toolCard"></div>
+    <div class="tbody" id="toolBody"></div>
+  </section>
+  <section class="vw" id="vw" hidden>
+    <header class="vhead" id="vhead"></header>
+    <div class="vbody" id="vbody"></div>
+  </section>
 </div>
 
 <script src="pane_controls.js"></script>
@@ -520,7 +566,7 @@ function drawPath(p, g, now) {
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
     button.append(led, image(pictures(block), 'pic', true), strip);
     button.title = title(block) + (capture(block) ? ' (' + model(block).name + ')' : '') + (block.enabled ? '' : ', bypassed');
-    button.onclick = () => { if (!dragDone) ask('select', {dsp: block.dsp, id: block.id}); };
+    button.onclick = () => { if (!dragDone) pickBlock(block); };
     button.onpointerdown = event => liftBlock(event, block, button);
     return button;
   };
@@ -542,7 +588,7 @@ function drawPath(p, g, now) {
     if (right) button.firstChild.style.transform = 'scaleX(-1)';
     button.append(el('div', 'strip', end.name || '—'));
     button.title = (block.id.startsWith('input') ? 'Input: ' : 'Output: ') + (end.name || 'none');
-    button.onclick = () => ask('select', {dsp: block.dsp, id: block.id});
+    button.onclick = () => pickBlock(block);
     return button;
   };
   if (two) {
@@ -886,8 +932,8 @@ function capturePanel(block) {
   change.innerHTML = ICON.swap + 'Change capture'; change.onclick = () => openPicker('captures');
   row.append(change); box.append(row);
   const later = el('p', 'later', "The capture's light version, its level and A/B compare are in the NAM library for now. "), open = el('button', '', 'Open the NAM library');
-  open.title = 'Opens over the panel below the chain';
-  open.onclick = () => openTool('library');
+  open.title = 'Opens the NAM library over the whole work area';
+  open.onclick = () => setView('open', 'library');
   later.append(open); box.append(later);
   return box;
 }
@@ -1344,7 +1390,7 @@ function openMenu() {
   closePresets();
   const menu = $('menu'), item = (words, note, choice) => {
     const button = el('button'); button.append(el('span', '', words)); if (note) button.lastChild.append(el('small', '', note));
-    button.onclick = () => { closeMenu(); if (['look', 'level', 'library'].includes(choice)) openTool(choice); else ask('menu', choice); };
+    button.onclick = () => { closeMenu(); if (['look', 'level', 'library'].includes(choice)) setView('open', choice); else ask('menu', choice); };
     return button;
   };
   menu.replaceChildren(
@@ -1352,9 +1398,9 @@ function openMenu() {
     item('Classic screen', "HX Edit's own screen, with everything the Workbench does not have yet. Back here: Unbound menu > Workbench.", 'classic'),
     item('Focus Mode', 'The selected block, large, in its scene', 'focus'),
     el('hr'), el('h6', '', 'Tools'),
-    ...(options.level ? [item('Level presets…', 'Opens over the panel below the chain', 'level')] : []),
-    item('Floor look…', 'Opens over the panel below the chain', 'look'),
-    item('NAM library…', 'Opens over the panel below the chain', 'library'));
+    ...(options.level ? [item('Levels…', 'Under the chain; its expand button gives it the whole work area', 'level')] : []),
+    item('Floor look…', 'Under the chain; its expand button gives it the whole work area', 'look'),
+    item('NAM library…', 'Over the whole work area', 'library'));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
 }
 function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
@@ -1378,7 +1424,14 @@ const RAIL_ICON = {
   floor: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2" y="6" width="16" height="9" rx="1.5"/><circle cx="6" cy="12" r="1"/><circle cx="10" cy="12" r="1"/><circle cx="14" cy="12" r="1"/><path d="M5 8.5h6"/></svg>',
   level: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 16V9M10 16V4M15 16v-5"/></svg>',
   library: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 4.5h4v11H3zM8 4.5h4v11H8z"/><path d="M13 5.2l3.7-1 2.6 10.6-3.7 1z"/></svg>',
+  presets: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 5h13M3.5 10h13M3.5 15h8"/></svg>',
 };
+Object.assign(ICON, {
+  expand: svg('<path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9"/>'),
+  shrink: svg('<path d="M13 7H9V3M9 7l4.5-4.5M3 9h4v4M7 9l-4.5 4.5"/>'),
+  x: svg('<path d="M4 4l8 8M12 4l-8 8"/>'),
+  back: svg('<path d="M9.5 3.5 5 8l4.5 4.5"/>'),
+});
 // The IR block an IR from the drawer makes on an empty place (focus_view.FocusView.IR_BLOCK), and the IR blocks
 const IR_BLOCK = 'HD2_ImpulseResponse1024';
 const isIr = block => /^HD2_ImpulseResponse\d{3,4}[A-Za-z]*$/.test(block.model || '');
@@ -1408,45 +1461,139 @@ const DRAWERS = {
     select: 'Select an IR block first, or drag the IR onto the chain.',
   },
 };
-let drawer = '', capKind = '', capQuery = '', shownDrawer = '', shownRail = '';
-function drawRail() {
-  const key = [drawer, !!options.level].join('|');
-  if (key === shownRail) return;
-  shownRail = key;
-  const button = (words, icon, cls, title, onclick) => {
-    const b = el('button', cls); b.innerHTML = RAIL_ICON[icon]; b.append(words); b.title = title; b.onclick = onclick; return b;
-  };
-  const opener = which => {
-    const kind = DRAWERS[which], b = button(kind.rail, kind.icon, drawer === which ? 'on' : '', kind.hint, () => setDrawer(drawer === which ? '' : which));
-    b.setAttribute('aria-pressed', drawer === which);
-    return b;
-  };
-  $('rail').replaceChildren(opener('captures'), opener('irs'), el('div', 'sep'),
-    button('TONE3000', 'cloud', '', 'Find captures on TONE3000: opens over the panel below the chain', () => openTool('tone')), el('div', 'sep'),
-    button('Floor look', 'floor', 'un', 'Floor look: opens over the panel below the chain', () => openTool('look')),
-    ...(options.level ? [button('Levels', 'level', 'un', 'Level presets: opens over the panel below the chain', () => openTool('level'))] : []),
-    button('NAM library', 'library', 'un', 'The NAM library (add captures to the Floor): opens over the panel below the chain', () => openTool('library')));
+// ---- the three sizes: a drawer beside the chain, a tool in the lower half, a full view (workbenchView) ---------------
+// view: what is open ({drawer, half, full}); the rail, the expand buttons, Close, Back to the chain and Esc change it.
+let view = {drawer: '', half: '', full: ''};
+let capKind = '', capQuery = '', shownDrawer = '', shownRail = '', presetQuery = '';
+// Each thing's words. half: the line under its name in the lower half's card; shrink: the full view's button back.
+const THINGS = {
+  presets: {title: 'Presets', sub: 'The whole setlist on one screen', icon: 'presets', shrink: 'Show as a side list'},
+  look: {title: 'Floor look', sub: "What the Floor's own screen shows behind each block", half: 'Focus screen backgrounds', icon: 'floor',
+         hint: "The background the Floor's Focus screen shows behind each kind of block.", shrink: 'Show under the chain'},
+  level: {title: 'Levels', sub: 'Bring presets and snapshots to one loudness, without touching the tone', half: 'Level presets', icon: 'level',
+          hint: 'The amp stays silent while it measures (the Floor plays to USB only). Nothing changes until you Apply.', shrink: 'Show under the chain'},
+  library: {title: 'NAM library', sub: 'Every capture you have, on the Floor or only on this PC', icon: 'library'},
+  tone: {title: 'TONE3000', sub: 'Find captures and send them to the Floor', icon: 'cloud'},
+};
+// The tools still shown by their old page (library_card.html in the TONE3000 window), which the launcher places over
+// the frame's body (TonePreview.place_over) until each has its own view here.
+const OLD_PAGES = new Set(['look', 'level', 'library', 'tone']);
+function setView(action, name) {
+  const before = view;
+  view = workbenchView(view, action, name);
+  if (view.drawer !== before.drawer) { capKind = ''; capQuery = ''; presetQuery = ''; $('drawer').replaceChildren(); shownDrawer = ''; }   // (each drawer its own search)
+  if (['drawer', 'half', 'full'].every(size => view[size] === before[size])) return;
+  shownRail = '';
+  drawFrames(); drawRail(); drawDrawer();
+  // (the chain has less, or more, room; a tool's window follows its frame: reading where it is lays the page out)
+  if (catalog && state && !view.full) drawChain(true);
+  syncTool();
 }
-// A tool of the rail opens over the panel below the chain (the launcher places its window there; the Workbench and
-// its chain stay): the panel's place in the page's own pixels. Its own Close button puts the panel back.
-function panelRect() {
-  const r = $('insp').getBoundingClientRect(), k = window.devicePixelRatio || 1;
+// A block picked in the chain: HX Edit selects it (its own click on the chain); Levels in the lower half gives way to
+// the block's panel, Floor look stays.
+function pickBlock(block) {
+  ask('select', {dsp: block.dsp, id: block.id});
+  if (view.half === 'level' && !view.full) setView('select');
+}
+let shownFrame = '';
+function drawFrames() {
+  const app = $('app'), full = view.full, half = !full && view.half;
+  app.classList.toggle('full', !!full); app.classList.toggle('half', !!half);
+  $('vw').hidden = !full; $('tool').hidden = !half;
+  const key = JSON.stringify([full, half]);
+  if (key === shownFrame) return;
+  shownFrame = key;
+  if (full) {
+    const thing = THINGS[full], head = $('vhead'), more = WORKBENCH_SIZES[full].length > 1;
+    const button = (icon, words, onclick, title) => { const b = el('button', 'btn'); b.innerHTML = ICON[icon]; b.append(words); b.onclick = onclick; if (title) b.title = title; return b; };
+    head.replaceChildren(el('h2', '', thing.title), el('span', 'sub', thing.sub), el('span', 'sp'), el('div', 'mini'),
+      ...(more ? [button('shrink', thing.shrink, () => setView('shrink'))] : []),
+      button('back', 'Back to the chain', () => setView('back'), 'Back to the chain (Esc)'));
+    shownMini = '';
+    drawMini();
+    $('vbody').replaceChildren(...(OLD_PAGES.has(full) ? [el('div', 'waiting', 'Opening ' + thing.title + '…')] : []));
+  } else if (half) {
+    const thing = THINGS[half], box = $('toolCard'), icon = el('div', 'bigicon'), words = el('div'), row = el('div', 'btnrow');
+    icon.innerHTML = RAIL_ICON[thing.icon];
+    words.append(el('h4', '', thing.title), el('p', '', thing.half));
+    const big = el('button', 'btn'); big.innerHTML = ICON.expand + 'Full view'; big.onclick = () => setView('expand', half);
+    const close = el('button', 'btn'); close.innerHTML = ICON.x + 'Close'; close.onclick = () => setView('close', half); close.title = 'Close (Esc)';
+    row.append(big, close);
+    box.replaceChildren(icon, words, el('span', 'hint', thing.hint), row);
+    $('toolBody').replaceChildren(...(OLD_PAGES.has(half) ? [el('div', 'waiting', 'Opening ' + thing.title + '…')] : []));
+  }
+}
+// The chain as small tiles in a full view's header, path by path: a click goes back to the chain with that block.
+let shownMini = '';
+function drawMini() {
+  const box = $('vhead').querySelector('.mini');
+  if (!box || !catalog || !state) return;
+  const now = current(), paths = workbenchPaths(shownBlocks(), catalog, state.topology);
+  const rows = paths.map(p => {
+    const all = [];
+    for (let k = 0; k < 8; k++) for (const lane of [p.a, p.b]) if (lane && lane[k]) all.push(lane[k]);
+    return {dsp: p.dsp, blocks: all};
+  });
+  const key = JSON.stringify([rows.map(r => r.blocks.map(b => [b.id, b.model, b.slot, b.enabled])), now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.icon])]);
+  if (key === shownMini) return;
+  shownMini = key;
+  reusable = gather(box);
+  try {
+    box.replaceChildren(...rows.flatMap(r => [el('small', '', 'Path ' + (r.dsp + 1)), ...r.blocks.map(block => {
+      const b = el('button', (block.enabled ? '' : 'off') + (same(block, now) ? ' on' : ''));
+      b.style.setProperty('--c', tint(block).join(' '));
+      b.title = title(block) + ': back to the chain with this block';
+      b.append(image(pictures(block), '', true));
+      b.onclick = () => { setView('goto'); ask('select', {dsp: block.dsp, id: block.id}); };
+      return b;
+    })]));
+  } finally { reusable = null; }
+}
+// A tool still on its old page: its window is placed over the frame's body (the lower half's or the full view's), in
+// the page's own pixels; the launcher closes it again when the frame closes ("toolClose"), and says so when it was
+// closed from the window itself ({type: "toolClosed"}).
+let toolShown = '', toolAskedAt = 0, toolPlaced = '';
+function frameRect() {
+  const body = view.full ? $('vbody') : $('toolBody'), r = body.getBoundingClientRect(), k = window.devicePixelRatio || 1;
   return {x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k)};
 }
-function openTool(name) {
-  ask('tool', {name, ...panelRect()});
+function syncTool() {
+  const want = view.full || view.half, name = visible && OLD_PAGES.has(want) ? want : '';
+  if (!name) { if (toolShown) { toolShown = ''; ask('toolClose'); } return; }
+  const rect = frameRect(), key = JSON.stringify(rect);
+  if (toolShown !== name) { toolShown = name; toolPlaced = key; toolAskedAt = Date.now(); ask('tool', {name, ...rect}); }
+  else if (key !== toolPlaced) { toolPlaced = key; ask('toolPlace', rect); }
 }
-function setDrawer(which) {
-  const was = drawer;
-  drawer = which;
-  if (was !== which) { capKind = ''; capQuery = ''; $('drawer').replaceChildren(); }   // (each drawer its own search)
-  shownDrawer = '';
-  drawRail(); drawDrawer();
-  if (!was !== !which) requestAnimationFrame(() => { if (catalog && state) drawChain(true); ask('toolPlace', panelRect()); });   // (the chain has less, or more, room; a tool over the panel follows it)
+function toolClosed() {
+  // The tool's window closed. Just after asking for one (a close and an open crossing): ask again. Else it was closed
+  // from the window itself (its Close, Esc): its frame closes too.
+  const was = toolShown;
+  toolShown = '';
+  if (Date.now() - toolAskedAt < 2500) { syncTool(); return; }
+  if (was) setView('close', was);
+}
+function drawRail() {
+  const key = JSON.stringify([view, !!options.level]);
+  if (key === shownRail) return;
+  shownRail = key;
+  const button = (name, words, icon, cls, title) => {
+    const on = workbenchRailOn(view, name), b = el('button', [cls, on ? 'on' : ''].join(' ').trim());
+    b.innerHTML = RAIL_ICON[icon]; b.append(words); b.title = title; b.setAttribute('aria-pressed', on);
+    b.onclick = () => setView('rail', name);
+    return b;
+  };
+  $('rail').replaceChildren(
+    button('presets', 'Presets', 'presets', '', 'The setlist’s presets, beside the chain'),
+    button('captures', 'Captures', 'capture', '', DRAWERS.captures.hint), button('irs', 'IRs', 'ir', '', DRAWERS.irs.hint), el('div', 'sep'),
+    button('tone', 'TONE3000', 'cloud', '', 'Find captures on TONE3000 (the whole work area)'), el('div', 'sep'),
+    button('look', 'Floor look', 'floor', 'un', 'Floor look: under the chain'),
+    ...(options.level ? [button('level', 'Levels', 'level', 'un', 'Levels: under the chain')] : []),
+    button('library', 'Library', 'library', 'un', 'The NAM library: every capture you have (the whole work area)'));
 }
 function drawDrawer() {
-  const box = $('drawer'), kind = DRAWERS[drawer];
-  box.hidden = !kind;
+  const box = $('drawer'), kind = DRAWERS[view.drawer], drawer = view.drawer;
+  box.hidden = !drawer || !!view.full;
+  if (drawer === 'presets') { if (catalog && state) drawPresetDrawer(box); return; }
   if (!kind || !catalog || !state) return;
   box.setAttribute('aria-label', kind.title + ' on the Floor');
   const all = kind.items().filter(c => c && Number.isInteger(c.slot)).slice().sort((a, b) => a.slot - b.slot);
@@ -1468,6 +1615,7 @@ function drawDrawer() {
     box.replaceChildren(el('h3'), find, el('div', 'kindchips'), el('div', 'caplist'), el('div', 'dfoot', kind.foot));
   }
   const head = el('h3', '', kind.title); head.append(el('span', '', all.length + ' on the Floor'));
+  if (drawer === 'captures') head.lastChild.append(expander('Manage them in the NAM library', () => setView('open', 'library')));
   const chips = el('div', 'kindchips');
   const chip = (words, group, count) => {
     const b = el('button', capKind === group ? 'on' : '', words); b.append(el('b', 'num', String(count)));
@@ -1490,6 +1638,45 @@ function drawDrawer() {
     box.querySelector('h3').replaceWith(head); box.querySelector('.kindchips').replaceWith(chips); box.querySelector('.caplist').replaceWith(list);
   } finally { reusable = null; }
   list.scrollTop = scroll;                                      // (a reading of HX Edit does not move the list)
+}
+// A drawer's expand button: to the thing's full view
+function expander(title, onclick) {
+  const b = el('button', 'xb'); b.innerHTML = ICON.expand; b.title = title; b.setAttribute('aria-label', title); b.onclick = onclick;
+  return b;
+}
+// The Presets drawer: the loaded setlist's names (state.presets, as the top bar's list); a click loads one the same way.
+function drawPresetDrawer(box) {
+  box.setAttribute('aria-label', 'Presets');
+  const names = state.presets || [], at = state.preset ? state.preset.number : -1;
+  const key = JSON.stringify(['presets', names, at, presetQuery, state.preset && state.preset.setlist]);
+  if (key === shownDrawer) return;
+  const first = shownDrawer === '' || !shownDrawer.startsWith('["presets"');
+  shownDrawer = key;
+  if (!box.querySelector('.find')) {
+    const find = el('label', 'find'); find.innerHTML = ICON.search;
+    const input = el('input'); input.type = 'search'; input.placeholder = 'Search presets'; input.setAttribute('aria-label', 'Search presets');
+    input.oninput = () => { presetQuery = input.value.trim().toLowerCase(); drawDrawer(); };
+    find.append(input);
+    box.replaceChildren(el('h3'), find, el('div'), el('div', 'prows'), el('div', 'dfoot', 'Click a preset to load it, as the list under the preset’s name does.'));
+  }
+  const head = el('h3', '', 'Presets'), side = el('span', '', state.preset && Number.isInteger(state.preset.setlist) ? 'Setlist ' + (state.preset.setlist + 1) : '');
+  if (WORKBENCH_SIZES.presets.includes('full') && THINGS.presets.ready) side.append(expander('The whole setlist on one screen', () => setView('expand', 'presets')));
+  head.append(side);
+  const list = el('div', 'prows'), query = presetQuery;
+  names.forEach((name, index) => {
+    const number = String(index).padStart(3, '0');
+    if (query && !String(name).toLowerCase().includes(query) && !number.includes(query)) return;
+    const row = el('button', 'prow' + (index === at ? ' cur' : '') + (/^new preset$/i.test(String(name).trim()) ? ' blank' : ''));
+    row.append(el('span', 'num', number), el('span', '', name));
+    row.title = number + ' ' + name;
+    row.onclick = () => { if (index !== at) ask('preset', index); };
+    list.append(row);
+  });
+  if (!list.childElementCount) list.append(el('div', 'none', names.length ? 'No preset matches.' : 'Waiting for the setlist from HX Edit.'));
+  const scroll = box.querySelector('.prows').scrollTop;
+  box.querySelector('h3').replaceWith(head); box.querySelector('.prows').replaceWith(list);
+  list.scrollTop = scroll;
+  if (first) { const cur = list.querySelector('.cur'); if (cur) cur.scrollIntoView({block: 'center'}); }
 }
 function libraryRow(kind, c, on) {
   const row = el('button', 'caprow' + (on ? ' on' : '')), [name, sub] = kind.words(c);
@@ -1561,8 +1748,7 @@ function render() {
   drawBar();
   drawRail();
   drawDrawer();
-  drawChain();
-  drawPanel();
+  if (!view.full) { drawChain(); drawPanel(); } else drawMini();
 }
 function receive(message) {
   if (!message || typeof message !== 'object') return;
@@ -1582,7 +1768,13 @@ function receive(message) {
   else if (message.type === 'dspCosts') { costs = message.costs && typeof message.costs === 'object' ? message.costs : {}; shownPanel = ''; }
   else if (message.type === 'options') { options = message.options || {}; drawRail(); return; }
   else if (message.type === 'notice') { toast(message.text); if (snapHeld.size) { snapHeld.clear(); shownPanel = ''; render(); } return; }   // (a change refused: shown as it is)
-  else if (message.type === 'shown') { visible = message.shown === true; if (!visible) { closePresets(); closeMenu(); $('toast').hidden = true; } else render(); return; }
+  else if (message.type === 'shown') {
+    // (hidden, a tool's window goes back over HX Edit's own panel: shown again, it is placed over its frame again)
+    visible = message.shown === true; toolShown = '';
+    if (!visible) { closePresets(); closeMenu(); $('toast').hidden = true; } else { render(); syncTool(); }
+    return;
+  }
+  else if (message.type === 'toolClosed') { toolClosed(); return; }
   else return;
   render();
 }
@@ -1610,11 +1802,12 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.key !== 'Escape' || !visible) return;
-  if (!$('presetList').hidden) closePresets(); else if (!$('menu').hidden) closeMenu(); else if (picking) closePicker();
+  if (!$('presetList').hidden) closePresets(); else if (!$('menu').hidden) closeMenu(); else if (picking && !view.full) closePicker();
+  else if (view.full || view.half) setView('escape');
 });
 drawRail(); drawDrawer();
 let resizing = 0;
-addEventListener('resize', () => { cancelAnimationFrame(resizing); resizing = requestAnimationFrame(() => { if (catalog && state) drawChain(); ask('toolPlace', panelRect()); }); });
+addEventListener('resize', () => { cancelAnimationFrame(resizing); resizing = requestAnimationFrame(() => { if (catalog && state && !view.full) drawChain(); syncTool(); }); });
 </script>
 </body>
 </html>

@@ -251,6 +251,15 @@ class TonePreview:
         if self.browser and isinstance(self.placed(), dict):
             self.browser.send('bounds', **self.placed())
 
+    def close_window(self, reason='workbench'):
+        """Close the tool's window as its own Close does (the Workbench closed the frame it sat in)."""
+        browser = self.browser
+        if browser:
+            self.close_intent.set()
+            browser.actions.put({'close': reason})
+            return True
+        return False
+
     def receive(self, payload):
         if payload['type'] == 'toneReply':
             self.replies.put(payload)
