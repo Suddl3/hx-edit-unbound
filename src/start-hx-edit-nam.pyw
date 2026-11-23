@@ -213,6 +213,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 from focus_view import FocusView
                 focus = FocusView(exe.parent / 'res', settings=nam_catalog.load_settings(), trace=trace)
                 focus_options = focus.frida_options()
+                # Research only (a copy prepared with this marker file): HX Edit's own chain changes go to the trace.
+                focus_options['chainProbe'] = (exe.parent / 'res' / 'chain-probe.flag').is_file()
             except Exception as error:
                 focus = None
                 trace({'type': 'focusView', 'event': 'unavailable', 'error': str(error)})

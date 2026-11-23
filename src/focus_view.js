@@ -183,6 +183,44 @@ function focusPaneBounds(sf, ed, main) {
   return {x: main.x, y: top, w: main.w, h: bottom - top};
 }
 
+// Research only (options.chainProbe, a copy with res/chain-probe.flag): the edit buffer's chain entries HX Edit itself
+// calls go to the trace with their arguments and outcome, so a change made on HX Edit's own screen (its menu's
+// "Restore Split", say) can be done the same way here. Reads only; changes nothing; a few hundred lines at most.
+function focusChainProbe(base) {
+  let budget = 400;
+  const text = p => {
+    try { const rep = p.add(4).readPointer(); if (rep.isNull()) return null; const s = rep.add(0x10).readPointer().readCString(64); return /^[\x20-\x7e]{1,64}$/.test(s) ? s : null; }
+    catch (_) { return null; }
+  };
+  const cell = p => { try { return {type: p.readU32(), value: p.add(8).readU32()}; } catch (_) { return null; } };
+  const entries = {
+    remove: [0x514bc0, a => ({dsp: a[0].toInt32(), item: text(a[1]), flags: a[2].toUInt32()})],
+    add: [0x4ff300, a => ({dsp: a[0].toInt32(), item: text(a[1]), at: cell(a[2]), flags: a[3].toUInt32()})],
+    move: [0x5123c0, a => ({dsp: a[0].toInt32(), item: text(a[1]), at: cell(a[2]), flags: a[3].toUInt32()})],
+    paste: [0x513620, a => ({store: a[0].toInt32(), dsp: a[1].toInt32(), at: cell(a[2]), flags: a[3].toUInt32()})],
+    write: [0x5178c0, a => ({dsp: a[0].toInt32(), group: text(a[1]), key: text(a[2]), value: text(a[3]) ?? cell(a[3]), flags: a[4].toUInt32()})],
+  };
+  for (const [name, [rva, read]] of Object.entries(entries)) {
+    Interceptor.attach(base.add(rva), {
+      onEnter(args) {
+        this.seen = null;
+        if (budget <= 0) return;
+        try {
+          const seen = read(args);
+          // (a value write is kept only for the routing: the path's shape, its ends, positions, the cursor)
+          if (name === 'write' && !(typeof seen.key === 'string' && /^@(topology|input|output|position|path|cursor)/.test(seen.key))) return;
+          this.seen = seen;
+        } catch (_) { /* unreadable: not reported */ }
+      },
+      onLeave(result) {
+        if (!this.seen || budget-- <= 0) return;
+        send({type: 'toneTrace', reason: 'chain-probe', call: name, ...this.seen, result: result.toInt32()});
+      },
+    });
+  }
+  send({type: 'toneTrace', reason: 'chain-probe', stage: 'on'});
+}
+
 function installFocusView(options, parts) {
   if (Process.arch !== 'ia32' || Process.pointerSize !== 4) throw new Error('Focus Mode requires HX Edit x86');
   const base = Process.mainModule.base;
@@ -192,6 +230,7 @@ function installFocusView(options, parts) {
     if (actual !== hex) throw new Error(`Focus Mode native byte guard failed at ${rva}`);
   }
   const {targetBinding, namView, toneView} = parts;
+  if (options.chainProbe === true) focusChainProbe(base);
   const parameters = options.focusParameters || {}, namEngines = options.focusNamEngines || ['HD2_AmpNAMLite'];
   const widgetOrigin = new NativeFunction(base.add(0x3b7e00), 'pointer', ['pointer', 'pointer'], 'thiscall');
   const point = Memory.alloc(8);
