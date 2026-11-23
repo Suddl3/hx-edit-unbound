@@ -389,10 +389,10 @@ function installTargetBinding(options = {}) {
     return true;
   }
   function removeNode(editor, dsp, which) {
-    // Lane B's own input or output, as HX Edit's split / mixer menu "Create Input" (shortcut Del) makes it, and back
-    // ("Restore Split" / "Restore Merge"): both are its menu's clear (0x41b224), the remove entry (+0xb0 = 0x514bc0)
-    // on "split" (-> 0x4d66b0) or "join" (-> 0x4d5cf0), which switches between the two (static study 2026-11-22; on
-    // "inputB" / "outputB" themselves it is refused, -4, seen). Flags 0x80000000, as the menu: one undo step.
+    // Lane B's own input or output, as HX Edit's split / mixer menu "Create Input" / "Create Output" (shortcut Del)
+    // makes it: its menu's clear (0x41b224), the remove entry (+0xb0 = 0x514bc0) on "split" (-> 0x4d66b0) or "join"
+    // (-> 0x4d5cf0). Flags 0x80000000, as the menu: one undo step. (The way back is an add: restoreNode. A second
+    // removal, or one on "inputB" / "outputB", is refused: -4, seen 2026-11-22.)
     if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join'].includes(which)) fail('unsupported routing item');
     const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
     let name = null;
@@ -400,6 +400,24 @@ function installTargetBinding(options = {}) {
       name = string(which);
       const result = remove(editor, dsp, name, 0x80000000);
       if (result < 0) fail(`HX Edit refused to change lane B's routing (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  function restoreNode(editor, dsp, which) {
+    // The split or the mixer back in place of lane B's own input or output, as HX Edit's menu "Restore Split" /
+    // "Restore Merge" does it (seen with the chain probe 2026-11-22): the add entry (+0xa8 = 0x4ff300) with the item
+    // "split" at place 0 or "join" at place 8 of lane A; add hands those to 0x484970 / 0x483e40. One undo step.
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join'].includes(which)) fail('unsupported routing item');
+    const add = new NativeFunction(editorEntry(editor, 0xa8, 0x4ff300, 'add-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    const cell = emptyVariant();
+    try {
+      name = string(which);
+      cell.writeU32(5); cell.add(8).writeU32(which === 'split' ? 0 : 8);
+      const result = add(editor, dsp, name, cell, 0x80000000);
+      if (result < 0) fail(`HX Edit refused to put the ${which === 'join' ? 'mixer' : 'split'} back (${result})`);
     } finally {
       if (name) destroyVariant(name);
     }
@@ -522,7 +540,7 @@ function installTargetBinding(options = {}) {
     return true;
   }
   return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel,
-           removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode };
+           removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

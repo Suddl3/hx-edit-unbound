@@ -406,6 +406,7 @@ class SplitMoveTests(unittest.TestCase):
             self.assertEqual({w for w in ('split', 'join', 'inputB', 'outputB') if route(0, w)}, there, word)
             for w in there:                                                                    # the way back: the node again
                 self.assertEqual(route(0, w)['id'], {'inputB': 'split', 'outputB': 'join'}.get(w, w))
+                self.assertEqual(route(0, w).get('back', False), w in ('inputB', 'outputB'))       # put back: an add
         self.view.state['topology'] = None
         self.assertIsNone(route(0, 'split'))                                                   # no shape read: nothing
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
@@ -413,9 +414,14 @@ class SplitMoveTests(unittest.TestCase):
         self.assertIn("editorEntry(editor, 0xb0, 0x514bc0, 'remove-block')", body)
         self.assertIn("!['split', 'join'].includes(which)", body)
         self.assertIn('remove(editor, dsp, name, 0x80000000)', body)
+        back = binding[binding.index('function restoreNode('):binding.index('function selectNode(')]
+        self.assertIn("editorEntry(editor, 0xa8, 0x4ff300, 'add-block')", back)
+        self.assertIn("cell.writeU32(5); cell.add(8).writeU32(which === 'split' ? 0 : 8);", back)
+        self.assertIn('add(editor, dsp, name, cell, 0x80000000)', back)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id)", script)
-        self.assertIn('targetBinding.removeNode(editor, command.dsp, command.id);', script)
+        self.assertIn('if (command.back) targetBinding.restoreNode(editor, command.dsp, command.id);', script)
+        self.assertIn('else targetBinding.removeNode(editor, command.dsp, command.id);', script)
         self.assertIn("'route': view.checked_route", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("turn.onclick = () => ask('route', {dsp: block.dsp, id: block.id});", page)
