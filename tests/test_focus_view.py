@@ -819,7 +819,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.setValue(target, dsp, id, key, value, 'refresh')", script)
-        self.assertEqual(script.count('finish('), 7)   # (and a value in another snapshot)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
+        self.assertEqual(script.count('finish('), 8)   # (and a value in another snapshot, a capture added in one step)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
 
     def test_the_pane_never_outlives_hx_edit(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')

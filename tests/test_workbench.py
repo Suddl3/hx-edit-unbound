@@ -447,6 +447,20 @@ class SplitMoveTests(unittest.TestCase):
         self.assertIsNone(self.view.checked_capture({'dsp': 0, 'id': 'block2', 'slot': 22}))
         self.assertEqual(self.view.checked_capture({'dsp': 0, 'id': 'block2', 'slot': 21})['slot'], 21)
 
+    def test_a_capture_is_added_with_its_slot_as_one_undo_step(self):
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        body = binding[binding.index('function addCapture('):binding.index('// What the block picker itself does')]
+        self.assertIn("editorEntry(editor, 0xd4, 0x4ffa80, 'undo-open')", body)
+        self.assertIn("editorEntry(editor, 0xd8, 0x5044b0, 'undo-close')", body)
+        # inside the opened step: the add and the slot with flags 0 (no step of their own), closed with the outcome
+        self.assertLess(body.index('open(editor, 0x80000000);'), body.index('result = add(editor, dsp, value, cell, 0);'))
+        self.assertLess(body.index('result = add(editor, dsp, value, cell, 0);'), body.index('setIndex(editor, dsp, made.name, slot, 0);'))
+        self.assertIn('close(editor, result);', body)
+        self.assertIn('!engines.has(symbol)', body)                           # only a NAM engine
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn('targetBinding.addCapture(editor, command.dsp, command.lane, command.place, next, command.slot);', script)
+        self.assertIn('} else addFollow = {dsp: command.dsp', script)          # (the old way when the block was not found)
+
     def test_the_splits_type_is_one_of_hx_edits_four(self):
         kind = lambda dsp, which, symbol: self.view.checked_split_type({'dsp': dsp, 'id': which, 'symbol': symbol})
         self.assertEqual(kind(0, 'split', 'HD2_AppDSPFlowSplitAB'), {'action': 'splitType', 'dsp': 0, 'symbol': 'HD2_AppDSPFlowSplitAB'})

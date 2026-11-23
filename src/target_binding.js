@@ -343,9 +343,10 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  function setIndex(editor, dsp, blockName, slot) {
+  function setIndex(editor, dsp, blockName, slot, flags = 0x80000000) {
     // A NAM block's capture slot, written as restore() writes it (one undo step), keeping the
-    // stored value's own type. Only for a supported NAM engine and a permanent slot.
+    // stored value's own type. Only for a supported NAM engine and a permanent slot. (flags 0: inside an undo step
+    // opened by the caller, addCapture)
     if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName) ||
         !Number.isInteger(slot) || slot < 1 || slot > 127) fail('unsupported block or slot');
     const state = {editor, dsp, blockName, parameter: 'Index'};
@@ -359,7 +360,7 @@ function installTargetBinding(options = {}) {
       block = string(blockName); key = string('Index');
       value.writeU32(current.type);
       if (current.type === 8) value.add(8).writeFloat(slot); else value.add(8).writeU32(slot);
-      const result = writeValue(editor, dsp, block, key, value, 0x80000000);
+      const result = writeValue(editor, dsp, block, key, value, flags === 0 ? 0 : 0x80000000);
       if (result < 0) fail(`write was rejected (${result})`);
     } finally {
       destroyVariant(value);
@@ -367,6 +368,39 @@ function installTargetBinding(options = {}) {
       if (block) destroyVariant(block);
     }
     return true;
+  }
+  function addCapture(editor, dsp, row, col, symbol, slot) {
+    // A NAM block with its capture on an empty cell as ONE undo step: the add (+0xa8) and the slot (Index) inside an
+    // undo step of their own (+0xd4 opens it, +0xd8 closes it with the outcome, as HX Edit's drop between the paths
+    // does: moveAcross). Two steps apart, an Undo left a NAM block on IR slot 1 between them (seen 2026-11-23).
+    // Returns the new block's name, or null when it could not be found at once (the block is added; the caller sets
+    // the slot later, as before).
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || ![0, 1].includes(row) || !Number.isInteger(col) || col < 0 || col > 15 ||
+        !engines.has(symbol) || !Number.isInteger(slot) || slot < 1 || slot > 127) fail('unsupported cell, engine or slot');
+    const add = new NativeFunction(editorEntry(editor, 0xa8, 0x4ff300, 'add-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    const open = new NativeFunction(editorEntry(editor, 0xd4, 0x4ffa80, 'undo-open'), 'int', ['pointer', 'uint'], 'thiscall');
+    const close = new NativeFunction(editorEntry(editor, 0xd8, 0x5044b0, 'undo-close'), 'int', ['pointer', 'int'], 'thiscall');
+    let value = null, made = null, result = -1;
+    const cell = emptyVariant();
+    try {
+      value = string(symbol);
+      cell.writeU32(5); cell.add(8).writeU32(((row << 16) | col) >>> 0);
+      const before = blockCells(editor, dsp).map(b => b.name);
+      open(editor, 0x80000000);
+      try {
+        result = add(editor, dsp, value, cell, 0);
+        if (result >= 0) {
+          made = blockCells(editor, dsp).find(b => !before.includes(b.name) && b.path === row && b.position === col) || null;
+          if (made) setIndex(editor, dsp, made.name, slot, 0);
+        }
+      } finally {
+        close(editor, result);
+      }
+      if (result < 0) fail(`adding the block was rejected (${result})`);
+    } finally {
+      if (value) destroyVariant(value);
+    }
+    return made ? made.name : null;
   }
   // What the block picker itself does when a model row is chosen (0x21a470): a block's model
   // changes through the editor's parameter write (vtbl+0x7c = 0x5178c0, "@model"); an empty cell
@@ -602,7 +636,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, setValue, setIndex, setModel, addModel,
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, setValue, setIndex, setModel, addModel, addCapture,
            removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 

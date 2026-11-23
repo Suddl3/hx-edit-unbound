@@ -405,8 +405,15 @@ function installFocusView(options, parts) {
       const next = command.slot ? namEngines[0] : command.symbol;
       const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], costsNow(), null, next, command.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'add-no-room'}); return; }
-      targetBinding.addModel(editor, command.dsp, command.lane, command.place, next);
-      if (command.slot) addFollow = {dsp: command.dsp, lane: command.lane, place: command.place, slot: command.slot, until: Date.now() + ADD_FOLLOW_MS};
+      if (command.slot) {
+        // a capture: the block and its slot as one undo step (target_binding addCapture); its slot set later, as a
+        // step of its own, only when the new block could not be found at once
+        const made = targetBinding.addCapture(editor, command.dsp, command.lane, command.place, next, command.slot);
+        if (made) {
+          finish(editor, command.dsp, made, 'Index', command.slot);
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-one-step', slot: command.slot});
+        } else addFollow = {dsp: command.dsp, lane: command.lane, place: command.place, slot: command.slot, until: Date.now() + ADD_FOLLOW_MS};
+      } else targetBinding.addModel(editor, command.dsp, command.lane, command.place, next);
     } else if (command.action === 'moveSplit') {
       // The split or the mixer to another gap of lane A (target_binding moveSplit: HX Edit's own move, one undo step).
       const node = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
