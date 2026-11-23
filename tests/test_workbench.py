@@ -392,6 +392,21 @@ class SplitMoveTests(unittest.TestCase):
         self.assertIn("node.onpointerdown = event => liftNode(event, p, 'join', node, g);", page)
         self.assertIn("ask('moveSplit', {dsp: p.dsp, id: which, place: over})", page)
 
+    def test_a_click_selects_the_split_or_the_mixer_as_hx_edits_own_drop_does(self):
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        body = binding[binding.index('function selectNode('):binding.index('function moveSplit(')]
+        self.assertLess(body.index("string('@cursor_dsp')"), body.index("string('@cursor_group')"))   # the path first
+        self.assertEqual(body.count('writeValue(editor, -1, group, key, '), 2)
+        self.assertIn('number, 0)', body); self.assertIn('name, 0)', body)                          # no undo step
+        self.assertNotIn('0x8000', body)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        select = script[script.index('function select(target)'):script.index('function publish(')]
+        self.assertLess(select.index('targetBinding.selectNode(editor, block.dsp, block.id);'), select.index('focusChainPoint('))
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        for which in ('split', 'join'):
+            self.assertIn(f"node.onclick = () => {{ if (!dragDone) ask('select', {{dsp: p.dsp, id: '{which}'}}); }};", page)
+            self.assertIn(f"el('span', 'node movable' + (same(p.{which}, now) ? ' on' : ''))", page)
+
 class DspCostTests(unittest.TestCase):
     """A block's DSP, measured from the path's meter when exactly one block comes or goes (dsp_costs.py)."""
 

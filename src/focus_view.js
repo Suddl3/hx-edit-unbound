@@ -473,6 +473,13 @@ function installFocusView(options, parts) {
     // A block picked in the pane's chain strip: a click on that block in HX Edit's own chain.
     wanted = null;
     const block = (known || []).find(item => item.dsp === target.dsp && item.id === target.id);
+    if (block && (block.id === 'split' || block.id === 'join')) {
+      // (the split or the mixer: selected as HX Edit's own drop selects one, target_binding selectNode)
+      targetBinding.selectNode(editor, block.dsp, block.id);
+      changed = true;
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'select', dsp: target.dsp, block: target.id});
+      return;
+    }
     const spot = block && focusChainPoint(namView.chainBox(block.dsp), block);
     const clicked = !!spot && namView.clickChainPoint(spot.x, spot.y);
     send({type: 'toneTrace', reason: 'focus-view', stage: clicked ? 'select' : 'select-skipped', dsp: target.dsp, block: target.id});

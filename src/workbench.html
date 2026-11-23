@@ -151,6 +151,7 @@
   .node svg { width: 16px; height: 16px; }
   /* the split and the mixer slide along lane A: the gaps they may go to show while one is held */
   .node.movable { cursor: grab; z-index: 3; transition: left .12s; } .node.movable:hover { border-color: #f0c94a; }
+  .node.on { border-color: #f0c94a; background: #2a2a22; box-shadow: 0 0 0 1px #f0c94a, 0 6px 18px rgb(240 201 74 / .25); }
   .node.held { cursor: grabbing; transition: none; border-color: #f0c94a; box-shadow: 0 0 0 4px rgb(240 201 74 / .18), 0 4px 12px rgb(0 0 0 / .5); }
   .gap-drop { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 1.5px solid #6b7180; background: #101216;
               opacity: .7; pointer-events: none; z-index: 2; transition: transform .12s, border-color .12s; }
@@ -459,18 +460,20 @@ function drawPath(p, g, now) {
     for (let k = from; k < to; k++) out.push(p.b[k] ? tileOf(p.b[k], k, YB) : slot(k, YB, 1));
     if (p.inputB) out.push(io(p.inputB, YB, false));
     else if (p.split) {
-      const node = el('span', 'node movable'); node.innerHTML = ICON.split; node.style.cssText = `left:${g.gap(from)}px;top:${YA}px`;
-      node.title = model(p.split).name + '. Drag it left or right along the path.';
+      const node = el('span', 'node movable' + (same(p.split, now) ? ' on' : '')); node.innerHTML = ICON.split; node.style.cssText = `left:${g.gap(from)}px;top:${YA}px`;
+      node.title = model(p.split).name + ': click for its settings, drag it left or right along the path.';
       node.onpointerdown = event => liftNode(event, p, 'split', node, g);
+      node.onclick = () => { if (!dragDone) ask('select', {dsp: p.dsp, id: 'split'}); };
       const note = el('div', 'note r'); note.append(el('b', '', model(p.split).name), el('small', '', workbenchSplitNote(p.split, splitFormat(p.split))));
       note.style.cssText = `right:${g.width - g.gap(from) + 20}px;top:${YB}px`;
       out.push(node, note);
     }
     if (p.outputB) out.push(io(p.outputB, YB, true));
     else if (p.join) {
-      const node = el('span', 'node movable'); node.innerHTML = ICON.mix; node.style.cssText = `left:${g.gap(to)}px;top:${YA}px`;
-      node.title = 'Mixer. Drag it left or right along the path.';
+      const node = el('span', 'node movable' + (same(p.join, now) ? ' on' : '')); node.innerHTML = ICON.mix; node.style.cssText = `left:${g.gap(to)}px;top:${YA}px`;
+      node.title = 'Mixer: click for its settings, drag it left or right along the path.';
       node.onpointerdown = event => liftNode(event, p, 'join', node, g);
+      node.onclick = () => { if (!dragDone) ask('select', {dsp: p.dsp, id: 'join'}); };
       const note = el('div', 'note'); note.append(el('b', '', 'Mixer'), el('small', '', workbenchMixNote(p.join)));
       note.style.cssText = `left:${g.gap(to) + 20}px;top:${YB}px`;
       out.push(node, note);

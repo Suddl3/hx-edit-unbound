@@ -388,6 +388,31 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  function selectNode(editor, dsp, which) {
+    // The split or the mixer selected in HX Edit (its settings then show, as a block's do): "@cursor_dsp" and then
+    // "@cursor_group" of "global", as HX Edit's chain drop selects a split or a mixer it has just moved (0x41324f:
+    // +0x80, which is +0x7c with flags 0: no undo step). Nothing of the preset changes.
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join'].includes(which)) fail('unsupported split or mixer');
+    const current = parameter({editor, dsp: -1, blockName: 'global'}, '@cursor_dsp');
+    if (![4, 5].includes(current.type)) fail('unexpected cursor value');
+    let group = null, key = null, name = null;
+    const number = emptyVariant();
+    try {
+      group = string('global'); key = string('@cursor_dsp');
+      number.writeU32(current.type); number.add(8).writeU32(dsp >>> 0);
+      let result = writeValue(editor, -1, group, key, number, 0);
+      if (result < 0) fail(`selecting the path was rejected (${result})`);
+      destroyVariant(key); key = string('@cursor_group'); name = string(which);
+      result = writeValue(editor, -1, group, key, name, 0);
+      if (result < 0) fail(`selecting the ${which === 'join' ? 'mixer' : 'split'} was rejected (${result})`);
+    } finally {
+      destroyVariant(number);
+      if (name) destroyVariant(name);
+      if (key) destroyVariant(key);
+      if (group) destroyVariant(group);
+    }
+    return true;
+  }
   function moveSplit(editor, dsp, which, gap) {
     // The split or the mixer to another gap of lane A (0 = before place 1, 8 = after place 8): the same move entry
     // (+0xa0 = 0x5123c0) with the item "split" or "join". For those it reads only the place of the target cell and
@@ -480,7 +505,7 @@ function installTargetBinding(options = {}) {
     return true;
   }
   return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel,
-           removeBlock, moveBlock, moveAcross, moveSplit };
+           removeBlock, moveBlock, moveAcross, moveSplit, selectNode };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
