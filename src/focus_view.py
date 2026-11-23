@@ -770,6 +770,31 @@ class FocusView:
         command = {'action': 'move', 'dsp': block['dsp'], 'id': block['id'], 'lane': where[1], 'place': where[2]}
         return {**command, 'to': to} if to != block['dsp'] else command
 
+    def checked_split(self, value):
+        """The Workbench's request to move the split or the mixer of a path with a lane B to another gap of lane A
+        (0 = before place 1, 8 = after place 8), or None. Lane B's blocks stay between them: the split no later than
+        the first of them, the mixer no earlier than after the last, and the split before the mixer."""
+        node = self._block(value)
+        place = value.get('place') if isinstance(value, dict) else None
+        if (not node or node.get('id') not in ('split', 'join') or isinstance(place, bool) or not isinstance(place, int)
+                or not 0 <= place <= 8 or place == node.get('position')):
+            return None
+        state = self.state if isinstance(self.state, dict) else {}
+        dsp = node['dsp']
+        lane_b = [b.get('position') for b in state.get('blocks') or [] if isinstance(b, dict) and b.get('dsp') == dsp
+                  and str(b.get('id', '')).startswith('block') and b.get('path') == 1 and isinstance(b.get('position'), int)]
+        topology = (state.get('topology') or [None, None])[dsp] if isinstance(state.get('topology'), list) else None
+        if not lane_b and not (isinstance(topology, str) and 'B' in topology):
+            return None                                                          # one lane: no split or mixer shown
+        other = self._block({'dsp': dsp, 'id': 'join' if node['id'] == 'split' else 'split'})
+        other_at = other.get('position') if other and isinstance(other.get('position'), int) else None
+        if node['id'] == 'split':
+            if (lane_b and place > min(lane_b)) or (other_at is not None and place >= other_at):
+                return None
+        elif (lane_b and place < max(lane_b) + 1) or (other_at is not None and place <= other_at):
+            return None
+        return {'action': 'moveSplit', 'dsp': dsp, 'id': node['id'], 'place': place}
+
     def checked_set(self, value):
         """The page's request to set a value, as the command for focus_view.js, or None when it is not one of the
         selected kind: a control of that block's model (kept inside its range), its tempo switch or note, or its

@@ -388,6 +388,26 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  function moveSplit(editor, dsp, which, gap) {
+    // The split or the mixer to another gap of lane A (0 = before place 1, 8 = after place 8): the same move entry
+    // (+0xa0 = 0x5123c0) with the item "split" or "join". For those it reads only the place of the target cell and
+    // hands it to the split's or the mixer's own code (0x4c8800 / 0x4c7d60, static study 2026-11-22), as HX Edit's
+    // chain drag does (0x4131b2 checks for them after a drop). Flags 0x80000000: one undo step.
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join'].includes(which) || !Number.isInteger(gap) ||
+        gap < 0 || gap > 8) fail('unsupported split, mixer or gap');
+    const move = new NativeFunction(editorEntry(editor, 0xa0, 0x5123c0, 'move-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    const cell = emptyVariant();
+    try {
+      name = string(which);
+      cell.writeU32(5); cell.add(8).writeU32(gap >>> 0);
+      const result = move(editor, dsp, name, cell, 0x80000000);
+      if (result < 0) fail(`moving the ${which === 'join' ? 'mixer' : 'split'} was rejected (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
   function blockCells(editor, dsp) {
     // The blocks of a path as the edit buffer has them now: [{name, path, position}].
     const found = [];
@@ -460,7 +480,7 @@ function installTargetBinding(options = {}) {
     return true;
   }
   return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel,
-           removeBlock, moveBlock, moveAcross };
+           removeBlock, moveBlock, moveAcross, moveSplit };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

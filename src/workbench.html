@@ -149,6 +149,12 @@
   .node { position: absolute; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: #20242d; border: 1.5px solid #7b8394; color: var(--ink);
           display: grid; place-items: center; box-shadow: 0 4px 12px rgb(0 0 0 / .5); }
   .node svg { width: 16px; height: 16px; }
+  /* the split and the mixer slide along lane A: the gaps they may go to show while one is held */
+  .node.movable { cursor: grab; z-index: 3; transition: left .12s; } .node.movable:hover { border-color: #f0c94a; }
+  .node.held { cursor: grabbing; transition: none; border-color: #f0c94a; box-shadow: 0 0 0 4px rgb(240 201 74 / .18), 0 4px 12px rgb(0 0 0 / .5); }
+  .gap-drop { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 1.5px solid #6b7180; background: #101216;
+              opacity: .7; pointer-events: none; z-index: 2; transition: transform .12s, border-color .12s; }
+  .gap-drop.over { border-color: #f0c94a; background: rgb(240 201 74 / .25); transform: scale(1.5); opacity: 1; }
   .note { position: absolute; display: grid; gap: 1px; line-height: 1.2; white-space: nowrap; margin-top: -16px; }
   .note b { font-weight: 600; font-size: 12.5px; } .note small { color: var(--dim); font-size: 11.5px; }
   .note.r { text-align: right; }
@@ -453,16 +459,18 @@ function drawPath(p, g, now) {
     for (let k = from; k < to; k++) out.push(p.b[k] ? tileOf(p.b[k], k, YB) : slot(k, YB, 1));
     if (p.inputB) out.push(io(p.inputB, YB, false));
     else if (p.split) {
-      const node = el('span', 'node'); node.innerHTML = ICON.split; node.style.cssText = `left:${g.gap(from)}px;top:${YA}px`;
-      node.title = model(p.split).name + '. Its settings open here in the next stage.';
+      const node = el('span', 'node movable'); node.innerHTML = ICON.split; node.style.cssText = `left:${g.gap(from)}px;top:${YA}px`;
+      node.title = model(p.split).name + '. Drag it left or right along the path.';
+      node.onpointerdown = event => liftNode(event, p, 'split', node, g);
       const note = el('div', 'note r'); note.append(el('b', '', model(p.split).name), el('small', '', workbenchSplitNote(p.split, splitFormat(p.split))));
       note.style.cssText = `right:${g.width - g.gap(from) + 20}px;top:${YB}px`;
       out.push(node, note);
     }
     if (p.outputB) out.push(io(p.outputB, YB, true));
     else if (p.join) {
-      const node = el('span', 'node'); node.innerHTML = ICON.mix; node.style.cssText = `left:${g.gap(to)}px;top:${YA}px`;
-      node.title = 'Mixer. Its settings open here in the next stage.';
+      const node = el('span', 'node movable'); node.innerHTML = ICON.mix; node.style.cssText = `left:${g.gap(to)}px;top:${YA}px`;
+      node.title = 'Mixer. Drag it left or right along the path.';
+      node.onpointerdown = event => liftNode(event, p, 'join', node, g);
       const note = el('div', 'note'); note.append(el('b', '', 'Mixer'), el('small', '', workbenchMixNote(p.join)));
       note.style.cssText = `left:${g.gap(to) + 20}px;top:${YB}px`;
       out.push(node, note);
@@ -548,6 +556,39 @@ function liftBlock(event, block, tile) {
     const to = target ? Number(target.dataset.dsp) : block.dsp;
     if (target) chainAsk('move', {dsp: block.dsp, id: block.id, lane: Number(target.dataset.lane), place: Number(target.dataset.place), ...(to !== block.dsp ? {to} : {})});
     drawChain(true);
+  };
+  addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+}
+// ---- moving the split or the mixer: along lane A to another gap (workbenchNodeGaps says which) ----------------------
+function liftNode(event, p, which, node, g) {
+  if (event.button !== 0) return;
+  const gaps = workbenchNodeGaps(p, which), grid = node.parentNode, start = event.clientX, at = which === 'split' ? p.from : p.to;
+  if (!gaps.length) return;
+  event.preventDefault();
+  let held = null, over = null, dots = [];
+  const move = e => {
+    if (!held) {
+      if (Math.abs(e.clientX - start) < 5) return;
+      held = true; dragging = {node: which}; node.classList.add('held');
+      dots = gaps.filter(k => k !== at).map(k => { const dot = el('div', 'gap-drop'); dot.style.cssText = `left:${g.gap(k)}px;top:${YA}px`; dot.dataset.gap = k; grid.append(dot); return dot; });
+    }
+    // (the node follows the pointer along the line, kept between the first and the last gap it may go to)
+    const box = grid.getBoundingClientRect(), x = Math.max(g.gap(gaps[0]), Math.min(g.gap(gaps[gaps.length - 1]), e.clientX - box.left));
+    node.style.left = x + 'px';
+    let best = null, gapDistance = Infinity;
+    for (const k of gaps) { const d = Math.abs(g.gap(k) - x); if (d < gapDistance) { gapDistance = d; best = k; } }
+    over = gapDistance < g.step / 2 ? best : null;
+    for (const dot of dots) dot.classList.toggle('over', Number(dot.dataset.gap) === over);
+  };
+  const up = () => {
+    removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+    if (!held) return;
+    for (const dot of dots) dot.remove();
+    node.classList.remove('held');
+    dragging = null; dragDone = true; setTimeout(() => { dragDone = false; }, 0);
+    if (over !== null && over !== at) { node.style.left = g.gap(over) + 'px'; ask('moveSplit', {dsp: p.dsp, id: which, place: over}); }
+    else node.style.left = g.gap(at) + 'px';
+    setTimeout(() => drawChain(true), 1500);                     // (HX Edit's reading follows; else it springs back)
   };
   addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);
 }

@@ -341,6 +341,57 @@ class PaneDriverTests(unittest.TestCase):
         self.assertEqual(self.view.checked_model({'dsp': 0, 'id': 'block0', 'symbol': 'HD2_DelayOther'})['symbol'], 'HD2_DelayOther')
 
 
+class SplitMoveTests(unittest.TestCase):
+    """Stage 2: the split or the mixer moved along lane A (HX Edit's own move with "split" / "join")."""
+
+    def setUp(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe', costs_file=None)
+        self.addCleanup(self.view.close)
+        self.view.state = {'topology': ['SABJ', 'A'],
+                           'blocks': [{'dsp': 0, 'id': 'split', 'model': 'HD2_AppDSPFlowSplitY', 'position': 2},
+                                      {'dsp': 0, 'id': 'join', 'model': 'HD2_AppDSPFlowJoin', 'position': 6},
+                                      {'dsp': 0, 'id': 'block0', 'model': 'HD2_DelayTest', 'position': 3, 'path': 1, 'enabled': True},
+                                      {'dsp': 0, 'id': 'block1', 'model': 'HD2_DelayTest', 'position': 4, 'path': 1, 'enabled': True},
+                                      {'dsp': 1, 'id': 'split', 'model': 'HD2_AppDSPFlowSplitY', 'position': 0},
+                                      {'dsp': 1, 'id': 'join', 'model': 'HD2_AppDSPFlowJoin', 'position': 8}]}
+
+    def test_the_split_and_the_mixer_keep_lane_b_between_them(self):
+        split = lambda dsp, which, place: self.view.checked_split({'dsp': dsp, 'id': which, 'place': place})
+        self.assertEqual(split(0, 'split', 0), {'action': 'moveSplit', 'dsp': 0, 'id': 'split', 'place': 0})
+        self.assertEqual(split(0, 'split', 3), {'action': 'moveSplit', 'dsp': 0, 'id': 'split', 'place': 3})
+        self.assertEqual(split(0, 'join', 5), {'action': 'moveSplit', 'dsp': 0, 'id': 'join', 'place': 5})
+        self.assertEqual(split(0, 'join', 8)['place'], 8)
+        for refused in ((0, 'split', 4), (0, 'join', 4), (0, 'split', 2), (0, 'join', 9), (0, 'split', -1),
+                        (0, 'block0', 1), (0, 'split', True), (1, 'split', 3)):          # past lane B, where it is, a block, one lane
+            self.assertIsNone(split(*refused), refused)
+
+    def test_the_page_offers_the_same_gaps(self):
+        chain = self.view.state['blocks'] + [{'dsp': 0, 'id': 'outputA', 'model': 'HD2_Out', 'output': 1}]
+        gaps = lambda which: run_js(['workbench_layout.js'], f'workbenchNodeGaps(workbenchPaths({json.dumps(chain)}, {{}}, ["SABJ", "A"])[0], "{which}")')
+        self.assertEqual(gaps('split'), [0, 1, 2, 3])
+        self.assertEqual(gaps('join'), [5, 6, 7, 8])
+        self.assertEqual(run_js(['workbench_layout.js'], f'workbenchNodeGaps(workbenchPaths({json.dumps(chain)}, {{}}, ["SABJ", "A"])[1], "split")'), [])
+
+    def test_the_wiring_uses_hx_edits_own_move_for_the_split(self):
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        body = binding[binding.index('function moveSplit('):binding.index('function blockCells(')]
+        self.assertIn("editorEntry(editor, 0xa0, 0x5123c0, 'move-block')", body)
+        self.assertIn("!['split', 'join'].includes(which)", body)
+        self.assertIn('cell.writeU32(5); cell.add(8).writeU32(gap >>> 0);', body)
+        self.assertIn('move(editor, dsp, name, cell, 0x80000000)', body)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("value.action === 'moveSplit' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id)", script)
+        self.assertIn('targetBinding.moveSplit(editor, command.dsp, command.id, command.place);', script)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("'moveSplit': view.checked_split", launcher)
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("node.onpointerdown = event => liftNode(event, p, 'split', node, g);", page)
+        self.assertIn("node.onpointerdown = event => liftNode(event, p, 'join', node, g);", page)
+        self.assertIn("ask('moveSplit', {dsp: p.dsp, id: which, place: over})", page)
+
 class DspCostTests(unittest.TestCase):
     """A block's DSP, measured from the path's meter when exactly one block comes or goes (dsp_costs.py)."""
 
@@ -602,7 +653,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit'})
 
 
 if __name__ == '__main__':

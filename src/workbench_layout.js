@@ -103,6 +103,21 @@ function workbenchSplitNote(split, format) {
   return '';
 }
 
+function workbenchNodeGaps(path, which) {
+  // The gaps of lane A the split or the mixer of a drawn path (workbenchPaths) may go to, its own included: lane B's
+  // blocks stay between the two (the split no later than the first, the mixer no earlier than after the last) and the
+  // split stays before the mixer. [] when the path has no such node to move. (focus_view.checked_split checks again.)
+  if (!path || !path.b || !(which === 'split' ? path.split : path.join)) return [];
+  const used = path.b.map((block, place) => block ? place : null).filter(place => place !== null);
+  const gaps = [];
+  for (let k = 0; k <= WORKBENCH_PLACES; k++) {
+    const ok = which === 'split' ? (!used.length || k <= Math.min(...used)) && k < path.to
+                                 : (!used.length || k >= Math.max(...used) + 1) && k > path.from;
+    if (ok) gaps.push(k);
+  }
+  return gaps;
+}
+
 function workbenchMixNote(join) {
   // The words under the mixer: each lane's level ("A 0.0 dB, B -3.0 dB").
   if (!join || !join.values) return '';
@@ -161,5 +176,5 @@ function workbenchRedo(track, at, preset, redoing) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote };
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps };
 }
