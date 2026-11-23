@@ -286,6 +286,11 @@ function installFocusView(options, parts) {
       const node = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
       if (!node || node.position === command.place) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
       targetBinding.moveSplit(editor, command.dsp, command.id, command.place);
+    } else if (command.action === 'route') {
+      // Lane B's own input or output in place of the split or the mixer, or back (target_binding removeNode).
+      const node = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
+      if (!node) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
+      targetBinding.removeNode(editor, command.dsp, command.id);
     } else {
       const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
       if (!block || !chainBlock.test(block.id)) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
@@ -417,13 +422,13 @@ function installFocusView(options, parts) {
           changed = true;
           send({type: 'focusPreset', number: command.number});
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
-        } else if (['add', 'remove', 'move', 'moveSplit'].includes(command.action)) change(command);
+        } else if (['add', 'remove', 'move', 'moveSplit', 'route'].includes(command.action)) change(command);
         else if (command.action) swap(command); else write(command);
       }
       catch (error) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
-        if (['add', 'remove', 'move', 'moveSplit'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        if (['add', 'remove', 'move', 'moveSplit', 'route'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
@@ -585,6 +590,9 @@ function installFocusView(options, parts) {
       } else if (on && value.action === 'moveSplit' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id) &&
                  Number.isInteger(value.place) && value.place >= 0 && value.place <= 8 && writes.length < 32) {
         writes.push({action: 'moveSplit', dsp: value.dsp, id: value.id, place: value.place});
+        queued = false; ask();
+      } else if (on && value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join', 'inputB', 'outputB'].includes(value.id) && writes.length < 32) {
+        writes.push({action: 'route', dsp: value.dsp, id: value.id});
         queued = false; ask();
       }
       commands();

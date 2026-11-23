@@ -388,6 +388,23 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  function removeNode(editor, dsp, which) {
+    // Lane B's own input or output, as HX Edit's split / mixer menu "Create Input" (shortcut Del) makes it: the remove
+    // entry (+0xb0 = 0x514bc0) on "split" hands it to 0x4d66b0, on "join" to 0x4d5cf0 (static study 2026-11-22). On
+    // "inputB" / "outputB" it goes to the general removal (0x4d3a40), which treats them as routing and rewrites the
+    // path's shape: the way back to a split or a mixer (not yet seen at run time). Flags 0x80000000: one undo step.
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join', 'inputB', 'outputB'].includes(which)) fail('unsupported routing item');
+    const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    try {
+      name = string(which);
+      const result = remove(editor, dsp, name, 0x80000000);
+      if (result < 0) fail(`HX Edit refused to change lane B's routing (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
   function selectNode(editor, dsp, which) {
     // The split or the mixer selected in HX Edit (its settings then show, as a block's do): "@cursor_dsp" and then
     // "@cursor_group" of "global", as HX Edit's chain drop selects a split or a mixer it has just moved (0x41324f:
@@ -505,7 +522,7 @@ function installTargetBinding(options = {}) {
     return true;
   }
   return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel,
-           removeBlock, moveBlock, moveAcross, moveSplit, selectNode };
+           removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

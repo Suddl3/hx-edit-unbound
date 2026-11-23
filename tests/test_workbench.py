@@ -392,6 +392,34 @@ class SplitMoveTests(unittest.TestCase):
         self.assertIn("node.onpointerdown = event => liftNode(event, p, 'join', node, g);", page)
         self.assertIn("ask('moveSplit', {dsp: p.dsp, id: which, place: over})", page)
 
+    def test_lane_b_gets_its_own_input_or_output_and_back_by_the_paths_shape(self):
+        route = lambda dsp, which: self.view.checked_route({'dsp': dsp, 'id': which})
+        self.assertEqual(route(0, 'split'), {'action': 'route', 'dsp': 0, 'id': 'split'})     # "SABJ": both nodes
+        self.assertEqual(route(0, 'join'), {'action': 'route', 'dsp': 0, 'id': 'join'})
+        self.view.state['blocks'] += [{'dsp': 0, 'id': 'inputB', 'model': 'HD2_In'}, {'dsp': 0, 'id': 'outputB', 'model': 'HD2_Out'},
+                                      {'dsp': 1, 'id': 'inputB', 'model': 'HD2_In'}]
+        self.assertIsNone(route(0, 'inputB')); self.assertIsNone(route(0, 'outputB'))         # not there in "SABJ"
+        self.assertIsNone(route(1, 'split')); self.assertIsNone(route(1, 'inputB'))           # "A": no lane B
+        self.assertIsNone(route(0, 'block0'))
+        for word, there in (('ABJ', {'inputB', 'join'}), ('SAB', {'split', 'outputB'}), ('AB', {'inputB', 'outputB'})):
+            self.view.state['topology'] = [word, 'A']
+            self.assertEqual({w for w in ('split', 'join', 'inputB', 'outputB') if route(0, w)}, there, word)
+        self.view.state['topology'] = None
+        self.assertIsNone(route(0, 'split'))                                                   # no shape read: nothing
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        body = binding[binding.index('function removeNode('):binding.index('function selectNode(')]
+        self.assertIn("editorEntry(editor, 0xb0, 0x514bc0, 'remove-block')", body)
+        self.assertIn("['split', 'join', 'inputB', 'outputB'].includes(which)", body)
+        self.assertIn('remove(editor, dsp, name, 0x80000000)', body)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join', 'inputB', 'outputB'].includes(value.id)", script)
+        self.assertIn('targetBinding.removeNode(editor, command.dsp, command.id);', script)
+        self.assertIn("'route': view.checked_route", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("turn.onclick = () => ask('route', {dsp: block.dsp, id: block.id});", page)
+        for label in ('Give lane B its own input', 'Give lane B its own output', 'Put the split back', 'Put the mixer back'):
+            self.assertIn(label, page)
+
     def test_a_click_selects_the_split_or_the_mixer_as_hx_edits_own_drop_does(self):
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         body = binding[binding.index('function selectNode('):binding.index('function moveSplit(')]
@@ -668,7 +696,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route'})
 
 
 if __name__ == '__main__':

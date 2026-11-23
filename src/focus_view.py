@@ -795,6 +795,22 @@ class FocusView:
             return None
         return {'action': 'moveSplit', 'dsp': dsp, 'id': node['id'], 'place': place}
 
+    def checked_route(self, value):
+        """The Workbench's request to give lane B its own input or output in place of the split or the mixer (HX Edit's
+        "Create Input" / "Create Output"), or to put the split or the mixer back, or None: only what the path's shape
+        (global @topology0/1) says is there. "SABJ" has both nodes, "ABJ" an input B, "SAB" an output B, "AB" both."""
+        node = self._block(value)
+        state = self.state if isinstance(self.state, dict) else {}
+        topology = state.get('topology') if isinstance(state.get('topology'), list) else []
+        if not node or node.get('id') not in ('split', 'join', 'inputB', 'outputB') or node.get('dsp') not in (0, 1):
+            return None
+        word = topology[node['dsp']] if len(topology) > node['dsp'] else None
+        if not isinstance(word, str) or 'B' not in word:
+            return None
+        present = {'split': word.startswith('S'), 'join': word.endswith('J'),
+                   'inputB': not word.startswith('S'), 'outputB': not word.endswith('J')}
+        return {'action': 'route', 'dsp': node['dsp'], 'id': node['id']} if present[node['id']] else None
+
     def checked_set(self, value):
         """The page's request to set a value, as the command for focus_view.js, or None when it is not one of the
         selected kind: a control of that block's model (kept inside its range), its tempo switch or note, or its

@@ -716,7 +716,27 @@ function card(block, picker) {
     row.append(remove);
   }
   box.append(row);
+  // Lane B's own input or output in place of the split or the mixer (HX Edit's "Create Input"), or back again
+  const route = routeChoice(block);
+  if (route) {
+    const turn = el('button', 'btn'); turn.innerHTML = ICON.swap + route.label;
+    turn.title = route.hint + ' Undo puts it back.';
+    turn.onclick = () => ask('route', {dsp: block.dsp, id: block.id});
+    const more = el('div', 'btnrow'); more.append(turn); box.append(more);
+  }
   return box;
+}
+// What the routing button of a split, a mixer, or lane B's own input or output does, by the path's shape
+// (focus_view.checked_route checks the same): {label, hint} or null.
+function routeChoice(block) {
+  const word = state && Array.isArray(state.topology) ? state.topology[block.dsp] : null;
+  if (typeof word !== 'string' || !word.includes('B')) return null;
+  const choices = {
+    split: word.startsWith('S') && {label: 'Give lane B its own input', hint: 'Lane B takes its own input instead of splitting off lane A (HX Edit\'s Create Input).'},
+    join: word.endsWith('J') && {label: 'Give lane B its own output', hint: 'Lane B goes to its own output instead of mixing back into lane A.'},
+    inputB: !word.startsWith('S') && {label: 'Put the split back', hint: 'Lane B splits off lane A again instead of taking its own input.'},
+    outputB: !word.endsWith('J') && {label: 'Put the mixer back', hint: 'Lane B mixes back into lane A again instead of going to its own output.'}};
+  return choices[block.id] || null;
 }
 function capturePanel(block) {
   const taken = capture(block), box = el('aside', 'capt');

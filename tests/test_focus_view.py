@@ -718,7 +718,7 @@ class ScriptTests(unittest.TestCase):
         for write in ('write', 'selectRow', 'clearSelection', 'appendRow', 'postMessage'):   # reading only
             self.assertNotIn(write, names)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit'].includes(command.action)) change(command);")]
+        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit', 'route'].includes(command.action)) change(command);")]
         self.assertLess(load.index("endDrag('a preset change')"), load.index("send({type: 'focusPreset', number: command.number})"))
         self.assertNotIn('targetBinding', load)                                      # nothing is written to load it
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
