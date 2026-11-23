@@ -457,6 +457,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # A tool from the Workbench's rail, over its lower panel (the Workbench stays): its window is placed
                     # there (TonePreview.place_over) and the pane stops raising itself above it until it closes.
                     place = workbench_panel(value)
+                    trace({'type': 'workbench', 'event': 'tool', 'name': value['name'], 'place': place, 'pane': workbench.bounds})
                     if preview is None or place is None or (value['name'] == 'level' and not preview.level):
                         workbench_mode(False)                    # (as before: the tool opens on HX Edit's own screen)
                         if value['name'] == 'tone':

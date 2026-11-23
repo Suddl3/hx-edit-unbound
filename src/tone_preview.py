@@ -1005,7 +1005,8 @@ class TonePreview:
             nonlocal look_page, level_page, library
             if not look_page:
                 browser.send('chrome', targetBar=False, title='Floor look · HX Unbound')
-                browser.send('presentation', mode='floating', focus=True)
+                # (its own window; over the Workbench's lower panel when the Workbench placed it there: place_over)
+                browser.send('presentation', mode='embedded' if self.bounds_override is not None else 'floating', focus=True)
             look_page, level_page = True, False
             if not library:
                 library = True
@@ -1042,7 +1043,8 @@ class TonePreview:
             nonlocal leveling, level_page, look_page
             if not level_page:
                 browser.send('chrome', targetBar=False, title='Level presets · HX Unbound')
-                browser.send('presentation', mode='floating', focus=True)
+                # (its own window; over the Workbench's lower panel when the Workbench placed it there: place_over)
+                browser.send('presentation', mode='embedded' if self.bounds_override is not None else 'floating', focus=True)
             level_page, look_page = True, False
             from nam_level_flow import LevelFlow
             if leveling is None:
