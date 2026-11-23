@@ -1249,7 +1249,8 @@ function drawBar() {
   $('presetPrev').disabled = $('presetNext').disabled = !preset;
   if (!listed) closePresets(); else if (!$('presetList').hidden) fillPresets();
   $('undo').disabled = state.undo === false;
-  $('redo').disabled = !redoTrack.redo;
+  // (HX Edit's own answer, as its Edit menu asks it, where it could be read; else worked out from the undo position)
+  $('redo').disabled = !(typeof state.redo === 'boolean' ? state.redo : redoTrack.redo);
   $('tempo').hidden = typeof state.tempo !== 'number';
   if (typeof state.tempo === 'number') $('tempoValue').textContent = state.tempo.toFixed(1);
   // the snapshots as buttons: four at a time, the other four behind one more

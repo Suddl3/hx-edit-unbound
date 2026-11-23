@@ -369,6 +369,22 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  // HX Edit's own Redo, and whether there is one: the edit buffer's entries the Edit menu's command uses (read from HX
+  // Edit.exe 3.82 on disk, 2026-11-23: command 0xd1 calls vtbl+0xe0 = 0x514bb0, "app.err.redo" when it fails; the
+  // menu item asks vtbl+0xe4 = 0x504630 with 1, nonzero when there is a step to redo; 0xdc / 0 are Undo). Its
+  // Ctrl+Shift+Z did not reach HX Edit while the Workbench is shown (seen 2026-11-23), its Ctrl+Z does.
+  function redo(editor) {
+    if (!editorReady(editor)) fail('no editor');
+    const entry = new NativeFunction(editorEntry(editor, 0xe0, 0x514bb0, 'redo'), 'int', ['pointer'], 'thiscall');
+    const result = entry(editor);
+    if (result < 0) fail(`redo was refused (${result})`);
+    return true;
+  }
+  function canRedo(editor) {
+    if (!editorReady(editor)) return null;
+    const entry = new NativeFunction(editorEntry(editor, 0xe4, 0x504630, 'can-undo-redo'), 'pointer', ['pointer', 'int'], 'thiscall');
+    return !entry(editor, 1).isNull();
+  }
   function addCapture(editor, dsp, row, col, symbol, slot) {
     // A NAM block with its capture on an empty cell as ONE undo step: the add (+0xa8) and the slot (Index) inside an
     // undo step of their own (+0xd4 opens it, +0xd8 closes it with the outcome, as HX Edit's drop between the paths
@@ -636,7 +652,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, setValue, setIndex, setModel, addModel, addCapture,
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, setValue, setIndex, setModel, addModel, addCapture, redo, canRedo,
            removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 

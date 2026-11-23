@@ -433,6 +433,9 @@ function installFocusView(options, parts) {
         max: ['controller', `${at}.${command.key}.@max`, 'float']};
       const [group, key, kind] = fields[command.field];
       targetBinding.writeTree(editor, group, key, command.value, kind);
+    } else if (command.action === 'redo') {
+      // HX Edit's own Redo (target_binding redo: the Edit menu's entry), as the page's Redo button asks it
+      targetBinding.redo(editor);
     } else if (command.action === 'splitType') {
       // The split's type (Split Y, A/B, Crossover, Dynamic): its model, written as HX Edit's panel writes a model.
       const node = (known || []).find(item => item.dsp === command.dsp && item.id === 'split');
@@ -589,13 +592,13 @@ function installFocusView(options, parts) {
           changed = true;
           send({type: 'focusPreset', number: command.number});
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
-        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType'].includes(command.action)) change(command);
+        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo'].includes(command.action)) change(command);
         else if (command.action) swap(command); else write(command);
       }
       catch (error) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
-        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
@@ -628,6 +631,8 @@ function installFocusView(options, parts) {
       // Something to undo: HX Edit's own undo position (as tone_view reads it).
       // (undoAt: that position itself, for the Workbench's redo button)
       try { state.undoAt = editor.add(0x294).readS32(); state.undo = state.undoAt > 0; } catch (_) { state.undo = null; state.undoAt = null; }
+      // Something to redo, as HX Edit's Edit menu asks it (target_binding canRedo); null when it cannot be read
+      try { state.redo = targetBinding.canRedo(editor); } catch (_) { state.redo = null; }
       const undoWord = state.undoAt + '@' + (state.preset ? state.preset.setlist + ':' + state.preset.number : '-');
       if (undoWord !== lastUndoWord) { lastUndoWord = undoWord; send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-at', at: undoWord}); }
       // The selected block's controllers, footswitch and snapshot values (focusAssign), read with each full reading
@@ -783,6 +788,9 @@ function installFocusView(options, parts) {
                  (value.key === undefined || (typeof value.key === 'string' && /^[A-Za-z0-9_ ]{1,48}$/.test(value.key))) &&
                  (typeof value.value === 'boolean' || Number.isFinite(value.value) || (typeof value.value === 'string' && /^[\x20-\x7e]{0,16}$/.test(value.value)))) {
         writes.push({action: 'assign', dsp: value.dsp, id: value.id, field: value.field, key: value.key, value: value.value});
+        queued = false; ask();
+      } else if (on && value.action === 'redo' && writes.length < 32) {
+        writes.push({action: 'redo'});
         queued = false; ask();
       } else if (on && value.action === 'splitType' && [0, 1].includes(value.dsp) && typeof value.symbol === 'string' &&
                  /^HD2_AppDSPFlowSplit(Y|AB|XOver|Dyn)$/.test(value.symbol) && writes.length < 32) {

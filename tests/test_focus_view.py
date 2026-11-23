@@ -718,7 +718,7 @@ class ScriptTests(unittest.TestCase):
         for write in ('write', 'selectRow', 'clearSelection', 'appendRow', 'postMessage'):   # reading only
             self.assertNotIn(write, names)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType'].includes(command.action)) change(command);")]
+        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo'].includes(command.action)) change(command);")]
         self.assertLess(load.index("endDrag('a preset change')"), load.index("send({type: 'focusPreset', number: command.number})"))
         self.assertNotIn('targetBinding', load)                                      # nothing is written to load it
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
@@ -789,7 +789,15 @@ class ScriptTests(unittest.TestCase):
         self.assertIn('if(focusMode){ if(unboundButton!=null)unboundButton.Show(Rectangle.Empty); shown=false; ShowWindow(Handle,0); return; }', helper)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
         self.assertIn('if ((string)name == "undo") { PressInEditor(0x5A, false); return; }', pane)   # Ctrl+Z in HX Edit's window
-        self.assertIn('if ((string)name == "redo") { PressInEditor(0x5A, true); return; }', pane)    # Ctrl+Shift+Z, as its Edit menu
+        self.assertNotIn('if ((string)name == "redo")', pane)    # redo: HX Edit's own entry through the launcher (Ctrl+Shift+Z did not reach it)
+        self.assertIn("elif name == 'redo':", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("} else if (command.action === 'redo') {", script)
+        self.assertIn('targetBinding.redo(editor);', script)
+        self.assertIn('state.redo = targetBinding.canRedo(editor);', script)
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        self.assertIn("editorEntry(editor, 0xe0, 0x514bb0, 'redo')", binding)
+        self.assertIn("editorEntry(editor, 0xe4, 0x504630, 'can-undo-redo')", binding)
         self.assertIn('if (shift) keybd_event(0x10, 0, 0, UIntPtr.Zero);', pane)
         self.assertNotIn('Ctrl+Y', pane + (ROOT / 'focus_view.html').read_text(encoding='utf-8'))
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')

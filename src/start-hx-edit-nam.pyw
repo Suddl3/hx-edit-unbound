@@ -398,6 +398,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     command = check(value) if shown else None
                     if command and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': command})
+                elif name == 'redo':
+                    # HX Edit's own Redo (its Edit menu's entry, focus_view.js 'redo'), as the pane's Redo button asks it.
+                    if shown and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': {'action': 'redo'}})
                 elif name == 'load':
                     # The preset is loaded as a footswitch or the Level tool loads it (a MIDI Program Change over
                     # USB); HX Edit follows on its own. Nothing is saved; what was not saved in the preset left

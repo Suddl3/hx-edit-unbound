@@ -32,7 +32,7 @@ sealed class FocusView : Form
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hwnd);
     [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
 
-    // The page's undo, redo and save buttons: HX Edit's own Ctrl+Z, Ctrl+Shift+Z and Ctrl+S (its Edit and File menus' keys), typed into
+    // The page's undo and save buttons: HX Edit's own Ctrl+Z and Ctrl+S (its Edit and File menus' keys), typed into
     // HX Edit's window (the keyboard goes there first), so HX Edit undoes exactly as it does for the user. Nothing
     // for a pane with no HX Edit.
     void PressInEditor(byte key, bool shift)
@@ -242,7 +242,8 @@ sealed class FocusView : Form
                 if (message == null || !message.TryGetValue("name", out name) || !(name is string)) return;
                 message.TryGetValue("value", out value);
                 if ((string)name == "undo") { PressInEditor(0x5A, false); return; }      // Ctrl+Z
-                if ((string)name == "redo") { PressInEditor(0x5A, true); return; }       // Ctrl+Shift+Z
+                // (redo: HX Edit's own Redo entry, through the launcher and the script: its Ctrl+Shift+Z did not reach HX Edit while
+                // the Workbench is shown, seen 2026-11-23)
                 if ((string)name == "save") { PressInEditor(0x53, false); return; }      // Ctrl+S: HX Edit's File > Save Preset
                 Send(new { type = "action", name = (string)name, value = value });
             };
