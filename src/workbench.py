@@ -34,7 +34,8 @@ def route_names(resources):
     except (OSError, ValueError):
         controls = {}
     names = {}
-    for key, kind in (('inputs', 'input_type'), ('outputs', 'output_type')):
+    # (and the footswitch LED colours, for the Bypass and controllers tab: HelixControls.json footswitchLED)
+    for key, kind in (('inputs', 'input_type'), ('outputs', 'output_type'), ('ledColors', 'footswitchLED')):
         found = (controls.get(kind) or {}).get('format') if isinstance(controls.get(kind), dict) else None
         names[key] = [str(name) for name in found] if isinstance(found, list) else []
     return names

@@ -795,6 +795,40 @@ class FocusView:
             return None
         return {'action': 'moveSplit', 'dsp': dsp, 'id': node['id'], 'place': place}
 
+    # The controllers the Bypass and controllers tab offers: HX Edit's own numbers, checked against its tab
+    # (2026-11-22): 1 EXP Pedal 1, 2 EXP Pedal 2, 19 Snapshots.
+    CONTROLLERS = (1, 2, 19)
+
+    def checked_assign(self, value):
+        """The Bypass and controllers tab's request, as the command for focus_view.js, or None: a block's footswitch
+        (its number 1-12, LED colour 0-11 of HX Edit's list, a label of up to 16 plain characters, latching or
+        momentary) or one of its controls' controller (EXP Pedal 1, EXP Pedal 2, Snapshots) and range (0-1)."""
+        block = self._block(value)
+        if not block or not isinstance(value, dict):
+            return None
+        field, new, key = value.get('field'), value.get('value'), value.get('key')
+        command = {'action': 'assign', 'dsp': block['dsp'], 'id': block['id'], 'field': field}
+        whole = isinstance(new, int) and not isinstance(new, bool)
+        if field == 'fsIndex':
+            return {**command, 'value': new} if whole and 1 <= new <= 12 else None
+        if field == 'fsColor':
+            return {**command, 'value': new} if whole and 0 <= new <= 11 else None
+        if field == 'fsLabel':
+            ok = isinstance(new, str) and len(new) <= 16 and all(32 <= ord(c) < 127 for c in new)
+            return {**command, 'value': new} if ok else None
+        if field == 'fsMomentary':
+            return {**command, 'value': new} if isinstance(new, bool) else None
+        model = self.catalog()['models'].get(block.get('model')) or {}
+        if not isinstance(key, str) or key not in {p.get('id') for p in model.get('params') or []}:
+            return None
+        command['key'] = key
+        if field == 'controller':
+            return {**command, 'value': new} if whole and new in self.CONTROLLERS else None
+        if field in ('min', 'max'):
+            number = isinstance(new, (int, float)) and not isinstance(new, bool)
+            return {**command, 'value': float(new)} if number and 0.0 <= new <= 1.0 else None
+        return None
+
     def checked_route(self, value):
         """The Workbench's request to give lane B its own input or output in place of the split or the mixer (HX Edit's
         "Create Input" / "Create Output"), or to put the split or the mixer back, or None: only what the path's shape

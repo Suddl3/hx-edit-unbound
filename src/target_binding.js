@@ -60,7 +60,7 @@ function installTargetBinding(options = {}) {
   }
   function decode(value) {
     const type = value.readU32();
-    if (type === 4) return { type, value: value.add(8).readS32() };
+    if (type === 4 || type === 1) return { type, value: value.add(8).readS32() };   // (1: as HX Edit writes @controller)
     if (type === 5) return { type, value: value.add(8).readU32() };
     if (type === 8) return { type, value: value.add(8).readFloat() };
     if (type === 10) return { type, value: nativeString(value.add(8).readPointer()) };
@@ -256,6 +256,41 @@ function installTargetBinding(options = {}) {
       destroyVariant(variant);
       if (name) destroyVariant(name);
       if (group) destroyVariant(group);
+    }
+    return true;
+  }
+  // The Workbench's Bypass and controllers tab: a value of the preset's "controller" or "footswitch" section written
+  // as HX Edit's own Bypass/Controller Assign tab writes it (seen with the chain probe 2026-11-22): +0x7c, dsp -1,
+  // flags 0, e.g. ("controller", "dsp0.block1.Drive.@controller", Variant{1, 1}) for EXP Pedal 1, a float 0..1 for
+  // "@min" / "@max", ("footswitch", "dsp0.block0.@fs_index", Variant{1, N}), "@fs_customcolor", "@fs_customlabel".
+  // The value keeps the kind HX Edit already has there; where nothing is there yet, kind says: 'enum' (Variant type 1,
+  // as HX Edit writes @controller and @fs_index), 'float', 'bool' or 'text'.
+  const writePattern = /^(?:controller|footswitch)$/;
+  function writeTree(editor, group, key, value, kind) {
+    if (!editorReady(editor) || !writePattern.test(group) || !pathPattern.test(key) || !['enum', 'float', 'bool', 'text'].includes(kind)) fail('unsupported tree value');
+    let type = {enum: 1, float: 8, bool: 11, text: 10}[kind];
+    // (an 'enum' is always written as HX Edit writes it, type 1, whatever a reading of it says)
+    if (kind !== 'enum') {
+      try { const now = parameter({editor, dsp: -1, blockName: group}, key); if ([4, 5, 8, 10, 11].includes(now.type)) type = now.type; } catch (_) { /* not there yet */ }
+    }
+    let groupName = null, keyName = null, variant = null;
+    try {
+      groupName = string(group); keyName = string(key);
+      if (type === 10) {
+        if (typeof value !== 'string' || value.length > 32) fail('unsupported text');
+        variant = string(value);
+      } else {
+        variant = emptyVariant(); variant.writeU32(type);
+        if (type === 8) { if (!Number.isFinite(value)) fail('unsupported number'); variant.add(8).writeFloat(value); }
+        else if (type === 11) variant.add(8).writeU8(value ? 1 : 0);
+        else { if (!Number.isInteger(value)) fail('unsupported whole number'); variant.add(8).writeS32(value); }
+      }
+      const result = writeValue(editor, -1, groupName, keyName, variant, 0);
+      if (result < 0) fail(`HX Edit refused to change ${key} (${result})`);
+    } finally {
+      if (variant) destroyVariant(variant);
+      if (keyName) destroyVariant(keyName);
+      if (groupName) destroyVariant(groupName);
     }
     return true;
   }
@@ -553,7 +588,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, recallSnapshot, setValue, setIndex, setModel, addModel,
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, setValue, setIndex, setModel, addModel,
            removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 

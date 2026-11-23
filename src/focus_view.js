@@ -402,6 +402,18 @@ function installFocusView(options, parts) {
       const node = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
       if (!node || node.position === command.place) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
       targetBinding.moveSplit(editor, command.dsp, command.id, command.place);
+    } else if (command.action === 'assign') {
+      // The Bypass and controllers tab: a block's footswitch or a control's controller, as HX Edit's own tab writes
+      // them (target_binding writeTree; focus_view.checked_assign has checked the field and the value).
+      const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
+      if (!block) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
+      const at = `dsp${block.dsp}.${block.id}`, fields = {
+        fsIndex: ['footswitch', `${at}.@fs_index`, 'enum'], fsColor: ['footswitch', `${at}.@fs_customcolor`, 'enum'],
+        fsLabel: ['footswitch', `${at}.@fs_customlabel`, 'text'], fsMomentary: ['footswitch', `${at}.@fs_momentary`, 'bool'],
+        controller: ['controller', `${at}.${command.key}.@controller`, 'enum'], min: ['controller', `${at}.${command.key}.@min`, 'float'],
+        max: ['controller', `${at}.${command.key}.@max`, 'float']};
+      const [group, key, kind] = fields[command.field];
+      targetBinding.writeTree(editor, group, key, command.value, kind);
     } else if (command.action === 'route') {
       // Lane B's own input or output in place of the split or the mixer (HX Edit's Create Input: removeNode), or the
       // split or the mixer back (its Restore Split: restoreNode).
@@ -538,13 +550,13 @@ function installFocusView(options, parts) {
           changed = true;
           send({type: 'focusPreset', number: command.number});
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
-        } else if (['add', 'remove', 'move', 'moveSplit', 'route'].includes(command.action)) change(command);
+        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign'].includes(command.action)) change(command);
         else if (command.action) swap(command); else write(command);
       }
       catch (error) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
-        if (['add', 'remove', 'move', 'moveSplit', 'route'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
@@ -721,6 +733,12 @@ function installFocusView(options, parts) {
       } else if (on && value.action === 'moveSplit' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id) &&
                  Number.isInteger(value.place) && value.place >= 0 && value.place <= 8 && writes.length < 32) {
         writes.push({action: 'moveSplit', dsp: value.dsp, id: value.id, place: value.place});
+        queued = false; ask();
+      } else if (on && value.action === 'assign' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && /^(block\d{1,2}|split|join|input[AB]|output[AB])$/.test(value.id) &&
+                 ['fsIndex', 'fsColor', 'fsLabel', 'fsMomentary', 'controller', 'min', 'max'].includes(value.field) && writes.length < 32 &&
+                 (value.key === undefined || (typeof value.key === 'string' && /^[A-Za-z0-9_ ]{1,48}$/.test(value.key))) &&
+                 (typeof value.value === 'boolean' || Number.isFinite(value.value) || (typeof value.value === 'string' && /^[\x20-\x7e]{0,16}$/.test(value.value)))) {
+        writes.push({action: 'assign', dsp: value.dsp, id: value.id, field: value.field, key: value.key, value: value.value});
         queued = false; ask();
       } else if (on && value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id) && writes.length < 32) {
         writes.push({action: 'route', dsp: value.dsp, id: value.id, back: value.back === true});

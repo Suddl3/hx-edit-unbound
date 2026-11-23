@@ -269,7 +269,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_the_names_are_empty_lists_when_hx_edits_file_lacks_them(self):
         (self.res / 'HelixControls.json').write_text('{}', encoding='utf-8')
-        self.assertEqual(workbench.route_names(self.res), {'inputs': [], 'outputs': []})
+        self.assertEqual(workbench.route_names(self.res), {'inputs': [], 'outputs': [], 'ledColors': []})
 
     def test_the_workbench_is_shown_at_launch_only_once_it_was_switched_on(self):
         self.assertFalse(workbench.setting_on({}))
@@ -463,7 +463,7 @@ class AssignReadTests(unittest.TestCase):
 
     def test_reading_only_through_the_tree_reader_and_the_tabs_are_open(self):
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
-        body = binding[binding.index('function peekTree('):binding.index('// Recalls a snapshot')]
+        body = binding[binding.index('function peekTree('):binding.index('// Recalls a snapshot')]  # (writeTree is elsewhere)
         self.assertIn("parameter({editor, dsp: -1, blockName: group}, key).value", body)
         self.assertNotIn('writeValue', body)
         self.assertIn("const treePattern = /^(?:controller|footswitch|snapshot[0-7])$/", binding)
@@ -472,6 +472,46 @@ class AssignReadTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertNotIn('bypass.disabled = values.disabled = true;', page)
         self.assertIn("ctl.append(tabs, panelTab === 'bypass' ? bypassView(block, list) : snapshotView(block, list));", page)
+
+class AssignWriteTests(unittest.TestCase):
+    """Stage 3 step 2: a block's footswitch and its controls' controllers, written as HX Edit's own tab writes them."""
+
+    def setUp(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe', costs_file=None)
+        self.addCleanup(self.view.close)
+        self.view.state = {'blocks': [{'dsp': 0, 'id': 'block1', 'model': 'HD2_DelayTest', 'position': 1, 'path': 0, 'enabled': True}]}
+
+    def test_only_footswitches_colours_labels_and_the_checked_controllers_are_asked_for(self):
+        ask = lambda **v: self.view.checked_assign({'dsp': 0, 'id': 'block1', **v})
+        key = self.view.catalog()['models']['HD2_DelayTest']['params'][0]['id']
+        self.assertEqual(ask(field='fsIndex', value=5), {'action': 'assign', 'dsp': 0, 'id': 'block1', 'field': 'fsIndex', 'value': 5})
+        self.assertEqual(ask(field='fsColor', value=11)['value'], 11)
+        self.assertEqual(ask(field='fsLabel', value='Lead boost')['value'], 'Lead boost')
+        self.assertEqual(ask(field='fsMomentary', value=True)['value'], True)
+        self.assertEqual(ask(field='controller', key=key, value=19), {'action': 'assign', 'dsp': 0, 'id': 'block1', 'field': 'controller', 'key': key, 'value': 19})
+        self.assertEqual(ask(field='min', key=key, value=0.25)['value'], 0.25)
+        for refused in (dict(field='fsIndex', value=13), dict(field='fsIndex', value=True), dict(field='fsColor', value=12),
+                        dict(field='fsLabel', value='x' * 17), dict(field='fsLabel', value='caf\u00e9'), dict(field='fsMomentary', value=1),
+                        dict(field='controller', key=key, value=4), dict(field='controller', key='Nope', value=1),
+                        dict(field='max', key=key, value=1.5), dict(field='other', value=1)):
+            self.assertIsNone(ask(**refused), refused)
+        self.assertIsNone(self.view.checked_assign({'dsp': 1, 'id': 'block1', 'field': 'fsIndex', 'value': 2}))
+
+    def test_the_writes_go_as_hx_edits_own_tab_makes_them(self):
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        body = binding[binding.index('function writeTree('):binding.index("  // Focus Mode: a value of a block written")]
+        self.assertIn('const writePattern = /^(?:controller|footswitch)$/;', binding)
+        self.assertIn('writeValue(editor, -1, groupName, keyName, variant, 0)', body)                 # dsp -1, flags 0
+        self.assertIn("let type = {enum: 1, float: 8, bool: 11, text: 10}[kind];", body)
+        self.assertIn("if (kind !== 'enum') {", body)                                                  # @controller / @fs_index: type 1
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        for piece in ("fsIndex: ['footswitch', `${at}.@fs_index`, 'enum']", "controller: ['controller', `${at}.${command.key}.@controller`, 'enum']",
+                      "min: ['controller', `${at}.${command.key}.@min`, 'float']", 'targetBinding.writeTree(editor, group, key, command.value, kind);'):
+            self.assertIn(piece, script)
+        self.assertIn("'assign': view.checked_assign", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
 
 class DspCostTests(unittest.TestCase):
     """A block's DSP, measured from the path's meter when exactly one block comes or goes (dsp_costs.py)."""
@@ -734,7 +774,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign'})
 
 
 if __name__ == '__main__':
