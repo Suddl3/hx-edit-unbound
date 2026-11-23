@@ -430,24 +430,41 @@ class SplitMoveTests(unittest.TestCase):
         for label in ('Give lane B its own input', 'Give lane B its own output', 'Put the split back', 'Put the mixer back'):
             self.assertIn(label, page)
 
-    def test_the_captures_drawer_adds_or_swaps_through_the_checked_requests(self):
+    def test_the_drawers_add_or_swap_through_the_checked_requests(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
-        body = page[page.index('function liftCapture('):page.index('// ---- everything together')]
-        # onto an empty place: a NAM block with the capture (checked_add with a slot); onto a NAM block: its capture
-        self.assertIn("chainAsk('add', {dsp: Number(over.dataset.dsp), lane: Number(over.dataset.lane), place: Number(over.dataset.place), slot: c.slot})", body)
-        self.assertIn("ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot})", body)
-        self.assertIn("under.closest('.tile.nam-drop')", body)                       # only NAM blocks take a swap
+        body = page[page.index('const DRAWERS = {'):page.index('// ---- everything together')]
+        # onto an empty place: a block with it (checked_add with a slot; an IR with the IR block's model); onto a
+        # block of the drawer's kind: its capture or its IR
+        self.assertIn("add: (place, c) => chainAsk('add', {...place, slot: c.slot}),", body)
+        self.assertIn("add: (place, i) => chainAsk('add', {...place, symbol: IR_BLOCK, slot: i.slot}),", body)
+        self.assertIn("swap: (block, c) => ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot}),", body)
+        self.assertIn("swap: (block, i) => ask('ir', {dsp: block.dsp, id: block.id, slot: i.slot}),", body)
+        self.assertIn("under.closest('.tile.' + kind.tile)", body)                 # only blocks of its kind take a swap
         self.assertIn('fitsOn(engine, Number(target.dataset.dsp))', body)          # a path without room is greyed
-        put = page[page.index('function putCapture('):page.index('function liftCapture(')]
-        self.assertIn('!isNam(block)', put)                                      # a click never turns a block into NAM
-        self.assertIn("if (isNam(block)) button.classList.add('nam-drop');", page)
+        put = page[page.index('function putLibrary('):page.index('function liftLibrary(')]
+        self.assertIn('!kind.fits(block)', put)                                  # a click never changes a block's kind
+        self.assertIn("if (isNam(block)) button.classList.add('nam-drop'); if (isIr(block)) button.classList.add('ir-drop');", page)
         for tool in ("ask('menu', 'look')", "ask('menu', 'level')", "ask('menu', 'library')"):
             self.assertIn(tool, page)
-        # and the slot a capture asks for is one on the Floor (checked_add / checked_capture refuse others)
+        # the slot a capture or an IR asks for is one the drawer was shown (checked_add / checked_capture / checked_ir)
         self.view.state['captures'] = [{'slot': 21, 'name': 'Brit Gold Crunch'}]
-        self.view.state['blocks'].append({'dsp': 0, 'id': 'block2', 'model': 'HD2_DelayTest', 'position': 0, 'path': 0, 'enabled': True})
+        self.view.state['irs'] = [{'slot': 8, 'name': 'Mesa OS 4x12'}]
+        self.view.state['blocks'] += [{'dsp': 0, 'id': 'block2', 'model': 'HD2_DelayTest', 'position': 0, 'path': 0, 'enabled': True},
+                                      {'dsp': 1, 'id': 'block3', 'model': 'HD2_ImpulseResponse2048', 'position': 2, 'path': 0, 'enabled': True, 'slot': 3}]
         self.assertIsNone(self.view.checked_capture({'dsp': 0, 'id': 'block2', 'slot': 22}))
         self.assertEqual(self.view.checked_capture({'dsp': 0, 'id': 'block2', 'slot': 21})['slot'], 21)
+        self.assertEqual(self.view.checked_ir({'dsp': 1, 'id': 'block3', 'slot': 8}), {'action': 'ir', 'dsp': 1, 'id': 'block3', 'slot': 8})
+        for refused in ({'dsp': 1, 'id': 'block3', 'slot': 21}, {'dsp': 0, 'id': 'block2', 'slot': 8}, {'dsp': 1, 'id': 'block3', 'slot': True}):
+            self.assertIsNone(self.view.checked_ir(refused), refused)          # a capture's slot, not an IR block
+        add = lambda **v: self.view.checked_add({'dsp': 1, 'lane': 0, 'place': 5, **v})
+        self.assertEqual(add(symbol='HD2_ImpulseResponse1024', slot=8), {'action': 'add', 'dsp': 1, 'lane': 0, 'place': 5, 'symbol': 'HD2_ImpulseResponse1024', 'slot': 8})
+        self.assertIsNone(add(symbol='HD2_ImpulseResponse1024', slot=21))        # a capture's slot is not an IR
+        self.assertIsNone(add(symbol='HD2_ImpulseResponse2048', slot=8))        # only the drawer's IR block
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("if (!block || !FOCUS_IR_MODEL.test(block.model) || block.slot === command.slot)", script)
+        self.assertIn('plainIrs = readIrs(plainIrs);', script)
+        self.assertIn('plainIrs() {', (ROOT / 'nam_view.js').read_text(encoding='utf-8'))
+        self.assertIn("'ir': view.checked_ir", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
 
     def test_a_capture_is_added_with_its_slot_as_one_undo_step(self):
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
@@ -458,7 +475,7 @@ class SplitMoveTests(unittest.TestCase):
         self.assertLess(body.index('open(editor, 0x80000000);'), body.index('result = add(editor, dsp, value, cell, 0);'))
         self.assertLess(body.index('result = add(editor, dsp, value, cell, 0);'), body.index('setIndex(editor, dsp, made.name, slot, 0);'))
         self.assertIn('close(editor, result);', body)
-        self.assertIn('!engines.has(symbol)', body)                           # only a NAM engine
+        self.assertIn('!(engines.has(symbol) || IR_MODEL.test(symbol))', body)   # only a NAM engine or an IR block
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn('targetBinding.addCapture(editor, command.dsp, command.lane, command.place, next, command.slot);', script)
         self.assertIn('} else addFollow = {dsp: command.dsp', script)          # (the old way when the block was not found)
@@ -838,7 +855,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@tempo')", script)
         # Still only values, a model, a capture, a snapshot and a click on the chain are ever written.
         self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)
-        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 2))   # (a swap, the split's type; a capture added)
+        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 3))   # (a swap, the split's type; a capture added, an IR)
 
 
 class WiringTests(unittest.TestCase):
@@ -885,7 +902,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir'})
 
 
 if __name__ == '__main__':

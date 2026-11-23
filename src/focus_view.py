@@ -746,9 +746,32 @@ class FocusView:
             return {**command, 'symbol': symbol} if symbol in offered else None
         state = self.state if isinstance(self.state, dict) else {}
         on_floor = {c.get('slot') for c in state.get('captures') or [] if isinstance(c, dict)}
-        if symbol is None and not isinstance(slot, bool) and isinstance(slot, int) and 1 <= slot <= 127 and slot in on_floor:
+        whole = not isinstance(slot, bool) and isinstance(slot, int) and 1 <= slot <= 127
+        if symbol is None and whole and slot in on_floor:
             return {**command, 'slot': slot}
+        # an IR block with one of the Floor's plain IRs (the IRs drawer)
+        if symbol == self.IR_BLOCK and whole and slot in self._plain_irs():
+            return {**command, 'symbol': symbol, 'slot': slot}
         return None
+
+    # The IR block the IRs drawer adds (HX Edit's IR 1024, the one its IR list's drag puts in the chain), and the IR
+    # models whose IR a drawer's IR may replace.
+    IR_BLOCK = 'HD2_ImpulseResponse1024'
+    IR_MODEL = re.compile(r'HD2_ImpulseResponse\d{3,4}[A-Za-z]*')
+
+    def _plain_irs(self):
+        state = self.state if isinstance(self.state, dict) else {}
+        return {i.get('slot') for i in state.get('irs') or [] if isinstance(i, dict)}
+
+    def checked_ir(self, value):
+        """The IRs drawer's request to put another of the Floor's plain IRs on an IR block, as the command for
+        focus_view.js, or None: only an IR block of the chain, and only an IR the drawer was shown."""
+        block = self._block(value)
+        slot = value.get('slot') if isinstance(value, dict) else None
+        if (not block or not str(block.get('id', '')).startswith('block') or not self.IR_MODEL.fullmatch(str(block.get('model', '')))
+                or isinstance(slot, bool) or not isinstance(slot, int) or slot not in self._plain_irs() or slot == block.get('slot')):
+            return None
+        return {'action': 'ir', 'dsp': block['dsp'], 'id': block['id'], 'slot': slot}
 
     def checked_remove(self, value):
         """The Workbench's request to remove a block, or None: only a block of the chain the page was shown."""

@@ -1938,6 +1938,24 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     libraryReady, discoverySnapshot, exportDiscoverySlot, profileLabel,
     flushInventoryPresentation, needsInventoryPresentation,
     slotEpoch: () => slotLedger?.epoch() || 0,
+    plainIrs() {
+      // The Floor's plain IRs as HX Edit's IR list has them: [{slot, name}] of the used rows, without the slots that
+      // hold a capture (the NAM library's profiles and the slot check's record) and the audition slot. Read-only, the
+      // rows read as the slot check reads them. (The Workbench's IRs drawer.)
+      const list = irList(), result = [];
+      if (list.isNull()) return result;
+      const captureSlots = new Set(slotLedger ? [...slotLedger.entries()].map(([slot]) => slot) : []);
+      for (let slot = 1; slot < AUDITION_SLOT; slot++) {
+        if (Object.hasOwn(profiles, slot) || captureSlots.has(slot)) continue;
+        const row = getIrRow(list, slot - 1);
+        if (row.isNull()) break;
+        if (!row.add(0x10c).readU32()) continue;
+        let name = '';
+        try { name = row.readUtf8String() || ''; } catch (_) { name = ''; }
+        result.push({slot, name: name.slice(0, 64) || 'IR ' + slot});
+      }
+      return result;
+    },
     installedCaptures() {
       // Captures of this PC's library that are on the Floor now, by verified slot: for the NAM
       // category's model list. [{slot, name, gear, icon}], lowest slot first (icon: capture_icons id).

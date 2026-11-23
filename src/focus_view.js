@@ -20,6 +20,8 @@ const focusViewGuards = Object.freeze({
 // Where things sit on a DSP, in signal order. A block's place on its path is @position; @path 1 is the lower path.
 const FOCUS_ENDS = Object.freeze(['inputA', 'inputB', 'split', 'join', 'outputA', 'outputB']);
 const FOCUS_BLOCKS = 16;
+// HX Edit's IR blocks: their IR is a slot of the IR store, read as a NAM block's capture slot is (Index)
+const FOCUS_IR_MODEL = /^HD2_ImpulseResponse\d{3,4}[A-Za-z]*$/;
 
 // The preset as the pane draws it, from a reader peek(dsp, place, key). Pure: tests run it on a fake reader.
 //   blocks: [{dsp, id, model, position, path, enabled, slot}] (slot: a NAM block's capture slot)
@@ -48,7 +50,7 @@ function focusSnapshot(peek, cursor, parameters, namEngines) {
         }
         block.values = own;
       }
-      if (namEngines.includes(model)) {
+      if (namEngines.includes(model) || FOCUS_IR_MODEL.test(model)) {
         const slot = peek(dsp, id, 'Index');
         block.slot = Number.isInteger(slot) ? slot : null;
       }
@@ -83,7 +85,7 @@ function focusCursor(panel, dsp, group) {
 function focusValues(peek, blocks, cursor, parameters, namEngines) {
   const next = blocks.map(block => {
     const copy = {...block, enabled: peek(block.dsp, block.id, '@enabled') !== false};
-    if (namEngines.includes(block.model)) {
+    if (namEngines.includes(block.model) || FOCUS_IR_MODEL.test(block.model)) {
       const slot = peek(block.dsp, block.id, 'Index');
       copy.slot = Number.isInteger(slot) ? slot : null;
     }
@@ -395,6 +397,7 @@ function installFocusView(options, parts) {
   // added is a NAM block whose slot is set as soon as HX Edit has put the block in the chain (until then the place
   // reads empty): left on slot 1, a plain IR, it would silence the Floor.
   let addFollow = null;
+  let plainIrs = [];          // the Floor's plain IRs, read with each full reading (readIrs)
   let lastUndoWord = '';      // HX Edit's undo position and the preset, as last traced (the Workbench's redo button)
   const ADD_FOLLOW_MS = 3000;
   const occupied = (dsp, lane, place) => (known || []).some(block => block.dsp === dsp && chainBlock.test(block.id) && block.position === place && block.path === lane);
@@ -403,13 +406,14 @@ function installFocusView(options, parts) {
     endDrag('a chain change');
     if (command.action === 'add') {
       if (occupied(command.dsp, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
-      const next = command.slot ? namEngines[0] : command.symbol;
+      // (a slot alone: a capture, on NAM's engine; a slot with an IR model: an IR block with that IR)
+      const next = command.slot && !command.symbol ? namEngines[0] : command.symbol;
       const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], costsNow(), null, next, command.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'add-no-room'}); return; }
       if (command.slot) {
         // a capture: the block and its slot as one undo step (target_binding addCapture); its slot set later, as a
         // step of its own, only when the new block could not be found at once
-        const made = targetBinding.addCapture(editor, command.dsp, command.lane, command.place, next, command.slot);
+        const made = targetBinding.addCapture(editor, command.dsp, command.lane, command.place, next, command.slot);   // (or an IR)
         if (made) {
           finish(editor, command.dsp, made, 'Index', command.slot);
           send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-one-step', slot: command.slot});
@@ -433,9 +437,15 @@ function installFocusView(options, parts) {
         max: ['controller', `${at}.${command.key}.@max`, 'float']};
       const [group, key, kind] = fields[command.field];
       targetBinding.writeTree(editor, group, key, command.value, kind);
-    } else if (command.action === 'redo') {
-      // HX Edit's own Redo (target_binding redo: the Edit menu's entry), as the page's Redo button asks it
-      targetBinding.redo(editor);
+    } else if (command.action === 'ir') {
+      // The IRs drawer: another IR on an IR block (its Index, as HX Edit's IR picker writes it: one undo step)
+      const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
+      if (!block || !FOCUS_IR_MODEL.test(block.model) || block.slot === command.slot) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
+      targetBinding.setIndex(editor, block.dsp, block.id, command.slot);
+      finish(editor, block.dsp, block.id, 'Index', command.slot);
+    } else if (command.action === 'redo' || command.action === 'undo') {
+      // HX Edit's own Undo / Redo (target_binding undo, redo: the Edit menu's entries), as the page's buttons ask
+      if (command.action === 'undo') targetBinding.undo(editor); else targetBinding.redo(editor);
     } else if (command.action === 'splitType') {
       // The split's type (Split Y, A/B, Crossover, Dynamic): its model, written as HX Edit's panel writes a model.
       const node = (known || []).find(item => item.dsp === command.dsp && item.id === 'split');
@@ -551,6 +561,12 @@ function installFocusView(options, parts) {
     }
     catch (_) { return previous || []; }
   }
+  function readIrs(previous) {
+    // The Floor's plain IRs (nam_view plainIrs: HX Edit's IR list without the captures' slots), for the Workbench's
+    // IRs drawer; the last list while it cannot be read.
+    try { const found = namView.plainIrs?.(); return Array.isArray(found) ? found : previous; }
+    catch (_) { return previous; }
+  }
   function endDrag(why) {
     if (!drag) return;
     const open = drag; drag = null;
@@ -592,13 +608,13 @@ function installFocusView(options, parts) {
           changed = true;
           send({type: 'focusPreset', number: command.number});
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
-        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo'].includes(command.action)) change(command);
+        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo'].includes(command.action)) change(command);
         else if (command.action) swap(command); else write(command);
       }
       catch (error) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
-        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
@@ -623,8 +639,9 @@ function installFocusView(options, parts) {
         catch (error) { downFollow = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'move-down-failed', error: String(error.message)}); send({type: 'dspNotice', text: 'HX Edit did not move the block down to the parallel lane.'}); }
       }
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
-      if (full) { onFloor = captures(onFloor); header = presetHeader(); }
+      if (full) { onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs); }
       state.captures = onFloor;
+      state.irs = plainIrs;
       state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots; state.tempo = header.tempo; state.topology = header.topology;
       const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
       state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
@@ -772,7 +789,7 @@ function installFocusView(options, parts) {
       } else if (on && [0, 1].includes(value.dsp) && writes.length < 32 && (
                  (value.action === 'add' && [0, 1].includes(value.lane) && Number.isInteger(value.place) && value.place >= 0 && value.place <= 7 &&
                   ((typeof value.symbol === 'string' && modelSymbol.test(value.symbol) && !namEngines.includes(value.symbol) && value.slot === undefined) ||
-                   (value.symbol === undefined && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127))) ||
+                   ((value.symbol === undefined || (typeof value.symbol === 'string' && FOCUS_IR_MODEL.test(value.symbol))) && Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127))) ||
                  (value.action === 'remove' && typeof value.id === 'string' && chainBlock.test(value.id)) ||
                  (value.action === 'move' && typeof value.id === 'string' && chainBlock.test(value.id) && [0, 1].includes(value.lane) &&
                   Number.isInteger(value.place) && value.place >= 0 && value.place <= 7 && (value.to === undefined || [0, 1].includes(value.to))))) {
@@ -789,8 +806,12 @@ function installFocusView(options, parts) {
                  (typeof value.value === 'boolean' || Number.isFinite(value.value) || (typeof value.value === 'string' && /^[\x20-\x7e]{0,16}$/.test(value.value)))) {
         writes.push({action: 'assign', dsp: value.dsp, id: value.id, field: value.field, key: value.key, value: value.value});
         queued = false; ask();
-      } else if (on && value.action === 'redo' && writes.length < 32) {
-        writes.push({action: 'redo'});
+      } else if (on && value.action === 'ir' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && chainBlock.test(value.id) &&
+                 Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127 && writes.length < 32) {
+        writes.push({action: 'ir', dsp: value.dsp, id: value.id, slot: value.slot});
+        queued = false; ask();
+      } else if (on && ['undo', 'redo'].includes(value.action) && writes.length < 32) {
+        writes.push({action: value.action});
         queued = false; ask();
       } else if (on && value.action === 'splitType' && [0, 1].includes(value.dsp) && typeof value.symbol === 'string' &&
                  /^HD2_AppDSPFlowSplit(Y|AB|XOver|Dyn)$/.test(value.symbol) && writes.length < 32) {

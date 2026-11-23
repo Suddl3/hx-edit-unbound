@@ -73,6 +73,9 @@
   .dfoot { border-top: 1px solid var(--line); padding: 10px 12px; color: var(--faint); font-size: 11.5px; line-height: 1.4; }
   /* a capture dragged onto the chain: the places it can go, and the NAM blocks whose capture it can take */
   .board.dragging.capture-drag .tile.nam-drop { box-shadow: 0 0 0 1px rgb(176 112 224 / .55); }
+  .board.dragging.ir-drag .tile.ir-drop { box-shadow: 0 0 0 1px rgb(242 48 145 / .55); }
+  .caprow .irwave, .ghost .irwave { width: 38px; height: 38px; display: grid; place-items: center; color: #f23091; }
+  .caprow .irwave svg { width: 26px; height: 26px; } .ghost .irwave svg { width: 44px; height: 44px; }
   .board.dragging .tile.over { border-color: #f0c94a; box-shadow: 0 0 0 2px #f0c94a, 0 10px 30px rgb(240 201 74 / .25); }
 
   /* ---- the top bar ------------------------------------------------------------------------------------- */
@@ -350,7 +353,7 @@
   </header>
 
   <nav class="rail" id="rail" aria-label="Library"></nav>
-  <aside class="drawer" id="drawer" aria-label="Captures on the Floor" hidden></aside>
+  <aside class="drawer" id="drawer" aria-label="On the Floor" hidden></aside>
 
   <section class="board" id="board" aria-label="Signal chain"></section>
 
@@ -496,7 +499,7 @@ function drawPath(p, g, now) {
     const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (same(block, now) ? ' on' : '') + (block.id === 'pending' ? ' coming' : ''));
     button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - 52}px;width:${g.tile}px`;
     button.dataset.dsp = p.dsp; button.dataset.lane = y === YA ? 0 : 1; button.dataset.place = place;   // (laneBranch)
-    button.dataset.id = block.id; if (isNam(block)) button.classList.add('nam-drop');                 // (a capture dragged from the drawer)
+    button.dataset.id = block.id; if (isNam(block)) button.classList.add('nam-drop'); if (isIr(block)) button.classList.add('ir-drop');   // (from a drawer)
     const led = el('span', 'led' + (block.enabled ? '' : ' off'));
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
     button.append(led, image(pictures(block), 'pic', true), strip);
@@ -1317,77 +1320,114 @@ function toast(words) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => { line.hidden = true; }, 6000);
 }
 
-// ---- the library rail and the Captures drawer ----------------------------------------------------------------------
-// The rail: Captures opens the drawer beside the chain; the tools still open on HX Edit's own screen (as the Unbound
-// menu's). The drawer lists the captures on the Floor (state.captures) by kind: drag one onto a "+" for a NAM block
-// with it there (focus_view.checked_add, slot), or onto a NAM block to swap its capture (checked_capture); a click
-// puts it on the selected NAM block.
+// ---- the library rail and its drawers: Captures, IRs ---------------------------------------------------------------
+// The rail: Captures and IRs open a drawer beside the chain; the tools still open on HX Edit's own screen (as the
+// Unbound menu's). A drawer lists what is on the Floor: the captures (state.captures, by kind) or the plain IRs
+// (state.irs). Dragged onto a "+": a NAM block with that capture, or an IR block with that IR (focus_view.checked_add,
+// with the slot; one undo step). Onto a NAM block, its capture (checked_capture); onto an IR block, its IR
+// (checked_ir). A click puts it on the selected block of that kind only.
 const RAIL_ICON = {
   capture: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="3" y="4" width="14" height="12" rx="2"/><circle cx="10" cy="10" r="3"/></svg>',
+  ir: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10h3l1.5-5 3 11 2.5-8 1.5 4H18"/></svg>',
   floor: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2" y="6" width="16" height="9" rx="1.5"/><circle cx="6" cy="12" r="1"/><circle cx="10" cy="12" r="1"/><circle cx="14" cy="12" r="1"/><path d="M5 8.5h6"/></svg>',
   level: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 16V9M10 16V4M15 16v-5"/></svg>',
   library: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 4.5h4v11H3zM8 4.5h4v11H8z"/><path d="M13 5.2l3.7-1 2.6 10.6-3.7 1z"/></svg>',
 };
-let drawerOpen = false, capKind = '', capQuery = '', shownDrawer = '', shownRail = '';
+// The IR block an IR from the drawer makes on an empty place (focus_view.FocusView.IR_BLOCK), and the IR blocks
+const IR_BLOCK = 'HD2_ImpulseResponse1024';
+const isIr = block => /^HD2_ImpulseResponse\d{3,4}[A-Za-z]*$/.test(block.model || '');
+const IR_TINT = [242, 48, 145];
+// What differs between the two drawers.
+const DRAWERS = {
+  captures: {
+    title: 'Captures', rail: 'Captures', icon: 'capture', search: 'Search captures', tint: NAM_TINT, tile: 'nam-drop', drag: 'capture-drag',
+    hint: 'The captures on the Floor: drag one onto the chain',
+    foot: 'Drag a capture onto a "+" to add a NAM block, or onto a NAM block to swap its capture. Click: put it on the selected NAM block. Undo takes it back.',
+    empty: 'No captures on the Floor yet. Add some with the NAM library (in the rail).', none: 'No capture matches.',
+    items: () => state.captures || [], model: () => catalog.nam[0], fits: block => isNam(block),
+    words: c => [c.name || 'IR slot ' + c.slot, namKind(c)], picture: c => image(captureUrls(c), '', true, true), kinds: true,
+    swap: (block, c) => ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot}),
+    add: (place, c) => chainAsk('add', {...place, slot: c.slot}),
+    select: 'Select a NAM block first, or drag the capture onto the chain.',
+  },
+  irs: {
+    title: 'IRs', rail: 'IRs', icon: 'ir', search: 'Search IRs', tint: IR_TINT, tile: 'ir-drop', drag: 'ir-drag',
+    hint: "The Floor's IRs (without the captures' slots): drag one onto the chain",
+    foot: 'Drag an IR onto a "+" to add an IR block, or onto an IR block to change its IR. Click: load it into the selected IR block. Undo takes it back.',
+    empty: 'No IRs on the Floor besides the captures. Import IRs on HX Edit\'s own screen (its IR list).', none: 'No IR matches.',
+    items: () => state.irs || [], model: () => IR_BLOCK, fits: block => isIr(block),
+    words: i => [i.name || 'IR ' + i.slot, 'IR'], picture: () => { const s = el('span', 'irwave'); s.innerHTML = RAIL_ICON.ir; return s; }, kinds: false,
+    swap: (block, i) => ask('ir', {dsp: block.dsp, id: block.id, slot: i.slot}),
+    add: (place, i) => chainAsk('add', {...place, symbol: IR_BLOCK, slot: i.slot}),
+    select: 'Select an IR block first, or drag the IR onto the chain.',
+  },
+};
+let drawer = '', capKind = '', capQuery = '', shownDrawer = '', shownRail = '';
 function drawRail() {
-  const key = [drawerOpen, !!options.level].join('|');
+  const key = [drawer, !!options.level].join('|');
   if (key === shownRail) return;
   shownRail = key;
   const button = (words, icon, cls, title, onclick) => {
     const b = el('button', cls); b.innerHTML = RAIL_ICON[icon]; b.append(words); b.title = title; b.onclick = onclick; return b;
   };
-  const caps = button('Captures', 'capture', drawerOpen ? 'on' : '', 'The captures on the Floor: drag one onto the chain', () => setDrawer(!drawerOpen));
-  caps.setAttribute('aria-pressed', drawerOpen);
-  $('rail').replaceChildren(caps, el('div', 'sep'),
+  const opener = which => {
+    const kind = DRAWERS[which], b = button(kind.rail, kind.icon, drawer === which ? 'on' : '', kind.hint, () => setDrawer(drawer === which ? '' : which));
+    b.setAttribute('aria-pressed', drawer === which);
+    return b;
+  };
+  $('rail').replaceChildren(opener('captures'), opener('irs'), el('div', 'sep'),
     button('Floor look', 'floor', 'un', "Floor look: opens on HX Edit's own screen", () => ask('menu', 'look')),
     ...(options.level ? [button('Levels', 'level', 'un', "Level presets: opens on HX Edit's own screen", () => ask('menu', 'level'))] : []),
     button('NAM library', 'library', 'un', "The NAM library (add captures to the Floor): opens on HX Edit's own screen", () => ask('menu', 'library')));
 }
-function setDrawer(open) {
-  drawerOpen = open;
+function setDrawer(which) {
+  const was = drawer;
+  drawer = which;
+  if (was !== which) { capKind = ''; capQuery = ''; $('drawer').replaceChildren(); }   // (each drawer its own search)
   shownDrawer = '';
   drawRail(); drawDrawer();
-  requestAnimationFrame(() => { if (catalog && state) drawChain(true); });   // (the chain has less, or more, room)
+  if (!was !== !which) requestAnimationFrame(() => { if (catalog && state) drawChain(true); });   // (the chain has less, or more, room)
 }
 function drawDrawer() {
-  const box = $('drawer');
-  box.hidden = !drawerOpen;
-  if (!drawerOpen || !catalog || !state) return;
-  const all = (state.captures || []).filter(c => c && Number.isInteger(c.slot)).slice().sort((a, b) => a.slot - b.slot);
-  const now = current(), inUse = now && isNam(now) ? now.slot : null;
-  const key = JSON.stringify([all.map(c => [c.slot, c.name, c.icon, c.gear]), capKind, capQuery, inUse]);
+  const box = $('drawer'), kind = DRAWERS[drawer];
+  box.hidden = !kind;
+  if (!kind || !catalog || !state) return;
+  box.setAttribute('aria-label', kind.title + ' on the Floor');
+  const all = kind.items().filter(c => c && Number.isInteger(c.slot)).slice().sort((a, b) => a.slot - b.slot);
+  const now = current(), inUse = now && kind.fits(now) ? now.slot : null;
+  const key = JSON.stringify([drawer, all.map(c => [c.slot, c.name, c.icon, c.gear]), capKind, capQuery, inUse]);
   if (key === shownDrawer) return;
   shownDrawer = key;
-  const kinds = namKinds().map(k => k.name), kindOfCap = c => namKind(c);
-  const counts = new Map(); for (const c of all) counts.set(kindOfCap(c), (counts.get(kindOfCap(c)) || 0) + 1);
+  const groupOf = c => kind.kinds ? namKind(c) : '';
+  const groups = kind.kinds ? namKinds().map(k => k.name) : [''];
+  const counts = new Map(); for (const c of all) counts.set(groupOf(c), (counts.get(groupOf(c)) || 0) + 1);
   if (capKind && !counts.has(capKind)) capKind = '';
   // The drawer's frame is made once: the search box stays where it is (and keeps the caret) while the count, the
   // chips and the list are redrawn.
   if (!box.querySelector('.find')) {
     const find = el('label', 'find'); find.innerHTML = ICON.search;
-    const input = el('input'); input.type = 'search'; input.placeholder = 'Search captures'; input.setAttribute('aria-label', 'Search captures');
+    const input = el('input'); input.type = 'search'; input.placeholder = kind.search; input.setAttribute('aria-label', kind.search);
     input.oninput = () => { capQuery = input.value.trim().toLowerCase(); drawDrawer(); };
     find.append(input);
-    const foot = el('div', 'dfoot', 'Drag a capture onto a "+" to add a NAM block, or onto a NAM block to swap its capture. Click: put it on the selected NAM block. Undo takes it back.');
-    box.replaceChildren(el('h3'), find, el('div', 'kindchips'), el('div', 'caplist'), foot);
+    box.replaceChildren(el('h3'), find, el('div', 'kindchips'), el('div', 'caplist'), el('div', 'dfoot', kind.foot));
   }
-  const head = el('h3', '', 'Captures'); head.append(el('span', '', all.length + ' on the Floor'));
+  const head = el('h3', '', kind.title); head.append(el('span', '', all.length + ' on the Floor'));
   const chips = el('div', 'kindchips');
-  const chip = (words, kind, count) => {
-    const b = el('button', capKind === kind ? 'on' : '', words); b.append(el('b', 'num', String(count)));
-    b.onclick = () => { capKind = capKind === kind && kind ? '' : kind; drawDrawer(); };
+  const chip = (words, group, count) => {
+    const b = el('button', capKind === group ? 'on' : '', words); b.append(el('b', 'num', String(count)));
+    b.onclick = () => { capKind = capKind === group && group ? '' : group; drawDrawer(); };
     return b;
   };
-  chips.append(chip('All', '', all.length), ...kinds.filter(k => counts.has(k)).map(k => chip(k, k, counts.get(k))));
+  if (kind.kinds) chips.append(chip('All', '', all.length), ...groups.filter(g => counts.has(g)).map(g => chip(g, g, counts.get(g))));
   const list = el('div', 'caplist');
-  const shown = all.filter(c => (!capKind || kindOfCap(c) === capKind) && (!capQuery || String(c.name).toLowerCase().includes(capQuery)));
-  for (const kind of kinds) {
-    const rows = shown.filter(c => kindOfCap(c) === kind);
+  const shown = all.filter(c => (!capKind || groupOf(c) === capKind) && (!capQuery || String(c.name).toLowerCase().includes(capQuery)));
+  for (const group of groups) {
+    const rows = shown.filter(c => groupOf(c) === group);
     if (!rows.length) continue;
-    list.append(el('div', 'grp', kind));
-    for (const c of rows) list.append(captureRow(c, c.slot === inUse));
+    if (group) list.append(el('div', 'grp', group));
+    for (const c of rows) list.append(libraryRow(kind, c, c.slot === inUse));
   }
-  if (!shown.length) list.append(el('div', 'none', all.length ? 'No capture matches.' : 'No captures on the Floor yet. Add some with the NAM library (in the rail).'));
+  if (!shown.length) list.append(el('div', 'none', all.length ? kind.none : kind.empty));
   const scroll = box.querySelector('.caplist').scrollTop;
   reusable = gather(box);
   try {
@@ -1395,39 +1435,40 @@ function drawDrawer() {
   } finally { reusable = null; }
   list.scrollTop = scroll;                                      // (a reading of HX Edit does not move the list)
 }
-function captureRow(c, on) {
-  const row = el('button', 'caprow' + (on ? ' on' : ''));
-  const words = el('div'); words.append(el('b', '', c.name || 'IR slot ' + c.slot), el('small', '', namKind(c)));
-  row.append(image(captureUrls(c), '', true, true), words, el('em', 'num', on ? 'in use' : 'slot ' + c.slot));
-  row.title = (c.name || '') + ' (IR slot ' + c.slot + ')';
-  row.onpointerdown = event => liftCapture(event, c, row);
+function libraryRow(kind, c, on) {
+  const row = el('button', 'caprow' + (on ? ' on' : '')), [name, sub] = kind.words(c);
+  const words = el('div'); words.append(el('b', '', name), el('small', '', sub));
+  row.append(kind.picture(c), words, el('em', 'num', on ? 'in use' : 'slot ' + c.slot));
+  row.title = name + ' (IR slot ' + c.slot + ')';
+  row.onpointerdown = event => liftLibrary(event, kind, c, row);
   return row;
 }
-function putCapture(c) {
+function putLibrary(kind, c) {
+  // a click: on the selected block of the drawer's kind only (never turns another block into one of that kind)
   const block = current();
-  if (!block || !isChain(block) || !isNam(block)) { toast('Select a NAM block first, or drag the capture onto the chain.'); return; }
-  if (block.slot !== c.slot) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
+  if (!block || !isChain(block) || !kind.fits(block)) { toast(kind.select); return; }
+  if (block.slot !== c.slot) kind.swap(block, c);
 }
-// A capture dragged from the drawer: onto an empty place (a NAM block with it, where its path has room for one) or
-// onto a NAM block of the chain (its capture swapped). As a block's drag, nothing opens while it is held.
-function liftCapture(event, c, row) {
+// A capture or an IR dragged from the drawer: onto an empty place (a block with it, where its path has room) or onto
+// a block of its kind (swapped). As a block's drag, nothing opens while it is held.
+function liftLibrary(event, kind, c, row) {
   if (event.button !== 0) return;
-  const start = {x: event.clientX, y: event.clientY}, engine = {model: catalog.nam[0], dsp: -1};
+  const start = {x: event.clientX, y: event.clientY}, engine = {model: kind.model(), dsp: -1};
   let held = null, over = null;
   const board = $('board');
   const move = e => {
     if (!held) {
       if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < 7) return;
-      held = true; dragging = {capture: c};
-      board.classList.add('dragging', 'capture-drag'); row.classList.add('lifted');
+      held = true; dragging = {library: c};
+      board.classList.add('dragging', kind.drag); row.classList.add('lifted');
       for (const target of board.querySelectorAll('.slot.spot')) target.classList.toggle('off-path', !fitsOn(engine, Number(target.dataset.dsp)));
-      const ghost = el('div', 'ghost'); ghost.style.setProperty('--c', NAM_TINT.join(' '));
-      ghost.append(image(captureUrls(c), '', true));
+      const ghost = el('div', 'ghost'); ghost.style.setProperty('--c', kind.tint.join(' '));
+      ghost.append(kind.picture(c));
       document.body.append(ghost); held = ghost;
     }
     held.style.left = (e.clientX - 46) + 'px'; held.style.top = (e.clientY - 46) + 'px';
     const under = document.elementFromPoint(e.clientX, e.clientY);
-    let near = under && (under.closest('.tile.nam-drop') || under.closest('.slot.spot:not(.off-path)'));
+    let near = under && (under.closest('.tile.' + kind.tile) || under.closest('.slot.spot:not(.off-path)'));
     if (near && near.style.visibility === 'hidden') near = null;
     let best = Infinity;
     if (!near) for (const slot of board.querySelectorAll('.slot.spot:not(.off-path)')) {
@@ -1440,15 +1481,15 @@ function liftCapture(event, c, row) {
   };
   const up = () => {
     removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
-    if (!held) { putCapture(c); return; }                        // (not moved: a click)
+    if (!held) { putLibrary(kind, c); return; }                  // (not moved: a click)
     held.remove(); row.classList.remove('lifted');
     if (over) over.classList.remove('over');
-    board.classList.remove('dragging', 'capture-drag');
+    board.classList.remove('dragging', kind.drag);
     dragging = null;
     if (over && over.classList.contains('tile')) {
       const block = state.blocks.find(b => b.dsp === Number(over.dataset.dsp) && b.id === over.dataset.id);
-      if (block && block.slot !== c.slot) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
-    } else if (over) chainAsk('add', {dsp: Number(over.dataset.dsp), lane: Number(over.dataset.lane), place: Number(over.dataset.place), slot: c.slot});
+      if (block && kind.fits(block) && block.slot !== c.slot) kind.swap(block, c);
+    } else if (over) kind.add({dsp: Number(over.dataset.dsp), lane: Number(over.dataset.lane), place: Number(over.dataset.place)}, c);
     drawChain(true);
   };
   addEventListener('pointermove', move); addEventListener('pointerup', up); addEventListener('pointercancel', up);

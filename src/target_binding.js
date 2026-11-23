@@ -343,6 +343,8 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  // HX Edit's IR blocks (IR 1024, IR 2048...): their IR is a slot of the same IR store, the same Index as a NAM block's
+  const IR_MODEL = /^HD2_ImpulseResponse\d{3,4}[A-Za-z]*$/;
   function setIndex(editor, dsp, blockName, slot, flags = 0x80000000) {
     // A NAM block's capture slot, written as restore() writes it (one undo step), keeping the
     // stored value's own type. Only for a supported NAM engine and a permanent slot. (flags 0: inside an undo step
@@ -351,7 +353,7 @@ function installTargetBinding(options = {}) {
         !Number.isInteger(slot) || slot < 1 || slot > 127) fail('unsupported block or slot');
     const state = {editor, dsp, blockName, parameter: 'Index'};
     const model = parameter(state, '@model');
-    if (model.type !== 10 || !engines.has(model.value)) fail('not a NAM block');
+    if (model.type !== 10 || !(engines.has(model.value) || IR_MODEL.test(model.value))) fail('not a NAM or IR block');
     const current = parameter(state, 'Index');
     if (![4, 5, 8].includes(current.type)) fail('unexpected slot value');
     let block = null, key = null;
@@ -380,19 +382,27 @@ function installTargetBinding(options = {}) {
     if (result < 0) fail(`redo was refused (${result})`);
     return true;
   }
+  function undo(editor) {
+    // HX Edit's own Undo: the Edit menu's command 0xd0 calls vtbl+0xdc = 0x51aaf0 ("app.err.undo" when it fails)
+    if (!editorReady(editor)) fail('no editor');
+    const entry = new NativeFunction(editorEntry(editor, 0xdc, 0x51aaf0, 'undo'), 'int', ['pointer'], 'thiscall');
+    const result = entry(editor);
+    if (result < 0) fail(`undo was refused (${result})`);
+    return true;
+  }
   function canRedo(editor) {
     if (!editorReady(editor)) return null;
     const entry = new NativeFunction(editorEntry(editor, 0xe4, 0x504630, 'can-undo-redo'), 'pointer', ['pointer', 'int'], 'thiscall');
     return !entry(editor, 1).isNull();
   }
   function addCapture(editor, dsp, row, col, symbol, slot) {
-    // A NAM block with its capture on an empty cell as ONE undo step: the add (+0xa8) and the slot (Index) inside an
+    // A NAM block with its capture (or an IR block with its IR) on an empty cell as ONE undo step: the add (+0xa8) and the slot (Index) inside an
     // undo step of their own (+0xd4 opens it, +0xd8 closes it with the outcome, as HX Edit's drop between the paths
     // does: moveAcross). Two steps apart, an Undo left a NAM block on IR slot 1 between them (seen 2026-11-23).
     // Returns the new block's name, or null when it could not be found at once (the block is added; the caller sets
     // the slot later, as before).
     if (!editorReady(editor) || ![0, 1].includes(dsp) || ![0, 1].includes(row) || !Number.isInteger(col) || col < 0 || col > 15 ||
-        !engines.has(symbol) || !Number.isInteger(slot) || slot < 1 || slot > 127) fail('unsupported cell, engine or slot');
+        !(engines.has(symbol) || IR_MODEL.test(symbol)) || !Number.isInteger(slot) || slot < 1 || slot > 127) fail('unsupported cell, engine or slot');
     const add = new NativeFunction(editorEntry(editor, 0xa8, 0x4ff300, 'add-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
     const open = new NativeFunction(editorEntry(editor, 0xd4, 0x4ffa80, 'undo-open'), 'int', ['pointer', 'uint'], 'thiscall');
     const close = new NativeFunction(editorEntry(editor, 0xd8, 0x5044b0, 'undo-close'), 'int', ['pointer', 'int'], 'thiscall');
@@ -652,7 +662,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, setValue, setIndex, setModel, addModel, addCapture, redo, canRedo,
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, setValue, setIndex, setModel, addModel, addCapture, undo, redo, canRedo,
            removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 

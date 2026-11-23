@@ -718,7 +718,7 @@ class ScriptTests(unittest.TestCase):
         for write in ('write', 'selectRow', 'clearSelection', 'appendRow', 'postMessage'):   # reading only
             self.assertNotIn(write, names)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo'].includes(command.action)) change(command);")]
+        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo'].includes(command.action)) change(command);")]
         self.assertLess(load.index("endDrag('a preset change')"), load.index("send({type: 'focusPreset', number: command.number})"))
         self.assertNotIn('targetBinding', load)                                      # nothing is written to load it
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
@@ -788,12 +788,13 @@ class ScriptTests(unittest.TestCase):
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
         self.assertIn('if(focusMode){ if(unboundButton!=null)unboundButton.Show(Rectangle.Empty); shown=false; ShowWindow(Handle,0); return; }', helper)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
-        self.assertIn('if ((string)name == "undo") { PressInEditor(0x5A, false); return; }', pane)   # Ctrl+Z in HX Edit's window
+        self.assertNotIn('if ((string)name == "undo")', pane)   # undo: HX Edit's own entry through the launcher, as redo
+        self.assertIn("editorEntry(editor, 0xdc, 0x51aaf0, 'undo')", (ROOT / 'target_binding.js').read_text(encoding='utf-8'))
         self.assertNotIn('if ((string)name == "redo")', pane)    # redo: HX Edit's own entry through the launcher (Ctrl+Shift+Z did not reach it)
-        self.assertIn("elif name == 'redo':", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
+        self.assertIn("elif name in ('undo', 'redo'):", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        self.assertIn("} else if (command.action === 'redo') {", script)
-        self.assertIn('targetBinding.redo(editor);', script)
+        self.assertIn("} else if (command.action === 'redo' || command.action === 'undo') {", script)
+        self.assertIn("if (command.action === 'undo') targetBinding.undo(editor); else targetBinding.redo(editor);", script)
         self.assertIn('state.redo = targetBinding.canRedo(editor);', script)
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         self.assertIn("editorEntry(editor, 0xe0, 0x514bb0, 'redo')", binding)
@@ -827,7 +828,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.setValue(target, dsp, id, key, value, 'refresh')", script)
-        self.assertEqual(script.count('finish('), 8)   # (and a value in another snapshot, a capture added in one step)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
+        self.assertEqual(script.count('finish('), 9)   # (and a value in another snapshot, a capture added in one step, an IR)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
 
     def test_the_pane_never_outlives_hx_edit(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
@@ -890,7 +891,7 @@ class WiringTests(unittest.TestCase):
             self.assertEqual(script.count(call), times, call)
             self.assertIn(call, body)
         # A model or a capture from the pane's list: HX Edit's own picker calls, on a block of the chain, room checked first.
-        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 2))   # (a swap, the split's type; a capture added)
+        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 3))   # (a swap, the split's type; a capture added, an IR)
         swap = script[script.index('function swap(command)'):script.index('function finish(') if script.index('function finish(') > script.index('function swap(command)') else script.index('function endDrag(')]
         self.assertLess(swap.index('focusRoom('), swap.index('targetBinding.setModel('))
         self.assertIn('!chainBlock.test(block.id)', swap)
@@ -898,7 +899,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
         self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
-        self.assertIn('if (full) { onFloor = captures(onFloor); header = presetHeader(); }', script)   # the captures are listed whatever the preset holds
+        self.assertIn('if (full) { onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs); }', script)   # the captures are listed whatever the preset holds
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]
         self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain

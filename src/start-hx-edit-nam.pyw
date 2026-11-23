@@ -385,7 +385,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # A block clicked in the pane's chain: HX Edit selects it, and the pane follows.
                     if shown and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': {'action': 'select', 'dsp': value['dsp'], 'id': value['id'][:16]}})
-                elif name in ('set', 'snapshot', 'preset', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType'):
+                elif name in ('set', 'snapshot', 'preset', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir'):
                     # A knob, a switch or the bypass (inside the model's own range: view.checked_set), another snapshot,
                     # another preset of the loaded setlist (focus_view.js first closes a drag left open, then asks back:
                     # 'load'), or another model or a capture for the block the pane shows.
@@ -394,14 +394,15 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                              # the Workbench's changes to the chain: a block added, removed or moved (HX Edit's own entries)
                              'add': view.checked_add, 'remove': view.checked_remove, 'move': view.checked_move,
                              'moveSplit': view.checked_split, 'route': view.checked_route, 'assign': view.checked_assign,
-                             'snapValue': view.checked_snap_value, 'splitType': view.checked_split_type}[name]
+                             'snapValue': view.checked_snap_value, 'splitType': view.checked_split_type,
+                             'ir': view.checked_ir}[name]
                     command = check(value) if shown else None
                     if command and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': command})
-                elif name == 'redo':
-                    # HX Edit's own Redo (its Edit menu's entry, focus_view.js 'redo'), as the pane's Redo button asks it.
+                elif name in ('undo', 'redo'):
+                    # HX Edit's own Undo / Redo (its Edit menu's entries, focus_view.js), as the pane's buttons ask them.
                     if shown and not detached.is_set():
-                        script.post({'type': 'focusCommand', 'payload': {'action': 'redo'}})
+                        script.post({'type': 'focusCommand', 'payload': {'action': name}})
                 elif name == 'load':
                     # The preset is loaded as a footswitch or the Level tool loads it (a MIDI Program Change over
                     # USB); HX Edit follows on its own. Nothing is saved; what was not saved in the preset left
