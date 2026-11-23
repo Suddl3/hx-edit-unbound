@@ -152,7 +152,7 @@ function focusAssign(tree, block, keys) {
   }
   const footswitch = {};
   for (const [name, field] of [['index', '@fs_index'], ['label', '@fs_customlabel'], ['color', '@fs_customcolor'], ['ledColor', '@fs_ledcolor'],
-                               ['momentary', '@fs_momentary'], ['enabled', '@fs_enabled']]) {
+                               ['momentary', '@fs_momentary'], ['enabled', '@fs_enabled'], ['cc', '@cc']]) {
     const value = tree('footswitch', `${at}.${field}`);
     if (kept(value)) footswitch[name] = value;
   }
@@ -410,6 +410,7 @@ function installFocusView(options, parts) {
       const at = `dsp${block.dsp}.${block.id}`, fields = {
         fsIndex: ['footswitch', `${at}.@fs_index`, 'enum'], fsColor: ['footswitch', `${at}.@fs_customcolor`, 'enum'],
         fsLabel: ['footswitch', `${at}.@fs_customlabel`, 'text'], fsMomentary: ['footswitch', `${at}.@fs_momentary`, 'bool'],
+        fsCc: ['footswitch', `${at}.@cc`, 'enum'], cc: ['controller', `${at}.${command.key}.@cc`, 'enum'],
         controller: ['controller', `${at}.${command.key}.@controller`, 'enum'], min: ['controller', `${at}.${command.key}.@min`, 'float'],
         max: ['controller', `${at}.${command.key}.@max`, 'float']};
       const [group, key, kind] = fields[command.field];
@@ -750,7 +751,7 @@ function installFocusView(options, parts) {
         writes.push({action: 'moveSplit', dsp: value.dsp, id: value.id, place: value.place});
         queued = false; ask();
       } else if (on && value.action === 'assign' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && /^(block\d{1,2}|split|join|input[AB]|output[AB])$/.test(value.id) &&
-                 ['fsIndex', 'fsColor', 'fsLabel', 'fsMomentary', 'controller', 'min', 'max'].includes(value.field) && writes.length < 32 &&
+                 ['fsIndex', 'fsColor', 'fsLabel', 'fsMomentary', 'fsCc', 'controller', 'cc', 'min', 'max'].includes(value.field) && writes.length < 32 &&
                  (value.key === undefined || (typeof value.key === 'string' && /^[A-Za-z0-9_ ]{1,48}$/.test(value.key))) &&
                  (typeof value.value === 'boolean' || Number.isFinite(value.value) || (typeof value.value === 'string' && /^[\x20-\x7e]{0,16}$/.test(value.value)))) {
         writes.push({action: 'assign', dsp: value.dsp, id: value.id, field: value.field, key: value.key, value: value.value});

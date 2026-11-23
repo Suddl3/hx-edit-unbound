@@ -796,8 +796,8 @@ class FocusView:
         return {'action': 'moveSplit', 'dsp': dsp, 'id': node['id'], 'place': place}
 
     # The controllers the Bypass and controllers tab offers: HX Edit's own numbers, checked against its tab
-    # (2026-11-22): 1 EXP Pedal 1, 2 EXP Pedal 2, 19 Snapshots.
-    CONTROLLERS = (1, 2, 19)
+    # (2026-11-22/23): 0 None (the assignment taken away), 1 EXP Pedal 1, 2 EXP Pedal 2, 18 MIDI CC, 19 Snapshots.
+    CONTROLLERS = (0, 1, 2, 18, 19)
 
     def checked_assign(self, value):
         """The Bypass and controllers tab's request, as the command for focus_view.js, or None: a block's footswitch
@@ -818,12 +818,16 @@ class FocusView:
             return {**command, 'value': new} if ok else None
         if field == 'fsMomentary':
             return {**command, 'value': new} if isinstance(new, bool) else None
+        if field == 'fsCc':                                                     # the bypass's MIDI In: 0 is Off
+            return {**command, 'value': new} if whole and 0 <= new <= 127 else None
         model = self.catalog()['models'].get(block.get('model')) or {}
         if not isinstance(key, str) or key not in {p.get('id') for p in model.get('params') or []}:
             return None
         command['key'] = key
         if field == 'controller':
             return {**command, 'value': new} if whole and new in self.CONTROLLERS else None
+        if field == 'cc':                                                       # a control's CC number on MIDI CC
+            return {**command, 'value': new} if whole and 0 <= new <= 127 else None
         if field in ('min', 'max'):
             number = isinstance(new, (int, float)) and not isinstance(new, bool)
             return {**command, 'value': float(new)} if number and 0.0 <= new <= 1.0 else None

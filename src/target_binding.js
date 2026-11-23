@@ -60,7 +60,10 @@ function installTargetBinding(options = {}) {
   }
   function decode(value) {
     const type = value.readU32();
-    if (type === 4 || type === 1) return { type, value: value.add(8).readS32() };   // (1: as HX Edit writes @controller)
+    if (type === 4) return { type, value: value.add(8).readS32() };
+    // (1: a small whole number, as HX Edit writes @controller and @cc; only its low byte is the value, the rest is
+    // whatever was there before: seen 2026-11-23, 0x0B6E0012 for MIDI CC (18), 0x0A760005 for CC5)
+    if (type === 1) return { type, value: value.add(8).readU8() };
     if (type === 5) return { type, value: value.add(8).readU32() };
     if (type === 8) return { type, value: value.add(8).readFloat() };
     // (6 / 7: a 64-bit number, as a snapshot keeps a list setting's choice, a wave shape say: seen 2026-11-22 as

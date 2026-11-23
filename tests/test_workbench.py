@@ -493,9 +493,13 @@ class AssignWriteTests(unittest.TestCase):
         self.assertEqual(ask(field='fsMomentary', value=True)['value'], True)
         self.assertEqual(ask(field='controller', key=key, value=19), {'action': 'assign', 'dsp': 0, 'id': 'block1', 'field': 'controller', 'key': key, 'value': 19})
         self.assertEqual(ask(field='min', key=key, value=0.25)['value'], 0.25)
+        self.assertEqual(ask(field='controller', key=key, value=0)['value'], 0)            # None: the assignment taken away
+        self.assertEqual(ask(field='controller', key=key, value=18)['value'], 18)          # MIDI CC
+        self.assertEqual(ask(field='cc', key=key, value=64)['value'], 64)
+        self.assertEqual(ask(field='fsCc', value=0)['value'], 0)                           # the bypass's MIDI In: Off
         for refused in (dict(field='fsIndex', value=13), dict(field='fsIndex', value=True), dict(field='fsColor', value=12),
                         dict(field='fsLabel', value='x' * 17), dict(field='fsLabel', value='caf\u00e9'), dict(field='fsMomentary', value=1),
-                        dict(field='controller', key=key, value=4), dict(field='controller', key='Nope', value=1),
+                        dict(field='controller', key=key, value=4), dict(field='cc', key=key, value=128), dict(field='fsCc', value=-1), dict(field='controller', key='Nope', value=1),
                         dict(field='max', key=key, value=1.5), dict(field='other', value=1)):
             self.assertIsNone(ask(**refused), refused)
         self.assertIsNone(self.view.checked_assign({'dsp': 1, 'id': 'block1', 'field': 'fsIndex', 'value': 2}))

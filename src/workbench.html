@@ -852,7 +852,8 @@ let panelTab = 'controls';
 const snapHeld = new Map();                    // "dsp:id:snapshot:key" -> a value set in a snapshot that is not on
 // HX Edit's controller numbers, as checked against its own Bypass/Controller Assign tab (2026-11-22: Fassel Position on
 // EXP Pedal 2 = 2, Kinky Boost Drive and Boost on Snapshots = 19); the others still show their number.
-const CONTROLLERS = {1: 'EXP Pedal 1', 2: 'EXP Pedal 2', 19: 'Snapshots'};   // (1: seen with the chain probe)
+const CONTROLLERS = {0: 'None', 1: 'EXP Pedal 1', 2: 'EXP Pedal 2', 18: 'MIDI CC', 19: 'Snapshots'};   // (0, 1, 18: seen with the chain probe)
+const assigned = c => c.controller !== undefined && c.controller !== 0;
 const controllerName = code => CONTROLLERS[code] || 'controller ' + treeText(code);
 function treeText(value) {
   if (value && typeof value === 'object' && 'unsupportedType' in value) return '(kind ' + value.unsupportedType + ')';
@@ -882,21 +883,38 @@ function bypassView(block, list) {
     }
     strip.append(colours, label, seg);
   }
+  {
+    // (the on/off's own MIDI In: a CC number, 0 Off, as HX Edit's tab writes footswitch @cc)
+    const midi = el('select', 'pick'); midi.title = 'MIDI In: the CC that turns this block on and off';
+    midi.append(new Option('MIDI In: Off', 0, false, !fs.cc));
+    for (let n = 1; n <= 127; n++) midi.append(new Option('MIDI In: CC' + n, n, false, fs.cc === n));
+    midi.onchange = () => assign('fsCc', Number(midi.value));
+    strip.append(midi);
+  }
   box.append(strip);
   const table = el('table', 'assign'), head = el('tr');
   for (const h of ['Control', 'Now', 'Moved by', 'From', 'To', 'MIDI CC']) head.append(el('th', '', h));
   table.append(head);
   // (a range end is stored as a fraction 0..1 of the control's travel: shown as the value it stands for)
   const at = (p, n) => shown(p, valueAt(p, n));
+  // (on MIDI CC, which CC: a control's @cc, as HX Edit's tab writes it)
+  const ccCell = (c, p) => {
+    const cell = el('td', 'num');
+    if (c.controller !== 18) return cell;
+    const pick = el('select', 'pick');
+    for (let n = 0; n <= 127; n++) pick.append(new Option('CC' + n, n, false, c.cc === n));
+    pick.onchange = () => assign('cc', Number(pick.value), p.id);
+    cell.append(pick);
+    return cell;
+  };
   for (const p of list) {
     const c = a.controls[p.id] || {}, row = el('tr'), by = el('select', 'pick');
-    if (c.controller === undefined) by.append(new Option('—', '', true, true)), by.firstChild.disabled = true;
-    else if (!CONTROLLERS[c.controller]) by.append(new Option(controllerName(c.controller), '', true, true)), by.firstChild.disabled = true;
-    for (const code of [1, 2, 19]) by.append(new Option(CONTROLLERS[code], code, false, c.controller === code));
+    if (!CONTROLLERS[c.controller ?? 0]) by.append(new Option(controllerName(c.controller), '', true, true)), by.firstChild.disabled = true;
+    for (const code of [0, 1, 2, 18, 19]) by.append(new Option(code === 0 ? '—' : CONTROLLERS[code], code, false, (c.controller ?? 0) === code));
     by.onchange = () => assign('controller', Number(by.value), p.id);
     const range = (field, now) => {
       const cell = el('td', 'num');
-      if (typeof now !== 'number' || c.controller === 19) { cell.textContent = typeof now === 'number' ? at(p, now) : ''; return cell; }
+      if (typeof now !== 'number' || c.controller === 19 || !assigned(c)) { cell.textContent = typeof now === 'number' && assigned(c) ? at(p, now) : ''; return cell; }
       const slide = el('input', 'range'); slide.type = 'range'; slide.min = 0; slide.max = 1; slide.step = 0.01; slide.value = now;
       const shownAt = el('span', '', at(p, now));
       slide.oninput = () => { shownAt.textContent = at(p, Number(slide.value)); };
@@ -905,7 +923,7 @@ function bypassView(block, list) {
       return cell;
     };
     const pickCell = el('td'); pickCell.append(by);
-    row.append(el('td', 'name', p.name), el('td', 'now num', shown(p, valueOf(p.id))), pickCell, range('min', c.min), range('max', c.max), el('td', 'num', treeText(c.cc)));
+    row.append(el('td', 'name', p.name), el('td', 'now num', shown(p, valueOf(p.id))), pickCell, range('min', c.min), range('max', c.max), ccCell(c, p));
     table.append(row);
   }
   box.append(table, el('p', 'tabnote', 'Changes go to HX Edit as its own Bypass/Controller Assign tab makes them, and like there they may not be undoable: change them back here.'));
@@ -958,7 +976,7 @@ function snapshotView(block, list) {
     const name = el('div', 'name fixed', p.name), line = el('div', 'fixedline'), c = a.controls[p.id] || {};
     line.style.gridColumn = `2 / span ${count}`;
     line.append(el('span', 'same', shown(p, valueOf(p.id)) + ' in every snapshot'));
-    if (c.controller !== undefined) line.append(el('span', 'same', '· ' + controllerName(c.controller) + ' moves it'));
+    if (assigned(c)) line.append(el('span', 'same', '· ' + controllerName(c.controller) + ' moves it'));
     else {
       const let_ = el('button', 'cellb', 'Let snapshots change it');
       let_.title = 'Gives ' + p.name + ' its own value in each snapshot (sets its controller to Snapshots)';
