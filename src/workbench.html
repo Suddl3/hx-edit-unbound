@@ -1831,7 +1831,12 @@ function drawPresetGrid() {
     const pinned = isPinned(preset.number);
     star.innerHTML = STAR; star.append(pinned ? 'Unpin' : 'Pin'); star.title = pinned ? 'Take it off the top of the preset lists' : 'Keep it at the top of the preset lists';
     star.onclick = () => pin(preset.number, !pinned);
-    acts.append(save, star); side.append(acts);
+    // (HX Edit's own File > Export Preset / Export Setlist: its save dialog opens; nothing on the Floor changes)
+    const exporter = (what, words, title) => { const b = el('button', 'btn', words); b.title = title; b.onclick = () => ask('export', what); return b; };
+    acts.append(save, star,
+      exporter('preset', 'Export preset…', "Save this preset to a file (HX Edit's File > Export Preset)"),
+      exporter('setlist', 'Export setlist…', "Save the whole setlist to a file (HX Edit's File > Export Setlist)"));
+    side.append(acts);
     side.append(el('span', 'note2', 'Click a preset to load it. A star pins it: pinned presets sit at the top of the list under the preset’s name and of the Presets drawer.'));
   } else side.append(el('span', 'note2', 'Waiting for a preset from HX Edit.'));
   body.querySelector('.pd').replaceWith(side);

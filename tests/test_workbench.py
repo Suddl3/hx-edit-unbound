@@ -452,6 +452,17 @@ class PresetTests(unittest.TestCase):
         # two banks of four a row: a preset's bank (number / 4) alternates between the two columns
         self.assertIn("if (item) sides[Math.floor(number / 4) % 2].append(item);", page)
 
+    def test_export_is_hx_edits_own_file_menu_and_nothing_else(self):
+        # HX Edit 3.82's File menu (its menu resource): 32781 Export Preset... (Ctrl+E), 32783 Export Setlist...
+        # (Ctrl+Alt+E). The pane posts only those two; import, paste and the rest are not offered.
+        pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
+        self.assertIn('{ { "preset", 32781 }, { "setlist", 32783 } }', pane)
+        self.assertIn('if ((string)name == "export") { int command; if (value is string && Exports.TryGetValue((string)value, out command)) MenuInEditor(command); return; }', pane)
+        self.assertEqual(pane.count('PostMessage('), 2)                                  # (its declaration and the one call)
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("b.onclick = () => ask('export', what);", page)
+        self.assertEqual(sorted(set(__import__('re').findall(r"exporter\('([a-z]+)'", page))), ['preset', 'setlist'])
+
     def test_the_page_gets_the_pins(self):
         import tempfile
         folder = tempfile.TemporaryDirectory()
@@ -1053,7 +1064,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export'})
 
 
 if __name__ == '__main__':

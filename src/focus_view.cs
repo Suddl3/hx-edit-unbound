@@ -31,6 +31,8 @@ sealed class FocusView : Form
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hwnd);
     [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
     // The page's save button: HX Edit's own Ctrl+S (its File menu's key), typed into
     // HX Edit's window (the keyboard goes there first), so HX Edit undoes exactly as it does for the user. Nothing
@@ -45,6 +47,16 @@ sealed class FocusView : Form
         keybd_event(key, 0, 2, UIntPtr.Zero);           // key up
         if (shift) keybd_event(0x10, 0, 2, UIntPtr.Zero);
         keybd_event(0x11, 0, 2, UIntPtr.Zero);
+    }
+
+    // The Presets view's Export buttons: HX Edit's own File menu commands, posted to its window as its menu (and its
+    // Ctrl+E / Ctrl+Alt+E) sends them; HX Edit then opens its own save dialog. Only these two (HX Edit 3.82's menu
+    // resource: 32781 "Export Preset...", 32783 "Export Setlist..."): nothing on the Floor changes.
+    static readonly Dictionary<string, int> Exports = new Dictionary<string, int> { { "preset", 32781 }, { "setlist", 32783 } };
+    void MenuInEditor(int command)
+    {
+        if (parent == IntPtr.Zero || !IsWindow(parent)) return;
+        PostMessage(GetAncestor(parent, 2), 0x0111, (IntPtr)command, IntPtr.Zero);   // GA_ROOT, WM_COMMAND
     }
 
     readonly IntPtr parent;
@@ -247,6 +259,7 @@ sealed class FocusView : Form
                 // (undo, redo: HX Edit's own entries, through the launcher and the script: its Ctrl+Shift+Z did not reach HX Edit while
                 // the Workbench is shown, seen 2026-11-23)
                 if ((string)name == "save") { PressInEditor(0x53, false); return; }      // Ctrl+S: HX Edit's File > Save Preset
+                if ((string)name == "export") { int command; if (value is string && Exports.TryGetValue((string)value, out command)) MenuInEditor(command); return; }
                 Send(new { type = "action", name = (string)name, value = value });
             };
             core.Navigate(page);
