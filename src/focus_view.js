@@ -240,8 +240,11 @@ function focusChainProbe(base) {
         if (budget <= 0) return;
         try {
           const seen = read(args);
-          // (a value write is kept only for the routing: the path's shape, its ends, positions, the cursor)
-          if (name === 'write' && !(typeof seen.key === 'string' && /^@(topology|input|output|position|path|cursor)/.test(seen.key))) return;
+          // (a value write is kept only for the routing — the path's shape, its ends, positions, the cursor — and for
+          // what the Bypass and controllers / Snapshot values tabs show: the controller, footswitch and snapshot sections)
+          if (name === 'write' && !(typeof seen.key === 'string' && /^@(topology|input|output|position|path|cursor)/.test(seen.key)) &&
+              !(typeof seen.group === 'string' && /^(controller|footswitch|snapshot[0-7])$/.test(seen.group)) &&
+              !(typeof seen.key === 'string' && /@(controller|min|max|cc|snapshot_disable|fs_)/.test(seen.key))) return;
           this.seen = seen;
         } catch (_) { /* unreadable: not reported */ }
       },
@@ -250,6 +253,30 @@ function focusChainProbe(base) {
         send({type: 'toneTrace', reason: 'chain-probe', call: name, ...this.seen, result: result.toInt32()});
       },
     });
+  }
+  // The edit buffer's other entries a controller assignment may go through (not readers: +0x84/+0x88 run all the
+  // time): each call with its first arguments as numbers and text, 25 per entry at most.
+  const table = base.add(0x963dfc), plain = [0x8c, 0x90, 0x94, 0x98, 0x9c, 0xcc, 0xd0, 0xdc, 0xe0, 0xe4, 0xe8, 0xec, 0xf0, 0xf4, 0xf8, 0xfc,
+    0x100, 0x104, 0x108, 0x10c, 0x110, 0x114, 0x118, 0x11c, 0x120, 0x124, 0x128, 0x12c, 0x130, 0x134, 0x138];
+  const hooked = new Set(Object.values(entries).map(([rva]) => rva));
+  for (const slot of plain) {
+    const target = table.add(slot).readPointer(), rva = target.sub(base).toInt32();
+    if (hooked.has(rva) || rva < 0x400000 || rva > 0x600000) continue;
+    hooked.add(rva);
+    let left = 25;
+    try { Interceptor.attach(target, {
+      onEnter(args) {
+        if (left <= 0 || budget <= 0) { this.skip = true; return; }
+        this.skip = false;
+        const seen = [];
+        for (let i = 0; i < 5; i++) { try { const t = text(args[i]); seen.push(t !== null ? t : args[i].toInt32()); } catch (_) { seen.push(null); } }
+        this.seen = seen;
+      },
+      onLeave(result) {
+        if (this.skip || left-- <= 0 || budget-- <= 0) return;
+        send({type: 'toneTrace', reason: 'chain-probe', call: '+0x' + slot.toString(16), rva: '0x' + rva.toString(16), args: this.seen, result: result.toInt32()});
+      },
+    }); } catch (error) { send({type: 'toneTrace', reason: 'chain-probe', stage: 'not-hooked', slot: '+0x' + slot.toString(16), error: String(error.message)}); }
   }
   send({type: 'toneTrace', reason: 'chain-probe', stage: 'on'});
 }
@@ -263,7 +290,9 @@ function installFocusView(options, parts) {
     if (actual !== hex) throw new Error(`Focus Mode native byte guard failed at ${rva}`);
   }
   const {targetBinding, namView, toneView} = parts;
-  if (options.chainProbe === true) focusChainProbe(base);
+  if (options.chainProbe === true) {
+    try { focusChainProbe(base); } catch (error) { send({type: 'toneTrace', reason: 'chain-probe', stage: 'failed', error: String(error.message)}); }
+  }
   const parameters = options.focusParameters || {}, namEngines = options.focusNamEngines || ['HD2_AmpNAMLite'];
   const widgetOrigin = new NativeFunction(base.add(0x3b7e00), 'pointer', ['pointer', 'pointer'], 'thiscall');
   const point = Memory.alloc(8);

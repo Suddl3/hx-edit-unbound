@@ -189,7 +189,7 @@
   .tabview { padding: 14px 6px; display: grid; align-content: start; gap: 12px; overflow-y: auto; min-height: 0; }
   .tabview .strip { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
   .tabview .chip { height: 26px; padding: 0 10px; border-radius: 7px; display: inline-flex; align-items: center; background: var(--raise2); border: 1px solid #3a3f4b; }
-  .tabview .chip.on { border-color: rgb(var(--c)); background: rgb(var(--c) / .14); } .tabview .chip.ghost { background: none; border-style: dashed; color: var(--dim); }
+  .tabview .chip.on { border-color: rgb(var(--c)); background: rgb(var(--c) / .14); } .tabview .chip.none { background: none; border-style: dashed; color: var(--dim); }
   .tabview table { border-collapse: collapse; width: 100%; }
   .tabview th { text-align: left; font-weight: 400; color: var(--faint); font-size: 12px; padding: 0 10px 6px; }
   .tabview td { padding: 7px 10px; border-top: 1px solid #1d2027; } .tabview td.name { font-weight: 600; } .tabview td.now { color: rgb(var(--c)); } .tabview td.dim { color: var(--faint); }
@@ -835,6 +835,10 @@ function drawPanel() {
 // {index, label, color, momentary, enabled}, snapshots [{on, values}]. Controller numbers are shown as HX Edit stores
 // them until their names are checked against HX Edit's own tab.
 let panelTab = 'controls';
+// HX Edit's controller numbers, as checked against its own Bypass/Controller Assign tab (2026-11-22: Fassel Position on
+// EXP Pedal 2 = 2, Kinky Boost Drive and Boost on Snapshots = 19); the others still show their number.
+const CONTROLLERS = {2: 'EXP Pedal 2', 19: 'Snapshots'};
+const controllerName = code => CONTROLLERS[code] || 'controller ' + treeText(code);
 function treeText(value) {
   if (value && typeof value === 'object' && 'unsupportedType' in value) return '(kind ' + value.unsupportedType + ')';
   if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -846,8 +850,9 @@ function bypassView(block, list) {
   const fs = a.footswitch, strip = el('div', 'strip');
   strip.append(el('b', '', 'On and off'));
   const has = Object.keys(fs).length;
-  strip.append(el('span', 'chip' + (has ? ' on' : ' ghost'), has ? ['switch ' + treeText(fs.index), fs.label ? '“' + fs.label + '”' : '', fs.momentary === undefined ? '' : (fs.momentary ? 'momentary' : 'latching'),
-    fs.color === undefined ? '' : 'colour ' + treeText(fs.color), fs.enabled === undefined ? '' : (fs.enabled ? 'enabled' : 'not enabled')].filter(Boolean).join(' · ') : 'nothing stored'));
+  // (@fs_enabled is whether the switch is on now, the block's own state: not shown)
+  strip.append(el('span', 'chip' + (has ? ' on' : ' none'), has ? ['Footswitch ' + treeText(fs.index), fs.label ? '“' + fs.label + '”' : '', fs.momentary === undefined ? '' : (fs.momentary ? 'momentary' : 'latching'),
+    fs.color === undefined ? '' : 'colour ' + treeText(fs.color)].filter(Boolean).join(' · ') : 'No footswitch'));
   box.append(strip);
   const table = el('table', 'assign'), head = el('tr');
   for (const h of ['Control', 'Now', 'Controller', 'Min', 'Max', 'MIDI CC', 'Snapshots']) head.append(el('th', '', h));
@@ -855,7 +860,7 @@ function bypassView(block, list) {
   for (const p of list) {
     const c = a.controls[p.id] || {}, row = el('tr');
     row.append(el('td', 'name', p.name), el('td', 'now num', shown(p, valueOf(p.id))),
-               el('td', c.controller === undefined ? 'dim' : '', c.controller === undefined ? '—' : 'controller ' + treeText(c.controller)),
+               el('td', c.controller === undefined ? 'dim' : '', c.controller === undefined ? '—' : controllerName(c.controller)),
                el('td', 'num', c.min === undefined ? '' : (typeof c.min === 'number' ? shown(p, c.min) : treeText(c.min))),
                el('td', 'num', c.max === undefined ? '' : (typeof c.max === 'number' ? shown(p, c.max) : treeText(c.max))),
                el('td', 'num', treeText(c.cc)), el('td', '', c.snapshotOff === undefined ? '' : (c.snapshotOff ? 'off' : 'on')));
