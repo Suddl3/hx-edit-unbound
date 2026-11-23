@@ -67,6 +67,16 @@ function focusSnapshot(peek, cursor, parameters, namEngines) {
   return {blocks, selected, values};
 }
 
+// The selected block: the preset's own cursor (global "@cursor_dsp" / "@cursor_group", which HX Edit writes with every
+// click on its chain, on either of its tabs, and when the Floor selects), else the edit panel's (toneView.cursorBlock).
+// {dsp, block} or what the panel gave. Pure: tests run it.
+function focusCursor(panel, dsp, group) {
+  if ([0, 1].includes(dsp) && typeof group === 'string' && /^(block\d{1,2}|split|join|input[AB]|output[AB])$/.test(group)) {
+    return {...(panel || {}), dsp, block: group};
+  }
+  return panel;
+}
+
 // Between full readings, only what a knob, a switch or a footswitch changes: each block's bypass (and a NAM
 // block's capture slot) and the selected block's values. null when the blocks themselves are no longer the same
 // (the selected block's model changed, or the cursor is on a block not seen yet): read everything again.
@@ -580,9 +590,12 @@ function installFocusView(options, parts) {
       const bounds = paneBounds();
       const place = JSON.stringify(bounds);
       if (place !== lastBounds) { lastBounds = place; send({type: 'focusBounds', window: window.toUInt32(), bounds}); }
-      const cursor = toneView.cursorBlock();
-      if (cursor && !cursor.editor.isNull()) editor = cursor.editor;
+      const panelCursor = toneView.cursorBlock();
+      if (panelCursor && !panelCursor.editor.isNull()) editor = panelCursor.editor;
       if (editor.isNull()) { publish({blocks: [], selected: null, values: {}, captures: [], preset: null, presets: null, snapshots: [], snapshot: null, undo: null}); return; }
+      // (the selection as the preset itself keeps it, which follows every click on HX Edit's chain; the edit panel's
+      // own, which the Workbench read before, stands still while HX Edit's Bypass/Controller Assign tab is open)
+      const cursor = focusCursor(panelCursor, targetBinding.peekGlobal(editor, 'global', '@cursor_dsp'), targetBinding.peekGlobal(editor, 'global', '@cursor_group'));
       const began = Date.now(), peek = (dsp, place, key) => targetBinding.peekValue(editor, dsp, place, key);
       let state = !changed && known && began - knownAt < FULL_MS ? focusValues(peek, known, cursor, parameters, namEngines) : null;
       const full = !state;
@@ -773,5 +786,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusMeasured, focusAssign, focusCaptures, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusMeasured, focusAssign, focusCursor, focusCaptures, installFocusView };
 }

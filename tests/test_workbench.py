@@ -558,6 +558,18 @@ class SnapshotWriteTests(unittest.TestCase):
         self.assertIn("if (![1, 4, 5, 6, 7].includes(current.type)) fail('unexpected snapshot value');", binding)
         self.assertIn("if (s !== state.snapshot) { h.title = 'Switch to ' + (names[s] || 'snapshot ' + (s + 1)); h.onclick = () => ask('snapshot', s); }", page)   # a header switches
 
+class CursorTests(unittest.TestCase):
+    """The selected block follows the preset's own cursor (it moves on either of HX Edit's tabs), else the edit panel."""
+
+    def test_the_presets_cursor_wins_and_the_panel_is_the_fallback(self):
+        cursor = lambda dsp, group: run_js(['focus_view.js'], f'focusCursor({{dsp: 0, block: "block0", editor: 7}}, {json.dumps(dsp)}, {json.dumps(group)})')
+        self.assertEqual(cursor(1, 'block3'), {'dsp': 1, 'block': 'block3', 'editor': 7})
+        self.assertEqual(cursor(0, 'split'), {'dsp': 0, 'block': 'split', 'editor': 7})
+        for dsp, group in ((None, 'block3'), (2, 'block3'), (0, None), (0, 'global'), (0, '')):
+            self.assertEqual(cursor(dsp, group), {'dsp': 0, 'block': 'block0', 'editor': 7}, (dsp, group))
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("focusCursor(panelCursor, targetBinding.peekGlobal(editor, 'global', '@cursor_dsp'), targetBinding.peekGlobal(editor, 'global', '@cursor_group'))", script)
+
 class DspCostTests(unittest.TestCase):
     """A block's DSP, measured from the path's meter when exactly one block comes or goes (dsp_costs.py)."""
 
