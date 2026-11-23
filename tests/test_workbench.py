@@ -547,7 +547,10 @@ class SnapshotWriteTests(unittest.TestCase):
         self.assertIn('if (away) targetBinding.recallSnapshot(editor, now);', body[body.index('finally {'):])
         self.assertIn("'snapValue': view.checked_snap_value", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
-        self.assertIn("const change = (s, key, value) => ask('snapValue', {dsp: block.dsp, id: block.id, snapshot: s, key, value});", page)
+        self.assertIn("ask('snapValue', {dsp: block.dsp, id: block.id, snapshot: s, key, value});", page)
+        self.assertIn('snapHeld.set(held(s, key), value);', page)                       # shown as set until HX Edit agrees
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        self.assertIn("if (![1, 4, 5, 6, 7].includes(current.type)) fail('unexpected snapshot value');", binding)
         self.assertIn("if (s !== state.snapshot) { h.title = 'Switch to ' + (names[s] || 'snapshot ' + (s + 1)); h.onclick = () => ask('snapshot', s); }", page)   # a header switches
 
 class DspCostTests(unittest.TestCase):

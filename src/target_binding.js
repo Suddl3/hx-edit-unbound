@@ -250,7 +250,9 @@ function installTargetBinding(options = {}) {
   function recallSnapshot(editor, index) {
     if (!editorReady(editor) || !Number.isInteger(index) || index < 0 || index > 7) fail('unsupported snapshot');
     const current = parameter({editor, dsp: -1, blockName: 'global'}, '@current_snapshot');
-    if (![4, 5].includes(current.type)) fail('unexpected snapshot value');
+    // (HX Edit keeps it as 4 or 5, and as 1 or a 64-bit 6/7 after its own snapshot changes: seen 2026-11-22, a recall
+    // refused as "unexpected snapshot value". Written back with the kind it has; the upper half stays zero.)
+    if (![1, 4, 5, 6, 7].includes(current.type)) fail('unexpected snapshot value');
     let group = null, name = null;
     const variant = emptyVariant();
     try {

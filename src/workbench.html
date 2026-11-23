@@ -849,6 +849,7 @@ function drawPanel() {
 // {index, label, color, momentary, enabled}, snapshots [{on, values}]. Controller numbers are shown as HX Edit stores
 // them until their names are checked against HX Edit's own tab.
 let panelTab = 'controls';
+const snapHeld = new Map();                    // "dsp:id:snapshot:key" -> a value set in a snapshot that is not on
 // HX Edit's controller numbers, as checked against its own Bypass/Controller Assign tab (2026-11-22: Fassel Position on
 // EXP Pedal 2 = 2, Kinky Boost Drive and Boost on Snapshots = 19); the others still show their number.
 const CONTROLLERS = {1: 'EXP Pedal 1', 2: 'EXP Pedal 2', 19: 'Snapshots'};   // (1: seen with the chain probe)
@@ -925,11 +926,23 @@ function snapshotView(block, list) {
   // (a change goes to HX Edit as it changes one: that snapshot comes on for a moment, the value is set, and the
   // snapshot that was on comes back: focus_view.js "snapValue". The column of the snapshot that is on shows the live
   // values, which HX Edit keeps in the block itself.)
-  const change = (s, key, value) => ask('snapValue', {dsp: block.dsp, id: block.id, snapshot: s, key, value});
+  // (HX Edit's record of a snapshot that is not on may only catch up when that snapshot is next on: what was set here
+  // shows until the record agrees, the snapshot comes on, or the change was refused)
+  const held = (s, key) => `${block.dsp}:${block.id}:${s}:${key}`;
+  const change = (s, key, value) => { snapHeld.set(held(s, key), value); ask('snapValue', {dsp: block.dsp, id: block.id, snapshot: s, key, value}); shownPanel = ''; render(); };
+  const recorded = (s, key, tree) => {
+    if (s === state.snapshot) { snapHeld.delete(held(s, key)); return tree; }
+    const mine = snapHeld.get(held(s, key));
+    if (mine === undefined) return tree;
+    const same = typeof mine === 'number' && typeof tree === 'number' ? Math.abs(mine - tree) < 1e-4 : mine === tree;
+    if (same) { snapHeld.delete(held(s, key)); return tree; }
+    return mine;
+  };
   const fixedRows = [];
   grid.append(el('div', 'name', 'On / off'));
   for (let s = 0; s < count; s++) {
-    const on = s === state.snapshot ? block.enabled : a.snapshots[s] && a.snapshots[s].on, cell = el('div', s === state.snapshot ? 'cur' : '');
+    const tree = a.snapshots[s] && a.snapshots[s].on, cell = el('div', s === state.snapshot ? 'cur' : '');
+    const on = s === state.snapshot ? (recorded(s, '@enabled', tree), block.enabled) : recorded(s, '@enabled', tree);
     if (typeof on === 'boolean' && model(block).bypass) {
       const b = el('button', 'dotb' + (on ? ' on' : '')); b.title = (on ? 'On' : 'Off') + ' in ' + (names[s] || 'snapshot ' + (s + 1)) + ': click to turn it ' + (on ? 'off' : 'on');
       b.onclick = () => change(s, '@enabled', !on); cell.append(b);
@@ -958,7 +971,8 @@ function snapshotView(block, list) {
     const moved = true;
     grid.append(el('div', 'name moved', p.name));
     for (let s = 0; s < count; s++) {
-      const v = s === state.snapshot ? valueOf(p.id) : a.snapshots[s] && a.snapshots[s].values[p.id], cell = el('div', 'num' + (s === state.snapshot ? ' cur' : ''));
+      const tree = a.snapshots[s] && a.snapshots[s].values[p.id], cell = el('div', 'num' + (s === state.snapshot ? ' cur' : ''));
+      const v = s === state.snapshot ? (recorded(s, p.id, tree), valueOf(p.id)) : recorded(s, p.id, tree);
       const names = positions(p);
       if (moved && typeof v === 'boolean') {
         const b = el('button', 'cellb', shown(p, v)); b.onclick = () => change(s, p.id, !v); cell.append(b);
@@ -1238,17 +1252,20 @@ function receive(message) {
   if (!message || typeof message !== 'object') return;
   if (message.type === 'catalog') { catalog = message.catalog; shownChain = ''; shownPanel = ''; }
   else if (message.type === 'state') {
-    const before = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
+    const before = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '', undoBefore = state && state.undoAt;
     state = message.state;
     const after = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
     if (before !== after) snapGroup = null;
+    // (values set in other snapshots are shown as set until HX Edit's own record agrees: forgotten on another preset
+    // or an undo)
+    if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();
     if (picking && picking.block && !(current() && isChain(current()))) picking = false;
     if (picking && picking.place && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
   }
   else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
   else if (message.type === 'dspCosts') { costs = message.costs && typeof message.costs === 'object' ? message.costs : {}; shownPanel = ''; }
   else if (message.type === 'options') { options = message.options || {}; return; }
-  else if (message.type === 'notice') { toast(message.text); return; }
+  else if (message.type === 'notice') { toast(message.text); if (snapHeld.size) { snapHeld.clear(); shownPanel = ''; render(); } return; }   // (a change refused: shown as it is)
   else if (message.type === 'shown') { visible = message.shown === true; if (!visible) { closePresets(); closeMenu(); $('toast').hidden = true; } else render(); return; }
   else return;
   render();
