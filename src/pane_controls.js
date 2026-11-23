@@ -19,6 +19,8 @@ function positions(p) {
 function shown(p, v) {
   const rules = catalog.controls[p.display] || {};
   if (v === undefined || v === null) return '';
+  // (a slot of the IR store, named by the page where it knows the name: the Workbench's IRs, slotLabel)
+  if (p.id === 'Index' && typeof slotLabel === 'function') { const label = slotLabel(v); if (label) return label; }
   const names = positions(p);
   if (typeof v === 'boolean') return (names && names.length === 2 ? names : ['Off', 'On'])[v ? 1 : 0];
   if (names) return names[Math.round(v) - (typeof p.min === 'number' ? p.min : 0)] ?? String(v);
