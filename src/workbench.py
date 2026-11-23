@@ -48,6 +48,36 @@ def extras(resources):
             'captureTabs': {name: list(kinds) for name, kinds in CAPTURE_TABS.items()}}
 
 
+PINS = 'presetPins'                    # settings.json: the pinned presets, "setlist:number" (the Presets view's stars)
+SETLISTS, PRESETS = 8, 128             # a Helix Floor's setlists and presets in each
+
+
+def pinned(settings):
+    """The pinned presets kept in settings.json, each "setlist:number"; anything else there is left out."""
+    found = settings.get(PINS) if isinstance(settings, dict) else None
+    keep = []
+    for key in found if isinstance(found, list) else []:
+        parts = key.split(':') if isinstance(key, str) else []
+        if len(parts) == 2 and all(p.isdigit() for p in parts) and int(parts[0]) < SETLISTS and int(parts[1]) < PRESETS:
+            key = f'{int(parts[0])}:{int(parts[1])}'
+            if key not in keep:
+                keep.append(key)
+    return keep
+
+
+def pins_after(settings, value):
+    """The pins once the page's {setlist, number, on} is applied, or None for a request that is not one."""
+    if not isinstance(value, dict):
+        return None
+    setlist, number, on = value.get('setlist'), value.get('number'), value.get('on')
+    if any(isinstance(n, bool) or not isinstance(n, int) for n in (setlist, number)) or not isinstance(on, bool):
+        return None
+    if not (0 <= setlist < SETLISTS and 0 <= number < PRESETS):
+        return None
+    key, pins = f'{setlist}:{number}', pinned(settings)
+    return pins + ([] if key in pins else [key]) if on else [k for k in pins if k != key]
+
+
 def setting_on(settings):
     """Whether the Workbench is shown at launch: only once it has been switched on (settings.json "workbench": true)."""
     return isinstance(settings, dict) and settings.get(SETTING) is True
@@ -61,6 +91,7 @@ class WorkbenchView(focus_view.FocusView):
 
     def __init__(self, resources, *, costs_file=dsp_costs.FILE, clock=time.monotonic, **options):
         self.options = {}
+        self.pins = []
         self.costs = dsp_costs.DspCosts(costs_file)
         self.clock = clock
         self._seen = None
@@ -81,6 +112,10 @@ class WorkbenchView(focus_view.FocusView):
         tool of the launcher's own menu."""
         return value if value in ('classic', 'focus', *TOOLS) else None
 
+    def show_pins(self, pins):
+        """The pinned presets ("setlist:number") for the page."""
+        self.queue.put(('pins', [str(k) for k in pins] if isinstance(pins, list) else []))
+
     def tool_closed(self):
         """The tool's window over the page closed by itself (its own Close, Esc): the page closes its frame."""
         self.queue.put(('toolClosed', None))
@@ -90,6 +125,11 @@ class WorkbenchView(focus_view.FocusView):
             if self.page_ready:
                 self._write('P', {'type': 'toolClosed'})
             return
+        if kind == 'pins':
+            self.pins = value
+            if self.page_ready:
+                self._write('P', {'type': 'pins', 'pins': value})
+            return
         if kind == 'options':
             self.options = value
             if self.page_ready:
@@ -98,6 +138,7 @@ class WorkbenchView(focus_view.FocusView):
         super()._handle(kind, value)
         if kind == 'pane' and isinstance(value, dict) and value.get('type') == 'ready':
             self._write('P', {'type': 'options', 'options': self.options})
+            self._write('P', {'type': 'pins', 'pins': self.pins})
             self._show_costs()
         if kind in ('state', 'dsp'):
             # (the meter's figures and each path's block count, as the measuring sees them, for the trace)

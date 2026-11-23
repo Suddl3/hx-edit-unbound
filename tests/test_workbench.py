@@ -420,6 +420,59 @@ class SizeTests(unittest.TestCase):
         self.assertIn('workbench.tool_closed()', launcher)
 
 
+class PresetTests(unittest.TestCase):
+    """Stage 2 of the views: the Presets drawer and the whole setlist; pins kept in the editor's settings.json."""
+
+    def test_pins_are_setlist_and_number_and_only_valid_ones_are_kept(self):
+        self.assertEqual(workbench.pinned({'presetPins': ['2:6', '2:6', '0:127', '8:0', '1:128', 'x', 3, '02:007']}), ['2:6', '0:127', '2:7'])
+        self.assertEqual(workbench.pinned({}), [])
+        self.assertEqual(workbench.pinned(None), [])
+
+    def test_a_pin_from_the_page_is_checked_before_it_is_kept(self):
+        settings = {'presetPins': ['2:6']}
+        self.assertEqual(workbench.pins_after(settings, {'setlist': 2, 'number': 12, 'on': True}), ['2:6', '2:12'])
+        self.assertEqual(workbench.pins_after(settings, {'setlist': 2, 'number': 6, 'on': True}), ['2:6'])
+        self.assertEqual(workbench.pins_after(settings, {'setlist': 2, 'number': 6, 'on': False}), [])
+        for refused in (None, {'setlist': 2, 'number': 6}, {'setlist': 8, 'number': 0, 'on': True}, {'setlist': 0, 'number': 128, 'on': True},
+                        {'setlist': True, 'number': 1, 'on': True}, {'setlist': 0, 'number': 1.0, 'on': True}, {'setlist': 0, 'number': 1, 'on': 1}):
+            self.assertIsNone(workbench.pins_after(settings, refused))
+
+    def test_the_launcher_keeps_pins_in_settings_and_the_page_never_in_the_browser(self):
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("pins = pins_after(nam_catalog.load_settings(), value)", launcher)
+        self.assertIn("nam_catalog.save_setting(PINS, pins)", launcher)
+        self.assertIn("workbench.show_pins(pinned(nam_catalog.load_settings()))", launcher)
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertNotIn('localStorage', page)
+        self.assertNotIn('sessionStorage', page)
+        self.assertIn("ask('pin', {setlist: setlistOf(), number, on});", page)
+        # a preset is loaded the way the top bar's list loads it
+        self.assertEqual(page.count("if (index !== at) ask('preset', index);"), 2)       # the top bar's list and the drawer
+        self.assertIn("b.onclick = () => { if (number !== at) ask('preset', number); };", page)   # the grid
+        # two banks of four a row: a preset's bank (number / 4) alternates between the two columns
+        self.assertIn("if (item) sides[Math.floor(number / 4) % 2].append(item);", page)
+
+    def test_the_page_gets_the_pins(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        panes = []
+        view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: panes.append(FakePane(a)) or panes[-1],
+                                       exe='FocusView.exe', costs_file=None)
+        self.addCleanup(view.close)
+        view.show_pins(['2:6'])
+        view.set_on(True)
+        view.receive({'type': 'focusBounds', 'window': 4242, 'bounds': {'x': 0, 'y': 0, 'w': 1920, 'h': 954}})
+        deadline = time.time() + 3
+        while time.time() < deadline and not panes:
+            time.sleep(.01)
+        panes[0].say({'type': 'ready'})
+        sent = lambda: [json.loads(line[2:]) for line in panes[0].lines if line.startswith('P ')]
+        while time.time() < deadline and not any(m.get('type') == 'pins' for m in sent()):
+            time.sleep(.01)
+        self.assertIn({'type': 'pins', 'pins': ['2:6']}, sent())
+
+
 class SplitMoveTests(unittest.TestCase):
     """Stage 2: the split or the mixer moved along lane A (HX Edit's own move with "split" / "join")."""
 
@@ -1000,7 +1053,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin'})
 
 
 if __name__ == '__main__':

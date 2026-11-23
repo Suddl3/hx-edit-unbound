@@ -114,6 +114,48 @@
   .mini button img { width: 22px; height: 22px; object-fit: contain; }
   .mini button.off { opacity: .4; }
   .mini button.on { box-shadow: 0 0 0 1px rgb(var(--c)); }
+  .vw h5 { margin: 0; font-size: 11px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
+  .note2 { color: var(--dim); font-size: 12.5px; line-height: 1.45; }
+  .pinmark { color: #f0c94a; }
+
+  /* ---- Presets, full: the whole setlist, two banks of four a row; the loaded preset on the right ------------------ */
+  .pv { display: grid; grid-template-columns: minmax(0, 1fr) 316px; height: 100%; min-height: 0; }
+  .pv .main { padding: 14px 20px 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; min-height: 0; min-width: 0; }
+  .pv .head { display: flex; gap: 12px; align-items: center; min-width: 0; }
+  .pv .head .search { width: 230px; height: 34px; }
+  .pv .head .setname { font-size: 15px; font-weight: 600; }
+  .pv .head .btn[aria-pressed=true] { background: var(--raise2); border-color: #4a5060; }
+  .banks { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-content: start; overflow-y: auto; min-height: 0; padding-bottom: 16px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .bank { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-content: start; }
+  .pc { position: relative; height: 41px; border-radius: 8px; background: #15181e; border: 1px solid var(--line); padding: 0 9px; display: grid; align-content: center; line-height: 1.2; min-width: 0; text-align: left; }
+  .pc:hover { border-color: #4a5060; }
+  .pc small { font-size: 10.5px; color: var(--faint); }
+  .pc b { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 10px; }
+  .pc.blank { background: none; border-style: dashed; border-color: #20232b; }
+  .pc.blank b { color: #474c57; font-weight: 400; } .pc.blank small { color: #3b3f49; }
+  .pc.on { border-color: #b070e0; background: rgb(176 112 224 / .14); box-shadow: 0 0 0 1px #b070e0; }
+  .pc.on small { color: #c99cf0; }
+  .pc.hit { border-color: #f0c94a; }
+  .pc .pin { position: absolute; right: 4px; top: 3px; width: 18px; height: 18px; display: grid; place-items: center; color: #f0c94a; border-radius: 5px; }
+  .pc .pin svg { width: 11px; height: 11px; fill: currentColor; stroke: none; display: block; }
+  .pc .pin.off { color: var(--faint); visibility: hidden; } .pc:hover .pin.off { visibility: visible; } .pc .pin.off:hover { color: #f0c94a; }
+  .pd { border-left: 1px solid var(--line); padding: 16px 18px; display: grid; align-content: start; gap: 14px; overflow-y: auto; min-width: 0;
+        background: linear-gradient(180deg, rgb(176 112 224 / .07), transparent 40%); }
+  .pd h3 { margin: 2px 0 0; font-size: 22px; font-weight: 600; font-stretch: 86%; display: flex; gap: 8px; align-items: center; min-width: 0; }
+  .pd h3 b { color: var(--dim); font-weight: 400; } .pd h3 span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pd h3 u { width: 6px; height: 6px; border-radius: 50%; background: #f0c94a; flex: none; }
+  .pd .mini { flex-wrap: wrap; row-gap: 6px; }
+  .pd .mini small { margin: 0 6px 0 0; width: 100%; }
+  .pd .dsps { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; color: var(--dim); font-size: 12px; }
+  .pd .dsps u { display: block; height: 4px; border-radius: 2px; background: #262a33; margin-top: 5px; position: relative; text-decoration: none; }
+  .pd .dsps u i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: #f0c94a; }
+  .snl { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+  .snl span { height: 26px; border-radius: 6px; background: #0e1014; border: 1px solid var(--line); display: flex; align-items: center; gap: 7px; padding: 0 9px; font-size: 12.5px; min-width: 0; white-space: nowrap; overflow: hidden; }
+  .snl span b { color: var(--faint); font-weight: 400; } .snl span.on { border-color: #4a5060; background: var(--raise2); } .snl span.on b { color: #f0c94a; }
+  .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .acts .btn { justify-content: center; } .acts .wide { grid-column: 1 / -1; }
+  .acts .btn svg.star { fill: currentColor; stroke: none; }
+  .drop .pinned span:first-child { color: #f0c94a; }
 
   /* ---- the top bar ------------------------------------------------------------------------------------- */
   .top { position: relative; z-index: 6; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
@@ -1369,21 +1411,25 @@ function drawBar() {
 let shownPresets = '';
 function fillPresets() {
   const list = $('presetList'), names = state.presets || [], at = state.preset ? state.preset.number : -1;
-  const key = at + '\n' + names.join('\n');
+  const top = pinnedHere(), key = at + '\n' + top.join(',') + '\n' + names.join('\n');
   list.style.left = $('presetButton').offsetLeft + 'px';
-  if (key === shownPresets && list.childElementCount === names.length) return;
+  if (key === shownPresets && list.childElementCount === names.length + (top.length ? top.length + 1 : 0)) return;
   shownPresets = key;
-  list.replaceChildren(...names.map((name, index) => {
-    const row = el('button', index === at ? 'cur' : '');
-    row.append(el('span', 'num', String(index).padStart(3, '0')), el('span', '', name));
-    row.onclick = () => { if (index !== at) ask('preset', index); closePresets(); };
-    return row;
-  }));
+  const row = (index, pinned) => {
+    const button = el('button', (index === at ? 'cur' : '') + (pinned ? ' pinned' : ''));
+    button.append(el('span', 'num', String(index).padStart(3, '0')), el('span', '', names[index]));
+    if (pinned) button.title = 'Pinned';
+    button.onclick = () => { if (index !== at) ask('preset', index); closePresets(); };
+    return button;
+  };
+  // (the pinned ones first, then every preset in order)
+  list.replaceChildren(...top.map(index => row(index, true)), ...(top.length ? [el('hr')] : []), ...names.map((name, index) => row(index, false)));
+  list.querySelectorAll('hr').forEach(line => { line.style.cssText = 'border:0;border-top:1px solid var(--line);margin:6px 4px'; });
 }
 function openPresets() {
   closeMenu(); shownPresets = ''; fillPresets();
   $('presetList').hidden = false; $('presetButton').setAttribute('aria-expanded', 'true');
-  const cur = $('presetList').querySelector('.cur'); if (cur) cur.scrollIntoView({block: 'center'});
+  const cur = $('presetList').querySelector('.cur:not(.pinned)'); if (cur) cur.scrollIntoView({block: 'center'});
 }
 function closePresets() { $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false'); }
 function openMenu() {
@@ -1467,7 +1513,7 @@ let view = {drawer: '', half: '', full: ''};
 let capKind = '', capQuery = '', shownDrawer = '', shownRail = '', presetQuery = '';
 // Each thing's words. half: the line under its name in the lower half's card; shrink: the full view's button back.
 const THINGS = {
-  presets: {title: 'Presets', sub: 'The whole setlist on one screen', icon: 'presets', shrink: 'Show as a side list'},
+  presets: {title: 'Presets', sub: 'The whole setlist on one screen', icon: 'presets', shrink: 'Show as a side list', ready: true},
   look: {title: 'Floor look', sub: "What the Floor's own screen shows behind each block", half: 'Focus screen backgrounds', icon: 'floor',
          hint: "The background the Floor's Focus screen shows behind each kind of block.", shrink: 'Show under the chain'},
   level: {title: 'Levels', sub: 'Bring presets and snapshots to one loudness, without touching the tone', half: 'Level presets', icon: 'level',
@@ -1512,6 +1558,7 @@ function drawFrames() {
     shownMini = '';
     drawMini();
     $('vbody').replaceChildren(...(OLD_PAGES.has(full) ? [el('div', 'waiting', 'Opening ' + thing.title + '…')] : []));
+    if (full === 'presets') { shownGrid = ''; drawPresetGrid(); }
   } else if (half) {
     const thing = THINGS[half], box = $('toolCard'), icon = el('div', 'bigicon'), words = el('div'), row = el('div', 'btnrow');
     icon.innerHTML = RAIL_ICON[thing.icon];
@@ -1525,29 +1572,32 @@ function drawFrames() {
 }
 // The chain as small tiles in a full view's header, path by path: a click goes back to the chain with that block.
 let shownMini = '';
-function drawMini() {
-  const box = $('vhead').querySelector('.mini');
-  if (!box || !catalog || !state) return;
-  const now = current(), paths = workbenchPaths(shownBlocks(), catalog, state.topology);
-  const rows = paths.map(p => {
+function miniRows() {
+  // each path's blocks in the order of the chain (lane A and lane B place by place)
+  return workbenchPaths(shownBlocks(), catalog, state.topology).map(p => {
     const all = [];
     for (let k = 0; k < 8; k++) for (const lane of [p.a, p.b]) if (lane && lane[k]) all.push(lane[k]);
     return {dsp: p.dsp, blocks: all};
   });
-  const key = JSON.stringify([rows.map(r => r.blocks.map(b => [b.id, b.model, b.slot, b.enabled])), now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.icon])]);
+}
+const miniKey = rows => JSON.stringify([rows.map(r => r.blocks.map(b => [b.id, b.model, b.slot, b.enabled])), (state.captures || []).map(c => [c.slot, c.icon])]);
+function miniButton(block, now) {
+  const b = el('button', (block.enabled ? '' : 'off') + (same(block, now) ? ' on' : ''));
+  b.style.setProperty('--c', tint(block).join(' '));
+  b.title = title(block) + ': back to the chain with this block';
+  b.append(image(pictures(block), '', true));
+  b.onclick = () => { setView('goto'); ask('select', {dsp: block.dsp, id: block.id}); };
+  return b;
+}
+function drawMini() {
+  const box = $('vhead').querySelector('.mini');
+  if (!box || !catalog || !state) return;
+  const now = current(), rows = miniRows();
+  const key = JSON.stringify([miniKey(rows), now && [now.dsp, now.id]]);
   if (key === shownMini) return;
   shownMini = key;
   reusable = gather(box);
-  try {
-    box.replaceChildren(...rows.flatMap(r => [el('small', '', 'Path ' + (r.dsp + 1)), ...r.blocks.map(block => {
-      const b = el('button', (block.enabled ? '' : 'off') + (same(block, now) ? ' on' : ''));
-      b.style.setProperty('--c', tint(block).join(' '));
-      b.title = title(block) + ': back to the chain with this block';
-      b.append(image(pictures(block), '', true));
-      b.onclick = () => { setView('goto'); ask('select', {dsp: block.dsp, id: block.id}); };
-      return b;
-    })]));
-  } finally { reusable = null; }
+  try { box.replaceChildren(...rows.flatMap(r => [el('small', '', 'Path ' + (r.dsp + 1)), ...r.blocks.map(block => miniButton(block, now))])); } finally { reusable = null; }
 }
 // A tool still on its old page: its window is placed over the frame's body (the lower half's or the full view's), in
 // the page's own pixels; the launcher closes it again when the frame closes ("toolClose"), and says so when it was
@@ -1648,7 +1698,7 @@ function expander(title, onclick) {
 function drawPresetDrawer(box) {
   box.setAttribute('aria-label', 'Presets');
   const names = state.presets || [], at = state.preset ? state.preset.number : -1;
-  const key = JSON.stringify(['presets', names, at, presetQuery, state.preset && state.preset.setlist]);
+  const key = JSON.stringify(['presets', names, at, presetQuery, state.preset && state.preset.setlist, pins]);
   if (key === shownDrawer) return;
   const first = shownDrawer === '' || !shownDrawer.startsWith('["presets"');
   shownDrawer = key;
@@ -1663,20 +1713,128 @@ function drawPresetDrawer(box) {
   if (WORKBENCH_SIZES.presets.includes('full') && THINGS.presets.ready) side.append(expander('The whole setlist on one screen', () => setView('expand', 'presets')));
   head.append(side);
   const list = el('div', 'prows'), query = presetQuery;
-  names.forEach((name, index) => {
-    const number = String(index).padStart(3, '0');
+  const row = (index, pinned) => {
+    const name = names[index], number = String(index).padStart(3, '0');
     if (query && !String(name).toLowerCase().includes(query) && !number.includes(query)) return;
-    const row = el('button', 'prow' + (index === at ? ' cur' : '') + (/^new preset$/i.test(String(name).trim()) ? ' blank' : ''));
-    row.append(el('span', 'num', number), el('span', '', name));
-    row.title = number + ' ' + name;
-    row.onclick = () => { if (index !== at) ask('preset', index); };
-    list.append(row);
-  });
+    const button = el('button', 'prow' + (index === at ? ' cur' : '') + (isBlank(name) ? ' blank' : '') + (pinned ? ' pinned' : ''));
+    button.append(el('span', 'num', number), el('span', '', name));
+    if (pinned) button.firstChild.classList.add('pinmark');                    // (a pinned one's number is gold)
+    button.title = number + ' ' + name + (isPinned(index) ? ' (pinned)' : '');
+    button.onclick = () => { if (index !== at) ask('preset', index); };
+    list.append(button);
+  };
+  // (the pinned ones first, then every preset in order)
+  const top = pinnedHere();
+  top.forEach(index => row(index, true));
+  if (top.length && list.childElementCount) { const line = el('div', 'grp', 'All presets'); line.style.cssText = 'padding:8px 10px 4px;color:var(--faint);font-size:11px;letter-spacing:.04em;text-transform:uppercase'; list.append(line); }
+  names.forEach((name, index) => row(index, false));
   if (!list.childElementCount) list.append(el('div', 'none', names.length ? 'No preset matches.' : 'Waiting for the setlist from HX Edit.'));
   const scroll = box.querySelector('.prows').scrollTop;
   box.querySelector('h3').replaceWith(head); box.querySelector('.prows').replaceWith(list);
   list.scrollTop = scroll;
-  if (first) { const cur = list.querySelector('.cur'); if (cur) cur.scrollIntoView({block: 'center'}); }
+  if (first) { const cur = list.querySelector('.cur:not(.pinned)'); if (cur) cur.scrollIntoView({block: 'center'}); }
+}
+// ---- Presets: pins, and the whole setlist on one screen ------------------------------------------------------------
+// A pin is the editor's own setting (settings.json "presetPins": "setlist:number", workbench.py), never the browser's:
+// pinned presets sit at the top of the list under the preset's name and of the Presets drawer.
+let pins = [];
+const STAR = '<svg viewBox="0 0 16 16" class="star"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>';
+const setlistOf = () => state && state.preset && Number.isInteger(state.preset.setlist) ? state.preset.setlist : null;
+const isPinned = number => setlistOf() !== null && pins.includes(setlistOf() + ':' + number);
+const pinnedHere = () => (state.presets || []).map((name, number) => number).filter(isPinned);
+function pin(number, on) {
+  if (setlistOf() === null) return;
+  const key = setlistOf() + ':' + number;
+  pins = on ? pins.concat(pins.includes(key) ? [] : [key]) : pins.filter(k => k !== key);   // (shown at once; the editor's answer follows)
+  ask('pin', {setlist: setlistOf(), number, on});
+  shownGrid = ''; shownDrawer = ''; shownPresets = ''; render(); if (!$('presetList').hidden) fillPresets();
+}
+const isBlank = name => /^new preset$/i.test(String(name || '').trim());
+const number3 = n => String(n).padStart(3, '0');
+let gridQuery = '', hideBlank = false, shownGrid = '';
+function drawPresetGrid() {
+  const body = $('vbody');
+  if (view.full !== 'presets' || !catalog || !state) return;
+  const names = state.presets || [], at = state.preset ? state.preset.number : -1, setlist = setlistOf();
+  const rows = miniRows(), now = current();
+  const key = JSON.stringify([names, at, setlist, pins, gridQuery, hideBlank, state.preset && state.preset.name, state.undo, state.snapshots, state.snapshot, dsp, miniKey(rows), now && [now.dsp, now.id]]);
+  if (key === shownGrid && body.querySelector('.pv')) return;
+  shownGrid = key;
+  // The frame is made once: the search box keeps its caret while the cards and the side are redrawn.
+  if (!body.querySelector('.pv')) {
+    const pv = el('div', 'pv'), main = el('div', 'main'), head = el('div', 'head');
+    const find = el('label', 'search'); find.innerHTML = ICON.search;
+    const input = el('input'); input.type = 'search'; input.placeholder = 'Search presets'; input.setAttribute('aria-label', 'Search presets'); input.spellcheck = false;
+    input.oninput = () => { gridQuery = input.value.trim().toLowerCase(); drawPresetGrid(); };
+    find.append(input);
+    const blank = el('button', 'btn', 'Hide empty'); blank.title = 'Hide the presets still called New Preset';
+    blank.onclick = () => { hideBlank = !hideBlank; drawPresetGrid(); };
+    head.append(el('span', 'setname'), find, blank, el('span', 'sp'), el('span', 'note2 count'));
+    head.querySelector('.sp').style.flex = '1';
+    main.append(head, el('div', 'banks'));
+    pv.append(main, el('aside', 'pd'));
+    body.replaceChildren(pv);
+  }
+  const used = names.filter(n => !isBlank(n)).length;
+  body.querySelector('.setname').textContent = setlist === null ? '' : 'Setlist ' + (setlist + 1);
+  body.querySelector('.count').textContent = names.length ? used + ' of ' + names.length + ' in use' : 'Waiting for the setlist from HX Edit';
+  body.querySelector('.head .btn').setAttribute('aria-pressed', hideBlank);
+  $('vhead').querySelector('.sub').textContent = THINGS.presets.sub + (names.length ? ' · ' + used + ' of ' + names.length + ' in use' : '');
+  // the cards: bank by bank (four presets each), two banks a row
+  const card = number => {
+    const name = names[number], blank = isBlank(name), q = gridQuery;
+    const hit = q && (String(name).toLowerCase().includes(q) || number3(number).includes(q));
+    if (hideBlank && blank && number !== at) return null;
+    const b = el('button', 'pc' + (blank ? ' blank' : '') + (number === at ? ' on' : '') + (hit ? ' hit' : ''));
+    if (q && !hit) b.style.opacity = '.3';
+    b.append(el('small', 'num', number3(number)), el('b', '', name));
+    b.title = number3(number) + ' ' + name + (number === at ? ' (loaded)' : ': click to load it');
+    const mark = el('span', 'pin' + (isPinned(number) ? '' : ' off')); mark.innerHTML = STAR;
+    mark.title = isPinned(number) ? 'Pinned: click to unpin' : 'Pin it (it then sits at the top of the preset lists)';
+    mark.onclick = event => { event.stopPropagation(); pin(number, !isPinned(number)); };
+    b.append(mark);
+    b.onclick = () => { if (number !== at) ask('preset', number); };
+    return b;
+  };
+  const banks = el('div', 'banks'), sides = [el('div', 'bank'), el('div', 'bank')];
+  names.forEach((name, number) => { const item = card(number); if (item) sides[Math.floor(number / 4) % 2].append(item); });
+  banks.append(...sides);
+  const scroll = body.querySelector('.banks').scrollTop;
+  body.querySelector('.banks').replaceWith(banks);
+  banks.scrollTop = scroll;
+  // the loaded preset: its chain, DSP, snapshots
+  const side = el('aside', 'pd'), preset = state.preset;
+  if (preset) {
+    const top = el('div'), h = el('h3');
+    top.append(el('h5', '', 'Loaded now' + (setlist === null ? '' : ' · Setlist ' + (setlist + 1))));
+    h.append(el('b', 'num', number3(preset.number)), el('span', '', preset.name || ''));
+    if (state.undo) { const dot = el('u'); dot.title = 'Changed since it was loaded'; h.append(dot); }
+    top.append(h); side.append(top);
+    reusable = gather(body.querySelector('.pd'));
+    try {
+      for (const r of rows) { const m = el('div', 'mini'); m.append(el('small', '', 'Path ' + (r.dsp + 1)), ...r.blocks.map(block => miniButton(block, now))); if (!r.blocks.length) m.append(el('span', 'note2', 'Empty')); side.append(m); }
+    } finally { reusable = null; }
+    const meters = el('div', 'dsps');
+    for (const k of [0, 1]) {
+      const v = dsp && dsp[k], share = v && typeof v.used === 'number' && v.budget ? Math.round(100 * v.used / v.budget) : null, line = el('span', '', 'DSP ' + (k + 1) + ' · ');
+      line.append(el('b', 'num', share === null ? '—' : share + '%')); line.lastChild.style.color = 'var(--ink)';
+      const bar = el('u'), fill = el('i'); fill.style.width = Math.min(100, share || 0) + '%'; bar.append(fill); line.append(bar);
+      meters.append(line);
+    }
+    side.append(meters);
+    const snaps = el('div'), list = el('div', 'snl');
+    snaps.style.cssText = 'display:grid;gap:7px';
+    (state.snapshots || []).forEach((name, i) => { const s = el('span', i === state.snapshot ? 'on' : ''); s.append(el('b', 'num', String(i + 1)), el('span', '', name || 'Snapshot ' + (i + 1))); list.append(s); });
+    if ((state.snapshots || []).length) { snaps.append(el('h5', '', 'Snapshots'), list); side.append(snaps); }
+    const acts = el('div', 'acts'), save = el('button', 'btn pri wide'), star = el('button', 'btn');
+    save.innerHTML = $('save').innerHTML; save.append('Save'); save.title = $('save').title; save.onclick = () => ask('save');
+    const pinned = isPinned(preset.number);
+    star.innerHTML = STAR; star.append(pinned ? 'Unpin' : 'Pin'); star.title = pinned ? 'Take it off the top of the preset lists' : 'Keep it at the top of the preset lists';
+    star.onclick = () => pin(preset.number, !pinned);
+    acts.append(save, star); side.append(acts);
+    side.append(el('span', 'note2', 'Click a preset to load it. A star pins it: pinned presets sit at the top of the list under the preset’s name and of the Presets drawer.'));
+  } else side.append(el('span', 'note2', 'Waiting for a preset from HX Edit.'));
+  body.querySelector('.pd').replaceWith(side);
 }
 function libraryRow(kind, c, on) {
   const row = el('button', 'caprow' + (on ? ' on' : '')), [name, sub] = kind.words(c);
@@ -1748,7 +1906,7 @@ function render() {
   drawBar();
   drawRail();
   drawDrawer();
-  if (!view.full) { drawChain(); drawPanel(); } else drawMini();
+  if (!view.full) { drawChain(); drawPanel(); } else { drawMini(); if (view.full === 'presets') drawPresetGrid(); }
 }
 function receive(message) {
   if (!message || typeof message !== 'object') return;
@@ -1775,6 +1933,7 @@ function receive(message) {
     return;
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
+  else if (message.type === 'pins') { pins = Array.isArray(message.pins) ? message.pins.filter(k => typeof k === 'string') : []; shownGrid = ''; shownDrawer = ''; shownPresets = ''; if (!$('presetList').hidden) fillPresets(); }
   else return;
   render();
 }

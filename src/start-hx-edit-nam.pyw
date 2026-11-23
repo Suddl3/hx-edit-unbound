@@ -474,6 +474,13 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     else:
                         unbound_choice(value['name'])
                     return
+                if name == 'pin':
+                    # A preset pinned or unpinned on the Presets view: kept in settings.json, never in the page.
+                    pins = pins_after(nam_catalog.load_settings(), value)
+                    if pins is not None:
+                        nam_catalog.save_setting(PINS, pins)
+                        workbench.show_pins(pins)
+                    return
                 if name == 'toolClose':
                     # The Workbench closed the frame a tool sat in (Close, Back to the chain, Esc, another tool's
                     # place): its window closes as its own Close does.
@@ -512,6 +519,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if workbench is not None:
                 workbench.on_action = workbench_action
                 workbench.show_options({'level': bool(preview.level)})
+                from workbench import PINS, pinned, pins_after
+                workbench.show_pins(pinned(nam_catalog.load_settings()))
                 if workbench_start:
                     after_resume.append(lambda: workbench_mode(True, keep=False))
             ir_dots = [options.get('irDots') is not False]
