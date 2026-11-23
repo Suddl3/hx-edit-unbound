@@ -287,9 +287,8 @@ function installFocusView(options, parts) {
       if (!node || node.position === command.place) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
       targetBinding.moveSplit(editor, command.dsp, command.id, command.place);
     } else if (command.action === 'route') {
-      // Lane B's own input or output in place of the split or the mixer, or back (target_binding removeNode).
-      const node = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
-      if (!node) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
+      // Lane B's own input or output in place of the split or the mixer, or back: HX Edit's removal of the split or
+      // the mixer switches between the two (target_binding removeNode; its menu's Create Input / Restore Split).
       targetBinding.removeNode(editor, command.dsp, command.id);
     } else {
       const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
@@ -591,7 +590,7 @@ function installFocusView(options, parts) {
                  Number.isInteger(value.place) && value.place >= 0 && value.place <= 8 && writes.length < 32) {
         writes.push({action: 'moveSplit', dsp: value.dsp, id: value.id, place: value.place});
         queued = false; ask();
-      } else if (on && value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join', 'inputB', 'outputB'].includes(value.id) && writes.length < 32) {
+      } else if (on && value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id) && writes.length < 32) {
         writes.push({action: 'route', dsp: value.dsp, id: value.id});
         queued = false; ask();
       }

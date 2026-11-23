@@ -809,7 +809,10 @@ class FocusView:
             return None
         present = {'split': word.startswith('S'), 'join': word.endswith('J'),
                    'inputB': not word.startswith('S'), 'outputB': not word.endswith('J')}
-        return {'action': 'route', 'dsp': node['dsp'], 'id': node['id']} if present[node['id']] else None
+        # HX Edit's way back ("Restore Split" / "Restore Merge") is the same removal on the split or the mixer again
+        # (its menu's clear, 0x41b224): it switches. A removal on input B / output B itself is refused (-4, seen).
+        item = {'inputB': 'split', 'outputB': 'join'}.get(node['id'], node['id'])
+        return {'action': 'route', 'dsp': node['dsp'], 'id': item} if present[node['id']] else None
 
     def checked_set(self, value):
         """The page's request to set a value, as the command for focus_view.js, or None when it is not one of the

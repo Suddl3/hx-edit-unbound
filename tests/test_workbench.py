@@ -404,15 +404,17 @@ class SplitMoveTests(unittest.TestCase):
         for word, there in (('ABJ', {'inputB', 'join'}), ('SAB', {'split', 'outputB'}), ('AB', {'inputB', 'outputB'})):
             self.view.state['topology'] = [word, 'A']
             self.assertEqual({w for w in ('split', 'join', 'inputB', 'outputB') if route(0, w)}, there, word)
+            for w in there:                                                                    # the way back: the node again
+                self.assertEqual(route(0, w)['id'], {'inputB': 'split', 'outputB': 'join'}.get(w, w))
         self.view.state['topology'] = None
         self.assertIsNone(route(0, 'split'))                                                   # no shape read: nothing
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         body = binding[binding.index('function removeNode('):binding.index('function selectNode(')]
         self.assertIn("editorEntry(editor, 0xb0, 0x514bc0, 'remove-block')", body)
-        self.assertIn("['split', 'join', 'inputB', 'outputB'].includes(which)", body)
+        self.assertIn("!['split', 'join'].includes(which)", body)
         self.assertIn('remove(editor, dsp, name, 0x80000000)', body)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        self.assertIn("value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join', 'inputB', 'outputB'].includes(value.id)", script)
+        self.assertIn("value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id)", script)
         self.assertIn('targetBinding.removeNode(editor, command.dsp, command.id);', script)
         self.assertIn("'route': view.checked_route", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
