@@ -385,10 +385,12 @@ let pending = null, pendingTimer = 0;
 const PENDING_MS = 3000;
 function chainAsk(action, value) {
   const block = value.id ? state.blocks.find(b => b.dsp === value.dsp && b.id === value.id) : null;
-  pending = {action, ...value, block: block ? {...block} : null, until: Date.now() + PENDING_MS};
+  // (to the other path's lane B: pasted on its lane A first and moved down once the Floor has it, up to 4 s later)
+  const wait = action === 'move' && value.to !== undefined && value.lane === 1 ? 6000 : PENDING_MS;
+  pending = {action, ...value, block: block ? {...block} : null, until: Date.now() + wait};
   ask(action, value);
   clearTimeout(pendingTimer);
-  pendingTimer = setTimeout(() => { pending = null; if (catalog && state) drawChain(true); }, PENDING_MS + 50);
+  pendingTimer = setTimeout(() => { pending = null; if (catalog && state) drawChain(true); }, wait + 50);
   if (catalog && state) drawChain(true);
 }
 function shownBlocks() {

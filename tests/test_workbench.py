@@ -508,7 +508,7 @@ class ChainChangeTests(unittest.TestCase):
         self.assertIn('col < 0 || col > 7', move)
         self.assertIn('if (!entry.equals(base.add(rva)))', binding)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        change = script[script.index('function change(command)'):script.index('function followAdd(')]
+        change = script[script.index('function change(command)'):script.index('let downFollow = null;')]
         self.assertLess(change.index('focusRoom('), change.index('targetBinding.addModel('))          # room checked first
         self.assertLess(change.rindex('occupied('), change.index('targetBinding.moveBlock('))         # still empty
         # the other path: still empty and with room, then HX Edit's own copy, paste and removal as one undo step
@@ -526,13 +526,19 @@ class ChainChangeTests(unittest.TestCase):
         self.assertIn('const left = result >= 0 ? peekModel(editor, fromDsp, blockName) : null;', across)
         self.assertIn('if (left && model && left.model === model.model) result = remove(editor, fromDsp, name, 0);', across)
         self.assertIn('finally {\n        close(editor, result);', across)        # the undo step is always closed
-        # lane B of a one-lane path: pasted on an empty place of lane A, then moved down as a step of its own after the
-        # paste's undo step is closed (moved inside it, the Floor never got the move)
+        # lane B of a one-lane path: pasted on an empty place of lane A; the caller moves it down once the Floor has it
+        # (moved down at once, the Floor never got the move)
         self.assertIn('if (result < 0 && row === 1) {', across)
         self.assertIn("if (taken.includes('0:' + place)) continue;", across)
-        self.assertLess(across.index('close(editor, result);'), across.index('result = move(editor, toDsp, madeName, down, 0x80000000)'))
-        self.assertNotIn('down, 0);', across)
-        self.assertIn("editorEntry(editor, 0xa0, 0x5123c0, 'move-block')", across)
+        self.assertIn('return {down: made.name, dsp: toDsp, from: via, lane: 1, place: col};', across)
+        self.assertNotIn(' move(editor', across)
+        self.assertNotIn("'move-block'", across)
+        follow = script[script.index('function followDown('):script.index('function followAdd(')]
+        self.assertIn('const arrived = meter && follow.used !== null && meter.used !== follow.used;', follow)
+        self.assertIn('if (now - follow.at < DOWN_SETTLE_MS || (!arrived && now - follow.at < DOWN_LATEST_MS)) return;', follow)
+        self.assertIn('targetBinding.moveBlock(editor, follow.dsp, follow.down, follow.lane, follow.place);', follow)
+        self.assertIn('if (moved && moved.down) downFollow = ', script)
+        self.assertIn('downFollow = null;', script[script.index('function set('):])
         self.assertIn("send({type: 'dspNotice', text: 'HX Edit did not make that change.'})", script)   # a refusal is told
         self.assertIn('targetBinding.setIndex(editor, made.dsp, made.id, follow.slot)', script)         # a capture is never left on slot 1
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')

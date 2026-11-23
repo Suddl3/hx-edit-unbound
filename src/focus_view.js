@@ -293,12 +293,34 @@ function installFocusView(options, parts) {
         else {
           const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to], costsNow(), null, block.model, to);
           if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'move-no-room'}); return; }
-          targetBinding.moveAcross(editor, block.dsp, block.id, to, command.lane, command.place);
+          const meter = typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to];
+          const moved = targetBinding.moveAcross(editor, block.dsp, block.id, to, command.lane, command.place);
+          // Pasted on lane A for lane B: moved down once the Floor's meter shows the block on that path (followDown)
+          if (moved && moved.down) downFollow = {...moved, model: block.model, used: meter ? meter.used : null, at: Date.now()};
         }
       }
     }
     changed = true;
     send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-' + command.action, dsp: command.dsp, to: command.to, lane: command.lane, place: command.place});
+  }
+  // A block moved to the other path's lane B was pasted on its lane A (target_binding moveAcross): it goes down once
+  // the Floor has it, seen as that path's meter moving (a move sent before that never reached the Floor), or after
+  // DOWN_LATEST_MS without a meter. Dropped when the block is no longer where it was pasted.
+  let downFollow = null;
+  const DOWN_SETTLE_MS = 400, DOWN_LATEST_MS = 4000;
+  function followDown(blocks) {
+    if (!downFollow) return;
+    const follow = downFollow, now = Date.now();
+    const meter = typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[follow.dsp];
+    const arrived = meter && follow.used !== null && meter.used !== follow.used;
+    if (now - follow.at < DOWN_SETTLE_MS || (!arrived && now - follow.at < DOWN_LATEST_MS)) return;
+    downFollow = null;
+    const made = blocks.find(block => block.dsp === follow.dsp && block.id === follow.down);
+    if (!made || made.model !== follow.model || made.path !== 0 || made.position !== follow.from ||
+        occupied(follow.dsp, follow.lane, follow.place)) { send({type: 'toneTrace', reason: 'focus-view', stage: 'move-down-dropped'}); return; }
+    targetBinding.moveBlock(editor, follow.dsp, follow.down, follow.lane, follow.place);
+    changed = true;
+    send({type: 'toneTrace', reason: 'focus-view', stage: 'move-down', dsp: follow.dsp, place: follow.place, waited: now - follow.at, meter: !!arrived});
   }
   function followAdd(blocks) {
     // The capture's slot on the block just added, once a full reading shows it at its place.
@@ -413,6 +435,10 @@ function installFocusView(options, parts) {
       if (full) { state = focusSnapshot(peek, cursor, parameters, namEngines); knownAt = began; changed = false; }
       known = state.blocks;
       if (full && addFollow) { try { followAdd(known); } catch (error) { addFollow = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'add-follow-failed', error: String(error.message)}); } }
+      if (downFollow) {
+        try { followDown(known); }
+        catch (error) { downFollow = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'move-down-failed', error: String(error.message)}); send({type: 'dspNotice', text: 'HX Edit did not move the block down to the parallel lane.'}); }
+      }
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
       if (full) { onFloor = captures(onFloor); header = presetHeader(); }
       state.captures = onFloor;
@@ -469,7 +495,7 @@ function installFocusView(options, parts) {
     }
     on = value === true;
     if (timer) { clearInterval(timer); timer = null; }
-    lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null;
+    lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null; downFollow = null;
     pickKey = null; pickTries = 0;
     header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null]};
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }

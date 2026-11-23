@@ -877,8 +877,9 @@ class WiringTests(unittest.TestCase):
             self.assertNotIn(other, script)
         # The Workbench's chain changes, each once, only inside change() (test_workbench has their checks).
         body = script[script.index('function change(command)'):script.index('function followAdd(')]
-        for call in ('targetBinding.addModel(', 'targetBinding.removeBlock(', 'targetBinding.moveBlock('):
-            self.assertEqual(script.count(call), 1, call)
+        # (moveBlock also in followDown: a block pasted on the other path's lane A going down to lane B)
+        for call, times in (('targetBinding.addModel(', 1), ('targetBinding.removeBlock(', 1), ('targetBinding.moveBlock(', 2)):
+            self.assertEqual(script.count(call), times, call)
             self.assertIn(call, body)
         # A model or a capture from the pane's list: HX Edit's own picker calls, on a block of the chain, room checked first.
         self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 2))   # (a swap; a capture added)

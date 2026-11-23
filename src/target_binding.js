@@ -412,7 +412,6 @@ function installTargetBinding(options = {}) {
     const paste = new NativeFunction(editorEntry(editor, 0xc4, 0x513620, 'paste'), 'int', ['pointer', 'int', 'int', 'pointer', 'uint'], 'thiscall');
     const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
     const open = new NativeFunction(editorEntry(editor, 0xd4, 0x4ffa80, 'undo-open'), 'int', ['pointer', 'uint'], 'thiscall');
-    const move = new NativeFunction(editorEntry(editor, 0xa0, 0x5123c0, 'move-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
     const close = new NativeFunction(editorEntry(editor, 0xd8, 0x5044b0, 'undo-close'), 'int', ['pointer', 'int'], 'thiscall');
     let name = null;
     const cell = emptyVariant();
@@ -447,18 +446,13 @@ function installTargetBinding(options = {}) {
         close(editor, result);
       }
       if (result < 0) fail(`moving the block to the other path was rejected (${result})`);
-      // Pasted on lane A for lane B: moved down as a step of its own, as a drag within that path moves it. Moved
-      // inside the paste's undo step (flags 0), HX Edit had it on lane B but the Floor never got the move (seen
-      // 2026-11-22: the Floor kept it on lane A, under the next block added there). Undo then takes two presses.
+      // Pasted on lane A for lane B: the caller moves it down later (moveBlock), once the Floor has the block. Moved
+      // down at once, inside the paste's undo step or right after it, HX Edit had it on lane B but the Floor never
+      // got the move (seen twice on 2026-11-22: the Floor kept it on lane A). {down: its name now, lane, place}.
       if (via !== null) {
         const made = blockCells(editor, toDsp).find(b => !before.includes(b.name) && b.path === 0 && b.position === via);
-        if (!made) fail('the block reached the other path but could not be moved down to its parallel lane');
-        const madeName = string(made.name), down = emptyVariant();
-        try {
-          down.writeU32(5); down.add(8).writeU32(((1 << 16) | col) >>> 0);
-          result = move(editor, toDsp, madeName, down, 0x80000000);
-        } finally { destroyVariant(madeName); }
-        if (result < 0) fail(`the block reached the other path but moving it to the parallel lane was rejected (${result})`);
+        if (!made) fail('the block reached the other path but could not be found there');
+        return {down: made.name, dsp: toDsp, from: via, lane: 1, place: col};
       }
     } finally {
       if (name) destroyVariant(name);
