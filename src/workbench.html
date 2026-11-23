@@ -1360,15 +1360,17 @@ function drawDrawer() {
   const kinds = namKinds().map(k => k.name), kindOfCap = c => namKind(c);
   const counts = new Map(); for (const c of all) counts.set(kindOfCap(c), (counts.get(kindOfCap(c)) || 0) + 1);
   if (capKind && !counts.has(capKind)) capKind = '';
-  const head = el('h3', '', 'Captures'); head.append(el('span', '', all.length + ' on the Floor'));
-  // the search keeps its box (and the caret) while the list under it is redrawn
-  let find = box.querySelector('.find');
-  if (!find) {
-    find = el('label', 'find'); find.innerHTML = ICON.search;
+  // The drawer's frame is made once: the search box stays where it is (and keeps the caret) while the count, the
+  // chips and the list are redrawn.
+  if (!box.querySelector('.find')) {
+    const find = el('label', 'find'); find.innerHTML = ICON.search;
     const input = el('input'); input.type = 'search'; input.placeholder = 'Search captures'; input.setAttribute('aria-label', 'Search captures');
     input.oninput = () => { capQuery = input.value.trim().toLowerCase(); drawDrawer(); };
     find.append(input);
+    const foot = el('div', 'dfoot', 'Drag a capture onto a "+" to add a NAM block, or onto a NAM block to swap its capture. Click: put it on the selected NAM block. Undo takes it back.');
+    box.replaceChildren(el('h3'), find, el('div', 'kindchips'), el('div', 'caplist'), foot);
   }
+  const head = el('h3', '', 'Captures'); head.append(el('span', '', all.length + ' on the Floor'));
   const chips = el('div', 'kindchips');
   const chip = (words, kind, count) => {
     const b = el('button', capKind === kind ? 'on' : '', words); b.append(el('b', 'num', String(count)));
@@ -1385,9 +1387,12 @@ function drawDrawer() {
     for (const c of rows) list.append(captureRow(c, c.slot === inUse));
   }
   if (!shown.length) list.append(el('div', 'none', all.length ? 'No capture matches.' : 'No captures on the Floor yet. Add some with the NAM library (in the rail).'));
-  const foot = el('div', 'dfoot', 'Drag a capture onto a "+" to add a NAM block, or onto a NAM block to swap its capture. Click: put it on the selected NAM block. Undo takes it back.');
+  const scroll = box.querySelector('.caplist').scrollTop;
   reusable = gather(box);
-  try { box.replaceChildren(head, find, chips, list, foot); } finally { reusable = null; }
+  try {
+    box.querySelector('h3').replaceWith(head); box.querySelector('.kindchips').replaceWith(chips); box.querySelector('.caplist').replaceWith(list);
+  } finally { reusable = null; }
+  list.scrollTop = scroll;                                      // (a reading of HX Edit does not move the list)
 }
 function captureRow(c, on) {
   const row = el('button', 'caprow' + (on ? ' on' : ''));
