@@ -209,6 +209,8 @@
   .sgrid > div { padding: 0 12px; min-height: 38px; display: flex; align-items: center; border-top: 1px solid #1d2027; }
   .sgrid .hd { border-top: 0; display: grid; align-content: center; color: var(--dim); font-size: 12px; } .sgrid .hd b { color: var(--ink); font-size: 13px; }
   .sgrid .cur { background: rgb(var(--c) / .1); }
+  .sgrid .name.moved { color: rgb(var(--c)); } .sgrid .name.fixed { color: var(--faint); font-weight: 500; }
+  .sgrid .fixedline { gap: 10px; color: var(--faint); background: rgb(0 0 0 / .18); } .sgrid .fixedline .same { white-space: nowrap; }
   .sgrid .hd.pickable:not(.cur) { cursor: pointer; } .sgrid .hd.pickable:not(.cur):hover { background: var(--raise2); } .sgrid .hd.pickable:not(.cur):hover b { color: rgb(var(--c)); } .sgrid .name { font-weight: 600; }
   .knobs { display: flex; flex-wrap: wrap; gap: 22px 6px; align-content: center; justify-content: center; padding: 14px 0; overflow-y: auto; min-height: 0;
            scrollbar-width: thin; scrollbar-color: #444 transparent; }
@@ -924,6 +926,7 @@ function snapshotView(block, list) {
   // snapshot that was on comes back: focus_view.js "snapValue". The column of the snapshot that is on shows the live
   // values, which HX Edit keeps in the block itself.)
   const change = (s, key, value) => ask('snapValue', {dsp: block.dsp, id: block.id, snapshot: s, key, value});
+  const fixedRows = [];
   grid.append(el('div', 'name', 'On / off'));
   for (let s = 0; s < count; s++) {
     const on = s === state.snapshot ? block.enabled : a.snapshots[s] && a.snapshots[s].on, cell = el('div', s === state.snapshot ? 'cur' : '');
@@ -933,10 +936,27 @@ function snapshotView(block, list) {
     } else cell.textContent = on === undefined ? '—' : on === true ? 'on' : on === false ? 'off' : treeText(on);
     grid.append(cell);
   }
-  const changing = list.filter(p => a.snapshots.some(s => s.values[p.id] !== undefined) || (a.controls[p.id] || {}).controller === 19);
+  // Controls that snapshots move first, in the block's colour and editable per snapshot; then the others, greyed, as
+  // one line each (the same in every snapshot) with a button that lets snapshots change them (their controller
+  // becomes Snapshots, 19, as the Bypass and controllers tab sets it).
+  const movedBy = p => (a.controls[p.id] || {}).controller === 19;
+  const changing = list.filter(movedBy), fixed = list.filter(p => !movedBy(p));
+  for (const p of fixed) {
+    const name = el('div', 'name fixed', p.name), line = el('div', 'fixedline'), c = a.controls[p.id] || {};
+    line.style.gridColumn = `2 / span ${count}`;
+    line.append(el('span', 'same', shown(p, valueOf(p.id)) + ' in every snapshot'));
+    if (c.controller !== undefined) line.append(el('span', 'same', '· ' + controllerName(c.controller) + ' moves it'));
+    else {
+      const let_ = el('button', 'cellb', 'Let snapshots change it');
+      let_.title = 'Gives ' + p.name + ' its own value in each snapshot (sets its controller to Snapshots)';
+      let_.onclick = () => ask('assign', {dsp: block.dsp, id: block.id, field: 'controller', key: p.id, value: 19});
+      line.append(let_);
+    }
+    fixedRows.push(name, line);
+  }
   for (const p of changing) {
-    const moved = (a.controls[p.id] || {}).controller === 19;
-    grid.append(el('div', 'name', p.name));
+    const moved = true;
+    grid.append(el('div', 'name moved', p.name));
     for (let s = 0; s < count; s++) {
       const v = s === state.snapshot ? valueOf(p.id) : a.snapshots[s] && a.snapshots[s].values[p.id], cell = el('div', 'num' + (s === state.snapshot ? ' cur' : ''));
       const names = positions(p);
@@ -958,8 +978,9 @@ function snapshotView(block, list) {
       grid.append(cell);
     }
   }
-  box.append(grid, el('p', 'tabnote', changing.length ? 'Change a value in any snapshot without leaving the one that is on: that snapshot comes on for a moment while HX Edit takes it. Only controls moved by Snapshots change per snapshot (set that in Bypass and controllers).'
-                                                      : 'No control of this block changes per snapshot. Set a control to Snapshots in Bypass and controllers to give it a value per snapshot.'));
+  grid.append(...fixedRows);
+  box.append(grid, el('p', 'tabnote', changing.length ? 'Change a value in any snapshot without leaving the one that is on: that snapshot comes on for a moment while HX Edit takes it. Greyed controls are the same in every snapshot.'
+                                                      : 'No control of this block changes per snapshot yet: “Let snapshots change it” gives one its own value in each snapshot.'));
   return box;
 }
 

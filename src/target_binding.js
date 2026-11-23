@@ -63,6 +63,12 @@ function installTargetBinding(options = {}) {
     if (type === 4 || type === 1) return { type, value: value.add(8).readS32() };   // (1: as HX Edit writes @controller)
     if (type === 5) return { type, value: value.add(8).readU32() };
     if (type === 8) return { type, value: value.add(8).readFloat() };
+    // (6 / 7: a 64-bit number, as a snapshot keeps a list setting's choice, a wave shape say: seen 2026-11-22 as
+    // "kind 7". A small whole number is that; anything else is read as a double.)
+    if (type === 6 || type === 7) {
+      const whole = (type === 6 ? value.add(8).readS64() : value.add(8).readU64()).toNumber();
+      return { type, value: Number.isSafeInteger(whole) && Math.abs(whole) < 1e9 ? whole : value.add(8).readDouble() };
+    }
     if (type === 10) return { type, value: nativeString(value.add(8).readPointer()) };
     if (type === 11) return { type, value: value.add(8).readU8() !== 0 };   // a switch (@enabled, Polarity, …)
     fail(`unsupported native parameter type ${type}`);
