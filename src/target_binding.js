@@ -374,8 +374,11 @@ function installTargetBinding(options = {}) {
   // flags). One undo step each, and HX Edit fills the defaults itself: far quicker than pasting a
   // favorite. Symbols only of HX Edit's models.
   const symbolPattern = /^[A-Za-z0-9_]{3,64}$/;
+  // (the split's own type is its model too, as HX Edit's panel offers it: Split Y, A/B, Crossover, Dynamic)
+  const SPLIT_MODELS = ['HD2_AppDSPFlowSplitY', 'HD2_AppDSPFlowSplitAB', 'HD2_AppDSPFlowSplitXOver', 'HD2_AppDSPFlowSplitDyn'];
   function setModel(editor, dsp, blockName, symbol) {
-    if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName) || !symbolPattern.test(symbol)) {
+    const split = blockName === 'split' && SPLIT_MODELS.includes(symbol);
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !(split || /^block\d{1,2}$/.test(blockName)) || !symbolPattern.test(symbol)) {
       fail('unsupported block or model');
     }
     let block = null, key = null, value = null;

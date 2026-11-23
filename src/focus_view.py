@@ -857,6 +857,18 @@ class FocusView:
             return None
         return {'action': 'snapValue', 'dsp': checked['dsp'], 'id': checked['id'], 'snapshot': snapshot, 'key': key, 'value': checked['value']}
 
+    # The split's types, as HX Edit's panel offers them (Split > Split Y, Split A/B, Split Crossover, Split Dynamic).
+    SPLIT_TYPES = ('HD2_AppDSPFlowSplitY', 'HD2_AppDSPFlowSplitAB', 'HD2_AppDSPFlowSplitXOver', 'HD2_AppDSPFlowSplitDyn')
+
+    def checked_split_type(self, value):
+        """The Workbench's request to change the split's type, as the command for focus_view.js, or None: only a split
+        the page was shown, and only one of the four types HX Edit's panel offers, other than the one it has."""
+        node = self._block(value)
+        symbol = value.get('symbol') if isinstance(value, dict) else None
+        if not node or node.get('id') != 'split' or symbol not in self.SPLIT_TYPES or symbol == node.get('model'):
+            return None
+        return {'action': 'splitType', 'dsp': node['dsp'], 'symbol': symbol}
+
     def checked_route(self, value):
         """The Workbench's request to give lane B its own input or output in place of the split or the mixer (HX Edit's
         "Create Input" / "Create Output"), or to put the split or the mixer back, or None: only what the path's shape

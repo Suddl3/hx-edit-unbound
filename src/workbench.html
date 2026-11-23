@@ -751,8 +751,20 @@ function card(block, picker) {
     turn.onclick = () => ask('route', {dsp: block.dsp, id: block.id});
     const more = el('div', 'btnrow'); more.append(turn); box.append(more);
   }
+  // The split's type, as HX Edit's panel offers it (focus_view.checked_split_type checks the same)
+  if (block.id === 'split') {
+    const types = el('span', 'seg');
+    types.title = "The split's type (HX Edit's Split Y, A/B, Crossover, Dynamic). Undo puts the old one back.";
+    for (const [text, symbol] of SPLIT_TYPES) {
+      const b = el('button', block.model === symbol ? 'on' : '', text);
+      b.onclick = () => { if (block.model !== symbol) ask('splitType', {dsp: block.dsp, id: 'split', symbol}); };
+      types.append(b);
+    }
+    const kind = el('div', 'btnrow'); kind.append(types); box.append(kind);
+  }
   return box;
 }
+const SPLIT_TYPES = [['Y', 'HD2_AppDSPFlowSplitY'], ['A/B', 'HD2_AppDSPFlowSplitAB'], ['Crossover', 'HD2_AppDSPFlowSplitXOver'], ['Dynamic', 'HD2_AppDSPFlowSplitDyn']];
 // What the routing button of a split, a mixer, or lane B's own input or output does, by the path's shape
 // (focus_view.checked_route checks the same): {label, hint} or null.
 function routeChoice(block) {

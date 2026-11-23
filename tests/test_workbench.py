@@ -428,6 +428,25 @@ class SplitMoveTests(unittest.TestCase):
         for label in ('Give lane B its own input', 'Give lane B its own output', 'Put the split back', 'Put the mixer back'):
             self.assertIn(label, page)
 
+    def test_the_splits_type_is_one_of_hx_edits_four(self):
+        kind = lambda dsp, which, symbol: self.view.checked_split_type({'dsp': dsp, 'id': which, 'symbol': symbol})
+        self.assertEqual(kind(0, 'split', 'HD2_AppDSPFlowSplitAB'), {'action': 'splitType', 'dsp': 0, 'symbol': 'HD2_AppDSPFlowSplitAB'})
+        self.assertEqual(kind(1, 'split', 'HD2_AppDSPFlowSplitDyn')['dsp'], 1)
+        for refused in ((0, 'split', 'HD2_AppDSPFlowSplitY'), (0, 'join', 'HD2_AppDSPFlowSplitAB'), (0, 'block0', 'HD2_AppDSPFlowSplitAB'),
+                        (0, 'split', 'HD2_DelayTest'), (0, 'split', None), (2, 'split', 'HD2_AppDSPFlowSplitAB')):
+            self.assertIsNone(kind(*refused), refused)                    # the type it has, not a split, not a split type
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        body = binding[binding.index('const SPLIT_MODELS'):binding.index('function setModel(') + 400]
+        for symbol in ('HD2_AppDSPFlowSplitY', 'HD2_AppDSPFlowSplitAB', 'HD2_AppDSPFlowSplitXOver', 'HD2_AppDSPFlowSplitDyn'):
+            self.assertIn(symbol, body)
+        self.assertIn("const split = blockName === 'split' && SPLIT_MODELS.includes(symbol);", body)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("targetBinding.setModel(editor, command.dsp, 'split', command.symbol);", script)
+        self.assertIn("/^HD2_AppDSPFlowSplit(Y|AB|XOver|Dyn)$/.test(value.symbol)", script)
+        self.assertIn("'splitType': view.checked_split_type", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("ask('splitType', {dsp: block.dsp, id: 'split', symbol})", page)
+
     def test_a_click_selects_the_split_or_the_mixer_as_hx_edits_own_drop_does(self):
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         body = binding[binding.index('function selectNode('):binding.index('function moveSplit(')]
@@ -784,7 +803,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@tempo')", script)
         # Still only values, a model, a capture, a snapshot and a click on the chain are ever written.
         self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)
-        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 2))   # (a swap; a capture added)
+        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 2))   # (a swap, the split's type; a capture added)
 
 
 class WiringTests(unittest.TestCase):
@@ -831,7 +850,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType'})
 
 
 if __name__ == '__main__':
