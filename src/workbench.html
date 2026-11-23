@@ -260,6 +260,10 @@
            scrollbar-width: thin; scrollbar-color: #444 transparent; }
   .knobs.s { gap: 14px 2px; }
   .knob { width: 86px; display: grid; justify-items: center; gap: 2px; position: relative; text-align: center; }
+  /* a list setting (an input's source, an output's destination, a wave shape): a drop-down where a dial would be */
+  .knob.listc { width: 172px; align-content: end; gap: 8px; padding-bottom: 2px; }
+  .knob.listc select { width: 100%; height: 32px; border-radius: 8px; background: var(--raise2); border: 1px solid #3a3f4b; color: var(--ink); font: inherit; padding: 0 8px; }
+  .knob.listc select:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   .knob .dial { width: 80px; height: 80px; cursor: ns-resize; touch-action: none; border-radius: 50%; display: block; }
   .knobs.s .knob { width: 78px; } .knobs.s .knob .dial { width: 66px; height: 66px; }
   .knob .dial svg { width: 100%; height: 100%; overflow: visible; }
@@ -722,9 +726,17 @@ function arc(from, to) {
   const [x0, y0] = pt(from), [x1, y1] = pt(to);
   return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${RING} ${RING} 0 ${to - from > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
 }
+// A list setting with more than two choices: a drop-down (turning a dial through a long list of inputs was hard to
+// find, seen 2026-11-23); two choices stay a switch or a dial, a time that can follow the tempo stays a dial.
+const isList = p => p.kind !== 'switch' && !p.sync && (positions(p) || []).length > 2;
 function control(p) {
   let item;
-  if (p.kind === 'switch') {
+  if (isList(p)) {
+    item = el('div', 'knob listc');
+    const pick = el('select'), low = typeof p.min === 'number' ? p.min : 0; pick.setAttribute('aria-label', p.name);
+    positions(p).forEach((name, i) => pick.append(new Option(name, String(low + i))));
+    item.append(pick, el('div', 'nm', p.name));
+  } else if (p.kind === 'switch') {
     item = el('div', 'sw');
     item.append(el('button', 'lever'), el('div', 'val'), el('div', 'nm', p.name));
     item.querySelector('.lever').setAttribute('role', 'switch');
@@ -742,6 +754,11 @@ function control(p) {
   return item;
 }
 function fill(item, p) {
+  if (item.classList.contains('listc')) {
+    const pick = item.querySelector('select'), v = valueOf(p.id);
+    if (typeof v === 'number' && document.activeElement !== pick) pick.value = String(Math.round(v));
+    return;
+  }
   item.querySelector('.val').textContent = text(p);
   if (p.kind === 'switch') {
     const value = valueOf(p.id), up = value === true || (typeof value === 'number' && value === p.max);
@@ -905,7 +922,12 @@ function drawPanel() {
       tabs.append(tab);
     }
     if (panelTab === 'controls') {
-      knobs.replaceChildren(...list.map(p => { const item = control(p); wireControl(item, p, block, () => fill(item, p)); return item; }));
+      knobs.replaceChildren(...list.map(p => {
+        const item = control(p);
+        if (isList(p)) { const pick = item.querySelector('select'); pick.onchange = () => { setValue(block, p.id, Number(pick.value), 'single'); pick.blur(); fill(item, p); }; }
+        else wireControl(item, p, block, () => fill(item, p));
+        return item;
+      }));
       if (!list.length) knobs.append(el('div', 'empty', 'This block has no controls.'));
       ctl.append(tabs, knobs);
     } else ctl.append(tabs, panelTab === 'bypass' ? bypassView(block, list) : snapshotView(block, list));
