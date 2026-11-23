@@ -728,13 +728,24 @@ function arc(from, to) {
 }
 // A list setting with more than two choices: a drop-down (turning a dial through a long list of inputs was hard to
 // find, seen 2026-11-23); two choices stay a switch or a dial, a time that can follow the tempo stays a dial.
-const isList = p => p.kind !== 'switch' && !p.sync && (positions(p) || []).length > 2;
+// (an IR block's IR Select: the Floor's IRs by name, as the IRs drawer lists them; HX Edit's own list has no names)
+const irSelect = p => p.id === 'Index' && !!current() && isIr(current());
+function choices(p) {
+  if (irSelect(p)) {
+    const list = (state.irs || []).map(i => [i.slot, i.slot + ': ' + i.name]), now = current().slot;
+    if (Number.isInteger(now) && !list.some(([slot]) => slot === now)) list.unshift([now, now + ': (not in the list)']);
+    return list;
+  }
+  const low = typeof p.min === 'number' ? p.min : 0;
+  return (positions(p) || []).map((name, i) => [low + i, name]);
+}
+const isList = p => irSelect(p) || (p.kind !== 'switch' && !p.sync && (positions(p) || []).length > 2);
 function control(p) {
   let item;
   if (isList(p)) {
     item = el('div', 'knob listc');
-    const pick = el('select'), low = typeof p.min === 'number' ? p.min : 0; pick.setAttribute('aria-label', p.name);
-    positions(p).forEach((name, i) => pick.append(new Option(name, String(low + i))));
+    const pick = el('select'); pick.setAttribute('aria-label', p.name);
+    choices(p).forEach(([value, name]) => pick.append(new Option(name, String(value))));
     item.append(pick, el('div', 'nm', p.name));
   } else if (p.kind === 'switch') {
     item = el('div', 'sw');
