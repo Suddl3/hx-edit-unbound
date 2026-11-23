@@ -295,7 +295,8 @@
   .vers { display: grid; gap: 5px; }
   .ver { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 10px; align-items: center; min-height: 44px; padding: 4px 10px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); }
   .ver.on { border-color: rgb(176 112 224 / .6); background: rgb(176 112 224 / .1); }
-  .ver .rd { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid #5a606c; }
+  .ver .rd { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid #5a606c; padding: 0; }
+  .ver .rd:disabled { opacity: .4; }
   .ver.on .rd { border-color: #b070e0; background: radial-gradient(#b070e0 45%, transparent 50%); }
   .ver b { font-weight: 600; display: block; line-height: 1.2; } .ver small { color: var(--dim); font-size: 11.5px; }
   .ver em { font-style: normal; color: var(--ink); font-size: 12.5px; text-align: right; line-height: 1.2; } .ver em small { display: block; }
@@ -2620,6 +2621,141 @@ function libFloorActions(row) {
   if (fs.text) box.append(el('span', 'note2', fs.text));
   return box;
 }
+// A capture's versions (stage 5 part 3): the library page's own, run in the session. The original and the lighter ones
+// made from it: which one Put on the Floor uses (what the Floor's firmware cannot play is greyed out, the reason on
+// hover), Hear (your recorded guitar through it, on this PC), Put on block (a Pedal version on a NAM Pedal block),
+// Delete; Make a lighter version (Pedal or Light) and the older trainer (layers and training time), with progress.
+const VERSION_INFO = {
+  original: {name: 'Original', detail: 'The capture as it is. Plays in a NAM A2 Lite block.'},
+  pedal: {name: 'Pedal', detail: 'A small model of the capture. Plays in a NAM Pedal block (pedal firmware).'},
+  light16: {name: 'Light', detail: 'The same NAM model with 16 of its 23 layers, in a NAM A2 Lite block. It saves DSP once the Floor firmware skips the unused layers.'},
+};
+const share1 = v => (Math.round(v * 10) / 10).toString() + '% of a DSP';
+function libVersions(row) {
+  const fs = floorStatus || {}, connected = !!fs.navigation && levelSession === 'open', busy = !!fs.busy;
+  const namLoad = Number.isFinite(fs.nam_load) ? fs.nam_load : 36, pedalLoad = Number.isFinite(fs.pedal_load) ? fs.pedal_load : 7.5, pedalBlock = fs.pedal_block === true;
+  const notYet = key => key === 'pedal' && !pedalBlock ? 'Needs the pedal firmware' : key === 'light16' ? 'Needs a firmware that skips layers' : '';
+  const chosen = row.defaultVersion || 'original', plays = chosen !== 'original' && notYet(chosen) ? 'original' : chosen;
+  const meta = key => key === 'original' ? share1(namLoad) : key === 'pedal' ? share1(pedalLoad) : '~' + Math.round(namLoad * 29 / 36) + '% after a firmware update';
+  const ask2 = (doing, key) => ask('levels', {do: doing, arg: row.id, key});
+  const listening = fs.listen && fs.listen.id === row.id ? fs.listen : null, source = typeof fs.listen_source === 'string' ? fs.listen_source : null;
+  const box = el('div'); box.style.cssText = 'display:grid;gap:7px';
+  box.append(el('h5', '', 'Versions \u00b7 Put on the Floor uses the ticked one'));
+  const vers = el('div', 'vers');
+  for (const v of [{key: 'original'}, ...(row.versions || []).filter(v => VERSION_INFO[v.key])]) {
+    const info = VERSION_INFO[v.key], reason = notYet(v.key), line = el('div', 'ver' + (v.key === plays ? ' on' : '')), words = el('div');
+    const radio = el('button', 'rd'); radio.disabled = !connected || busy || !!reason;
+    radio.title = reason || 'Put on the Floor uses the ' + (v.key === 'original' ? 'original' : info.name + ' version');
+    radio.onclick = () => { if (v.key !== plays) ask2('versionDefault', v.key); };
+    const verdict = v.key === 'original' ? 'as it came' : v.quality === 'same' ? 'sounds the same' : v.quality === 'different' ? 'may sound different' : 'not compared';
+    words.append(el('b', '', info.name), el('small', '', verdict + (reason ? ' \u00b7 ' + reason.toLowerCase() : '')));
+    words.title = info.detail + (Number.isFinite(v.error) ? ' Error ' + (100 * v.error).toFixed(1) + '% against the original.' : '');
+    const right = el('em'); right.append(meta(v.key));
+    const acts = el('div', 'btnrow'); acts.style.cssText = 'grid-column:2 / -1;gap:6px';
+    if (connected && source) {
+      const now = listening && (listening.running ? listening.which : listening.playing);
+      const active = !!listening && (v.key === 'original' ? now === 'original' : listening.key === v.key && now === 'pedal');
+      const hear = el('button', 'btn sm', active ? '\u25a0 Stop' : '\u25b6 Hear'); hear.disabled = busy && !active;
+      hear.title = active ? 'Stop playing' : 'Play your ' + source + ' recording through the ' + (v.key === 'original' ? 'original' : info.name + ' version') + ' on this PC, not the Floor.';
+      hear.onclick = () => active ? ask('levels', {do: 'listenStop'}) : ask2('listen', v.key);
+      acts.append(hear);
+    }
+    if (connected && pedalBlock && (v.key === 'pedal' || (v.key === 'original' && (row.versions || []).some(x => x.key === 'pedal')))) {
+      const use = el('button', 'btn sm', 'Put on block'); use.disabled = busy || !fs.can_install;
+      use.title = !fs.can_install ? 'Select a NAM block in the chain first.' : v.key === 'pedal' ? 'Put the Pedal version on the selected block (HX Edit makes it a NAM Pedal block). The preset is not saved.'
+        : 'Put the original back on the selected block (a NAM A2 Lite block). The preset is not saved.';
+      use.onclick = () => ask2('useVersion', v.key);
+      acts.append(use);
+    }
+    if (connected && v.key !== 'original') {
+      const del = el('button', 'btn sm danger', 'Delete'); del.disabled = busy;
+      del.onclick = async () => { if (await confirmBox('Delete the ' + info.name + ' version from this PC? The original capture stays, and you can make it again.', 'Delete version')) ask2('versionRemove', v.key); };
+      acts.append(del);
+    }
+    line.append(radio, words, right);
+    if (acts.childElementCount) line.append(acts);
+    vers.append(line);
+  }
+  box.append(vers);
+  if (!connected) { box.append(el('span', 'note2', levelSession ? 'Connecting to HX Edit\u2026' : 'Making, hearing and choosing versions need the connection to HX Edit.')); return box; }
+  if (source === '' && !listening) {
+    const rec = el('div', 'btnrow'), go = el('button', 'linkish', 'Record it in Levels');
+    go.onclick = () => setView('open', 'level');
+    rec.append(el('span', 'note2', 'Hear needs a recording of your guitar, once.'), go); box.append(rec);
+  }
+  if (listening && (listening.running || listening.error)) box.append(el('span', 'note2', listening.running ? 'Rendering your ' + (listening.source || 'guitar') + ' recording through the original and the ' + (listening.label || 'version') + '\u2026' : listening.error));
+  // making a lighter version: Pedal or Light (Optimize), or the older trainer (layers, training time)
+  const opt = fs.optimize && fs.optimize.id === row.id ? fs.optimize : fs.optimize && fs.optimize.running ? fs.optimize : null;
+  const light = fs.light && (fs.light.running || fs.light.id === row.id) ? fs.light : null;
+  const make = el('div', 'btnrow');
+  if (fs.can_optimize && row.canTrain !== false) {
+    const b = el('button', 'btn sm', '\uff0b Make a lighter version\u2026'); b.disabled = busy || !!(opt && opt.running) || !!(light && light.running);
+    b.onclick = () => chooseLighter(row, {namLoad, pedalLoad, pedalBlock});
+    make.append(b);
+  }
+  if (fs.can_train && row.canTrain !== false) {
+    const b = el('button', 'btn sm', 'Choose layers\u2026'); b.disabled = busy || !!(light && light.running) || !!(opt && opt.running);
+    b.title = 'The older trainer: pick how many layers (23, 20, 16, 14) and how long it trains';
+    b.onclick = () => chooseLayers(row);
+    make.append(b);
+  }
+  if (row.canTrain === false) box.append(el('span', 'note2', 'This kept capture is a converted WAV: its original .nam file is needed to make a lighter version.'));
+  if (make.childElementCount) box.append(make);
+  if (opt && opt.running) {
+    const line = el('div', 'btnrow'), cancel = el('button', 'btn sm', 'Cancel'); cancel.onclick = () => ask('levels', {do: 'optimizeCancel'});
+    line.append(el('span', 'note2', 'Making a ' + (opt.key === 'light16' ? 'Light' : 'Pedal') + ' version\u2026 step ' + (opt.step || 0) + ' of ' + (opt.steps || 400)), cancel); box.append(line);
+  } else if (opt && opt.error && opt.id === row.id) box.append(el('span', 'note2', 'Could not make the version: ' + opt.error));
+  if (light) {
+    const pct = v => Number.isFinite(v) ? (100 * v).toFixed(2) + '%' : '';
+    let words = '';
+    if (light.running) words = (light.name ? light.name + ': ' : '') + (light.step ? 'step ' + light.step + ' / ' + light.steps + ' \u00b7 error ' + pct(light.best) : 'Preparing\u2026');
+    else if (light.done) words = 'Done. Error ' + (light.before != null ? pct(light.before) + ' (full) \u2192 ' : '') + pct(light.after) + ' (' + light.layers + ' layers).';
+    else if (light.error) words = light.cancelled ? 'Cancelled.' : light.error;
+    const line = el('div', 'btnrow'); line.append(el('span', 'note2', words));
+    if (light.running) { const cancel = el('button', 'btn sm', 'Cancel'); cancel.onclick = () => ask('levels', {do: 'lightCancel'}); line.append(cancel); }
+    if (words) box.append(line);
+  }
+  return box;
+}
+// "Make a lighter version": Pedal (about 30 s, pedals only) or Light (about 10 min, any capture)
+function chooseLighter(row, {namLoad, pedalLoad, pedalBlock}) {
+  const shade = el('div', 'modal'), box = el('div'), close = () => shade.remove();
+  const pedalSuits = row.gear === 'pedal', full = Math.round(namLoad) + '%';
+  const option = (key, title, words, enabled) => {
+    const b = el('button', 'btn'); b.style.cssText = 'height:auto;display:grid;justify-items:start;gap:3px;padding:10px 12px;text-align:left;white-space:normal';
+    const made = (row.versions || []).find(v => v.key === key);
+    b.append(el('b', '', title + (made ? ' \u00b7 made (making it again replaces it)' : '')), el('small', 'note2', words));
+    b.disabled = !enabled; b.onclick = () => { close(); ask('levels', {do: 'optimize', arg: row.id, key}); };
+    return b;
+  };
+  const cancel = el('button', 'btn', 'Cancel'); cancel.onclick = close;
+  const row2 = el('div', 'btnrow'); row2.style.justifyContent = 'flex-end'; row2.append(cancel);
+  box.append(el('p', '', 'Make a lighter version of \u201c' + row.name + '\u201d. The original is kept.'),
+    option('pedal', 'Pedal version', (pedalSuits ? '' : 'Pedal captures only. ') + 'About 30 seconds. ' + pedalLoad + '% of a DSP instead of ' + full + '. Very close for boosts and overdrives, not for fuzz. ' + (pedalBlock ? 'Plays in the NAM Pedal block on your Floor.' : 'Plays once the Floor has the pedal firmware.'), pedalSuits),
+    option('light16', 'Light version', 'About 10 minutes. Works for any capture. Saves nothing on the Floor until a firmware update; then about ' + Math.round(namLoad * 29 / 36) + '% of a DSP instead of ' + full + '.', true),
+    row2);
+  shade.append(box); shade.onclick = e => { if (e.target === shade) close(); };
+  document.body.append(shade);
+}
+// The older trainer: how many of the capture's layers to keep, and how long it trains
+function chooseLayers(row) {
+  const shade = el('div', 'modal'), box = el('div'), close = () => shade.remove();
+  const layers = el('select', 'lvpick'), quality = el('select', 'lvpick');
+  for (const [v, w] of [['23', '23 \u00b7 ~36% DSP \u00b7 refine'], ['20', '20 \u00b7 ~33% DSP'], ['16', '16 \u00b7 ~29% DSP'], ['14', '14 \u00b7 ~28% DSP']]) layers.append(new Option(w, v, false, v === '16'));
+  for (const [v, w] of [['quick', 'Quick \u00b7 ~1.5 min'], ['standard', 'Standard \u00b7 ~10 min'], ['deep', 'Deep \u00b7 ~30 min']]) quality.append(new Option(w, v, false, v === 'standard'));
+  const go = el('button', 'btn pri', 'Train'), fast = el('button', 'btn', 'Pedal \u00b7 fast'), cancel = el('button', 'btn', 'Cancel');
+  go.style.setProperty('--c', '176 112 224');
+  go.onclick = () => { close(); ask('levels', {do: 'light', arg: row.id, key: layers.value + ':' + quality.value}); };
+  fast.title = '16 layers, Quick: about 1.7 min, for the NAM Lite 16 block';
+  fast.onclick = () => { close(); ask('levels', {do: 'light', arg: row.id, key: '16:quick'}); };
+  cancel.onclick = close;
+  const picks = el('div', 'btnrow'); picks.append(el('span', 'note2', 'Layers'), layers, el('span', 'note2', 'Training'), quality);
+  const buttons = el('div', 'btnrow'); buttons.style.justifyContent = 'flex-end'; buttons.append(cancel, fast, go);
+  box.append(el('p', '', 'Train a lighter copy of \u201c' + row.name + '\u201d that keeps only the first layers, against the capture\u2019s own bigger model (the .nam file must hold one).'), picks,
+    el('span', 'note2', 'DSP shares are measured for one NAM block on a Helix LT; the saving needs a firmware that skips the unused layers.'), buttons);
+  shade.append(box); shade.onclick = e => { if (e.target === shade) close(); };
+  document.body.append(shade);
+}
 function libSide(row) {
   const side = el('aside', 'cd');
   if (!row) { side.append(el('div'), el('div', 'lvempty', 'Pick a capture to see it here.')); return side; }
@@ -2645,16 +2781,7 @@ function libSide(row) {
   const gearDd = el('dd'); gearDd.append(gear, inst);
   kv.append(el('dt', '', 'Kind'), gearDd, el('dt', '', 'From'), from, el('dt', '', 'On the Floor'), floor);
   const floorBox = libFloorActions(row);
-  // the versions: the original and the lighter ones made from it; the Floor plays the ticked one
-  const vers = el('div', 'vers'), list = [{key: 'original', label: 'Original', block: 'NAM A2 Lite'}, ...(row.versions || [])];
-  for (const v of list) {
-    const line = el('div', 'ver' + (v.key === (row.defaultVersion || 'original') ? ' on' : '')), words = el('div');
-    words.append(el('b', '', v.label), el('small', '', v.key === 'original' ? 'as it came' : [v.block, v.quality && v.quality !== 'unknown' ? v.quality : '', Number.isFinite(v.error) ? 'error ' + v.error.toFixed(3) : ''].filter(Boolean).join(' · ')));
-    line.append(el('span', 'rd'), words, el('em', '', v.block === 'NAM A2 Lite' ? '' : v.block));
-    vers.append(line);
-  }
-  const versBox = el('div'); versBox.style.cssText = 'display:grid;gap:7px';
-  versBox.append(el('h5', '', 'Versions · the Floor plays the ticked one'), vers);
+  const versBox = libVersions(row);
   body.append(h, kv, floorBox, versBox);
   const foot = el('div', 'foot'), exp = el('button', 'btn', 'Export…'), remove = el('button', 'btn danger', 'Remove…'), sp = el('span', 'sp');
   exp.title = 'Copy the capture’s .nam file to a folder of your choice'; exp.onclick = () => ask('choose', {kind: 'export', id: row.id});
@@ -2671,7 +2798,8 @@ function drawLibrary() {
   const rows = libRows(), all = lib.rows || [];
   if (!rows.some(r => r.id === libSelected)) libSelected = rows.length ? rows[0].id : '';   // (the side shows one of those listed)
   const key = JSON.stringify([lib, libWhere, libGear, libInstrument, libQuery, libSort, libLayout, libSelected, (state.captures || []).length, (state.irs || []).length,
-                              floorStatus && [floorStatus.text, floorStatus.busy, floorStatus.can_install, floorStatus.can_audition, floorStatus.trial, floorStatus.replace, floorStatus.navigation], levelSession]);
+                              floorStatus && [floorStatus.text, floorStatus.busy, floorStatus.can_install, floorStatus.can_audition, floorStatus.trial, floorStatus.replace, floorStatus.navigation,
+                                              floorStatus.light, floorStatus.optimize, floorStatus.listen, floorStatus.listen_source, floorStatus.can_train, floorStatus.can_optimize, floorStatus.pedal_block], levelSession]);
   if (key === shownLib && body.querySelector('.lib2')) return;
   shownLib = key;
   // the frame is made once: the search box keeps its caret

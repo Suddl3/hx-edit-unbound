@@ -85,6 +85,9 @@ LEVEL_COMMANDS = ('levelOpen', 'levelScan', 'levelApply', 'levelUndo', 'levelGui
 # ... and the NAM library's Floor actions (stage 5 part 2), the library page's own: load / use a capture on the NAM block
 # selected in HX Edit, preview one in User IR 128 there (end: put the block back), replace a taken slot.
 SESSION_PAGES = ('level', 'library')
+VERSION_KEYS = ('original', 'pedal', 'light16')         # nam_library.VERSIONS and the original
+LIGHT_LAYERS = ('23', '20', '16', '14')                  # the older trainer's choices (library_card.html #layers)
+LIGHT_QUALITIES = ('quick', 'standard', 'deep')
 CAPTURE_ID = re.compile(r'[0-9a-f]{64}')
 
 
@@ -100,6 +103,22 @@ def checked_floor(value, entries):
         return 'end'
     if do == 'replace':
         return f'replace:{argument}' if isinstance(argument, int) and not isinstance(argument, bool) and 1 <= argument <= 128 else None
+    # its versions (stage 5 part 3): the library page's own commands, for a capture of the library
+    if do in ('listenStop', 'optimizeCancel', 'lightCancel'):
+        return do
+    key, capture = value.get('key'), argument
+    if not (isinstance(capture, str) and CAPTURE_ID.fullmatch(capture) and capture in entries):
+        return None
+    if do in ('versionDefault', 'useVersion', 'listen') and key in VERSION_KEYS:
+        return f'{do}:{capture}:{key}'
+    if do == 'versionRemove' and key in VERSION_KEYS[1:]:
+        return f'{do}:{capture}:{key}'
+    if do == 'optimize' and key in VERSION_KEYS[1:]:
+        return f'optimize:{capture}:{key}'
+    if do == 'light' and isinstance(key, str):
+        layers, _, quality = key.partition(':')
+        if layers in LIGHT_LAYERS and quality in LIGHT_QUALITIES:
+            return f'light:{capture}:{layers}:{quality}'
     return None
 PREFS = 'workbenchPrefs'               # settings.json: the page's choices that outlive it (the Levels page's)
 LEVEL_KEY = re.compile(r'[^:]{0,4}:\d{1,3}:[^\n]{0,40}:\d{1,2}')

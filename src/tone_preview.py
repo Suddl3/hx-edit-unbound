@@ -72,7 +72,9 @@ class WorkbenchSession:
     SHOWN = ('text', 'busy', 'level', 'can_level', 'levelPage',
              # (the library page's Floor actions: the NAM block it is bound to, Preview, Load / Use, Replace)
              'can_install', 'can_audition', 'trial', 'free_slots', 'replace', 'installed', 'navigation',
-             'block_model', 'block_slot', 'inventory')
+             'block_model', 'block_slot', 'inventory',
+             # (its versions: making them, hearing them on this PC, what the Floor's firmware plays)
+             'light', 'optimize', 'listen', 'listen_source', 'can_train', 'can_optimize', 'pedal_block', 'nam_load', 'pedal_load')
 
     def __init__(self, detached, forward):
         self.actions = Queue()

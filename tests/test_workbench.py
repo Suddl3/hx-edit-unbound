@@ -612,7 +612,8 @@ class LevelsTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertNotIn("'level'", page[page.index('const OLD_PAGES'):page.index('const OLD_PAGES') + 60])
         asked = set(__import__('re').findall(r"ask\('levels', \{do: '([a-zA-Z]+)'", page))
-        self.assertEqual(asked, {'open', 'close', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel', 'replace'})
+        self.assertEqual(asked, {'open', 'close', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel', 'replace',
+                                 'listenStop', 'optimizeCancel', 'lightCancel', 'optimize', 'light'})
         # the NAM library's Floor actions go through the same session (stage 5 part 2)
         floor = set(__import__('re').findall(r"do: (?:verified \? 'use' : 'load'|trial \? \{do: 'end'\} : \{do: '([a-z]+)')", page))
         self.assertIn("ask('levels', {do: verified ? 'use' : 'load', arg: row.id});", page)
@@ -741,6 +742,27 @@ class LibraryFloorTests(unittest.TestCase):
         for refused in ({'do': 'load', 'arg': 'b' * 64}, {'do': 'load', 'arg': 'x'}, {'do': 'replace', 'arg': 0},
                         {'do': 'replace', 'arg': True}, {'do': 'replace', 'arg': '12'}, {'do': 'save', 'arg': capture}, {'do': 'remove', 'arg': capture}):
             self.assertIsNone(check(refused, entries))
+
+    def test_the_versions_are_the_library_pages_own_commands(self):
+        capture = 'a' * 64
+        entries = {capture: {}}
+        check = workbench.checked_floor
+        self.assertEqual(check({'do': 'versionDefault', 'arg': capture, 'key': 'pedal'}, entries), f'versionDefault:{capture}:pedal')
+        self.assertEqual(check({'do': 'useVersion', 'arg': capture, 'key': 'original'}, entries), f'useVersion:{capture}:original')
+        self.assertEqual(check({'do': 'listen', 'arg': capture, 'key': 'light16'}, entries), f'listen:{capture}:light16')
+        self.assertEqual(check({'do': 'versionRemove', 'arg': capture, 'key': 'pedal'}, entries), f'versionRemove:{capture}:pedal')
+        self.assertEqual(check({'do': 'optimize', 'arg': capture, 'key': 'light16'}, entries), f'optimize:{capture}:light16')
+        self.assertEqual(check({'do': 'light', 'arg': capture, 'key': '16:quick'}, entries), f'light:{capture}:16:quick')
+        for stop in ('listenStop', 'optimizeCancel', 'lightCancel'):
+            self.assertEqual(check({'do': stop}, entries), stop)
+        for refused in ({'do': 'versionRemove', 'arg': capture, 'key': 'original'},      # the original is never deleted
+                        {'do': 'optimize', 'arg': capture, 'key': 'original'}, {'do': 'versionDefault', 'arg': capture, 'key': 'x'},
+                        {'do': 'light', 'arg': capture, 'key': '99:quick'}, {'do': 'light', 'arg': capture, 'key': '16:forever'},
+                        {'do': 'listen', 'arg': 'b' * 64, 'key': 'original'}):
+            self.assertIsNone(check(refused, entries))
+        from tone_preview import WorkbenchSession
+        for field in ('light', 'optimize', 'listen', 'listen_source', 'can_train', 'can_optimize', 'pedal_block'):
+            self.assertIn(field, WorkbenchSession.SHOWN)
 
     def test_the_session_opens_on_either_page_and_hands_on_what_the_floor_actions_need(self):
         from tone_preview import WorkbenchSession
