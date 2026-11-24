@@ -317,8 +317,23 @@ function workbenchNameDone(text, before, limit) {
   return name && name !== String(before == null ? '' : before).replace(/\s+$/, '') ? name : null;
 }
 
+// ---- setlists (Batch 3) ----------------------------------------------------------------------------------------------
+// A setlist's own name as HX Edit's chooser holds it ("USER 1"), or "Setlist 3" while the names are not known.
+function workbenchSetlistName(names, index) {
+  const name = Array.isArray(names) && typeof names[index] === 'string' ? names[index].trim() : '';
+  return name || (Number.isInteger(index) ? 'Setlist ' + (index + 1) : '');
+}
+// What the setlists' column says beside a setlist read this session: how many of its presets are in use ("New
+// Preset" is an empty place), "empty", or '' when it was not read.
+function workbenchSetlistCount(names) {
+  if (!Array.isArray(names) || !names.length) return '';
+  const used = names.filter(name => !/^new preset$/i.test(String(name || '').trim())).length;
+  return used ? String(used) : 'empty';
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
+                     workbenchSetlistName, workbenchSetlistCount,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

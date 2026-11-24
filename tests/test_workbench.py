@@ -452,11 +452,11 @@ class PresetTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertNotIn('localStorage', page)
         self.assertNotIn('sessionStorage', page)
-        self.assertIn("ask('pin', {setlist: setlistOf(), number, on});", page)
+        self.assertIn("ask('pin', {setlist, number, on});", page)                 # (Batch 3: of the setlist shown)
         # a preset is loaded the way the top bar's list loads it: through loadPreset, which asks first when the
         # loaded preset has changes that are not saved
-        self.assertEqual(page.count("if (index !== at) loadPreset(index);"), 2)          # the top bar's list and the drawer
-        self.assertIn("b.onclick = () => { if (number !== at) loadPreset(number); };", page)      # the grid
+        self.assertEqual(page.count("if (index !== at) loadPreset(presetTarget(index));"), 2)   # the top bar's list and the drawer (Batch 3: or another setlist's)
+        self.assertIn("b.onclick = () => { if (number !== at) loadPreset(presetTarget(number)); };", page)   # the grid
         self.assertIn("loadPreset('previous');", page)                                    # the top bar's arrows
         self.assertIn("loadPreset('next');", page)
         self.assertEqual(page.count("ask('preset', target)"), 3)        # nothing unsaved; Don't save; after the Save
@@ -1493,7 +1493,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist'})
 
     def test_the_menu_is_the_logo_and_holds_the_layout_and_hx_edits_menu_bar(self):
         # Batch 1 (Nick, 2026-11-23): the app icon top left opens the menu, the "Unbound" button is gone, and the menu

@@ -231,6 +231,25 @@ function focusPresetNames(names, preset) {
   const clean = names.map(name => name.trim().slice(0, 32));
   return clean[preset.number] === String(preset.name || '').trim() ? clean : null;
 }
+// The Workbench's look at another setlist (Batch 3, setlists.js): once HX Edit's list has been asked for that
+// setlist's names, its rows change when the Floor answers. The reading is taken once the rows have stood still for
+// FOCUS_LOOK_SETTLE_MS and differ from what the list showed before, or after FOCUS_LOOK_SAME_MS when they never
+// changed (two setlists can hold the same names); nothing usable after FOCUS_LOOK_GIVE_UP_MS: failed.
+// look: {setlist, at, before, last, lastAt, same, state: 'reading'}; names: the list's rows now (namView.presetNames).
+const FOCUS_LOOK_SETTLE_MS = 500, FOCUS_LOOK_SAME_MS = 2500, FOCUS_LOOK_GIVE_UP_MS = 8000;
+function focusLookStep(look, names, now) {
+  if (!look || look.state !== 'reading') return look;
+  const usable = Array.isArray(names) && names.length >= 1 && names.length <= 128 && names.every(name => typeof name === 'string');
+  if (now - look.at > FOCUS_LOOK_GIVE_UP_MS) return {setlist: look.setlist, at: look.at, state: 'failed'};
+  if (!usable) return look;
+  const word = JSON.stringify(names);
+  if (word !== look.last) return {...look, last: word, lastAt: now};
+  const settled = now - look.lastAt >= FOCUS_LOOK_SETTLE_MS;
+  if (settled && (look.same || word !== look.before || now - look.at >= FOCUS_LOOK_SAME_MS)) {
+    return {setlist: look.setlist, at: look.at, state: 'ok', names: names.map(name => name.trim().slice(0, 32))};
+  }
+  return look;
+}
 function focusPaneBounds(sf, ed, main) {
   if (![sf, ed, main].every(box => box && [box.x, box.y, box.w, box.h].every(Number.isFinite))) return null;
   const top = Math.max(0, main.y), bottom = Math.min(main.y + main.h, ed.y + ed.h);
@@ -327,6 +346,7 @@ function installFocusView(options, parts) {
     if (actual !== hex) throw new Error(`Focus Mode native byte guard failed at ${rva}`);
   }
   const {targetBinding, namView, toneView} = parts;
+  const setlists = parts.setlists || null;      // setlists.js (the Workbench's setlists), when it installed
   if (options.chainProbe === true) {
     try { focusChainProbe(base); } catch (error) { send({type: 'toneTrace', reason: 'chain-probe', stage: 'failed', error: String(error.message)}); }
   }
@@ -339,7 +359,10 @@ function installFocusView(options, parts) {
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
   let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [], assign = null, assignTraced = '';
-  let header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null]};   // the top bar's preset, snapshot names and preset list (full readings)
+  let header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null], setlists: null};   // the top bar's preset, snapshot names and preset list (full readings)
+  // The Workbench's look at another setlist (focusLookStep), and a preset of another setlist asked of HX Edit's list.
+  let looking = null, loadingIn = null;
+  const LOAD_IN_MS = 5000;
   let namesWord = '';                                        // the last outcome of reading the preset list, for the trace
   // A preset that comes up with nothing selected gets its first block selected, a few tries per preset load and
   // never again once something has been selected in it (a cursor moved to an empty cell on purpose stays there).
@@ -369,7 +392,10 @@ function installFocusView(options, parts) {
       send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-names', result: word,
             ...(Array.isArray(names) && !presets && preset ? {row: String(names[preset.number]).slice(0, 40), name: preset.name} : {})});
     }
-    return {preset, snapshots, presets, tempo: typeof tempo === 'number' && Number.isFinite(tempo) ? tempo : null, topology};
+    // The Floor's setlists (setlists.js: the names HX Edit's own chooser holds) and the one its list shows.
+    let lists = null;
+    try { const found = setlists && setlists.names(); if (found) lists = {names: found, shown: setlists.shown()}; } catch (_) { lists = null; }
+    return {preset, snapshots, presets, tempo: typeof tempo === 'number' && Number.isFinite(tempo) ? tempo : null, topology, setlists: lists};
   }
   // Value writes from the pane, and the drag HX Edit has been told has begun (ended by us if the pane never does).
   const writes = [];
@@ -614,6 +640,22 @@ function installFocusView(options, parts) {
           if (!editor.isNull()) targetBinding.recallSnapshot(editor, command.index);
           changed = true;
           send({type: 'toneTrace', reason: 'focus-view', stage: 'snapshot', index: command.index});
+        } else if (command.action === 'look') {
+          // The Workbench looks at another setlist: HX Edit's list is asked for its names (setlists.js look: nothing
+          // is loaded). The list's rows are then followed until they have that setlist's names (focusLookStep).
+          const before = namView.presetNames?.();
+          const asked = setlists.look(command.setlist);
+          looking = {setlist: command.setlist, at: Date.now(), before: JSON.stringify(before), last: '', lastAt: 0, same: !asked, state: 'reading'};
+          changed = true;
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'look', setlist: command.setlist, asked});
+        } else if (command.action === 'presetIn') {
+          // A preset of the setlist HX Edit's list shows, loaded as a double-click in that list loads it (setlists.js
+          // load); a drag left open is closed first. Said so when HX Edit has not loaded it within LOAD_IN_MS.
+          endDrag('a preset change');
+          setlists.load(command.setlist, command.number);
+          loadingIn = {setlist: command.setlist, number: command.number, until: Date.now() + LOAD_IN_MS};
+          changed = true;
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-in', setlist: command.setlist, number: command.number});
         } else if (command.action === 'preset') {
           // Another preset: a drag left open is closed on this preset first, then the launcher asks the Floor
           // for it (a Program Change, as a footswitch; HX Edit follows on its own).
@@ -628,6 +670,9 @@ function installFocusView(options, parts) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
         if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        // (a look that could not be asked: the page says that setlist could not be read; a load: said at once)
+        if (command.action === 'look') looking = {setlist: command.setlist, at: Date.now(), state: 'failed'};
+        if (command.action === 'presetIn') { loadingIn = null; send({type: 'dspNotice', text: 'HX Edit did not load that preset: ' + String(error.message)}); }
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
@@ -656,6 +701,20 @@ function installFocusView(options, parts) {
       state.captures = onFloor;
       state.irs = plainIrs;
       state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots; state.tempo = header.tempo; state.topology = header.topology;
+      state.setlists = header.setlists;
+      if (looking && looking.state === 'reading') {
+        let names = null;
+        try { names = namView.presetNames?.(); } catch (_) { names = null; }
+        looking = focusLookStep(looking, names, Date.now());
+        if (looking.state !== 'reading') send({type: 'toneTrace', reason: 'focus-view', stage: 'look-' + looking.state, setlist: looking.setlist, ms: Date.now() - looking.at});
+      }
+      state.looking = looking ? {setlist: looking.setlist, state: looking.state, ...(looking.names ? {names: looking.names} : {})} : null;
+      if (loadingIn && header.preset && header.preset.setlist === loadingIn.setlist && header.preset.number === loadingIn.number) loadingIn = null;
+      else if (loadingIn && Date.now() > loadingIn.until) {
+        send({type: 'dspNotice', text: `HX Edit did not load preset ${String(loadingIn.number).padStart(3, '0')} of that setlist.`});
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-in-unseen', setlist: loadingIn.setlist, number: loadingIn.number});
+        loadingIn = null;
+      }
       const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
       state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
       // Something to undo: HX Edit's own undo position (as tone_view reads it).
@@ -736,7 +795,8 @@ function installFocusView(options, parts) {
     if (timer) { clearInterval(timer); timer = null; }
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null; downFollow = null;
     pickKey = null; pickTries = 0;
-    header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null]};
+    header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null], setlists: null};
+    looking = null; loadingIn = null;
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }
     send({type: 'toneTrace', reason: 'focus-view', stage: on ? 'on' : 'off'});
   }
@@ -790,6 +850,13 @@ function installFocusView(options, parts) {
         queued = false; ask();
       } else if (on && value.action === 'snapshot' && Number.isInteger(value.index) && value.index >= 0 && value.index <= 7 && writes.length < 32) {
         writes.push({action: 'snapshot', index: value.index});
+        queued = false; ask();
+      } else if (on && setlists && value.action === 'look' && Number.isInteger(value.setlist) && value.setlist >= 0 && value.setlist <= 7 && writes.length < 32) {
+        writes.push({action: 'look', setlist: value.setlist});
+        queued = false; ask();
+      } else if (on && setlists && value.action === 'presetIn' && Number.isInteger(value.setlist) && value.setlist >= 0 && value.setlist <= 7 &&
+                 Number.isInteger(value.number) && value.number >= 0 && value.number <= 127 && writes.length < 32) {
+        writes.push({action: 'presetIn', setlist: value.setlist, number: value.number});
         queued = false; ask();
       } else if (on && value.action === 'preset' && Number.isInteger(value.number) && value.number >= 0 && value.number <= 127 && writes.length < 32) {
         writes.push({action: 'preset', number: value.number});
@@ -851,5 +918,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusMeasured, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
 }

@@ -121,6 +121,8 @@
   /* ---- Presets, full: the whole setlist, two banks of four a row; the loaded preset on the right ------------------ */
   .pv { display: grid; grid-template-columns: minmax(0, 1fr) 316px; height: 100%; min-height: 0; }
   .pv .main { padding: 14px 20px 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; min-height: 0; min-width: 0; }
+  .pv .main.t { grid-template-rows: auto auto minmax(0, 1fr); }                  /* the setlists' tabs over it */
+  .pv .main.t.s { grid-template-rows: auto auto auto minmax(0, 1fr); }           /* and the strip "You are looking at…" */
   .pv .head { display: flex; gap: 12px; align-items: center; min-width: 0; }
   .pv .head .search { width: 230px; height: 34px; }
   .pv .head .setname { font-size: 15px; font-weight: 600; }
@@ -442,6 +444,31 @@
   .drop button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .drop button:hover { background: var(--raise2); }
   .drop button.cur { background: var(--raise2); box-shadow: inset 2px 0 0 #f0c94a; }
+  /* setlists (Batch 3): beside the presets in the top bar's list, tabs over the whole setlist, a chooser in the drawer */
+  .drop.two { display: grid; grid-template-columns: 172px 260px; padding: 0; overflow: hidden; max-height: min(560px, 100vh - 90px); }
+  .drop.two .sl { padding: 6px; border-right: 1px solid var(--line); background: #111318; display: grid; align-content: start; gap: 1px; }
+  .drop.two .sl h6, .drop.two .pl h6 { margin: 0; padding: 7px 8px 6px; font-size: 11.5px; font-weight: 500; color: var(--faint); }
+  .drop.two .sl button { grid-template-columns: 1fr auto; height: 31px; }
+  .drop.two .sl button span:first-child { color: var(--ink); }
+  .drop.two .sl button em { font-style: normal; font-size: 11px; color: var(--faint); }
+  .drop.two .sl button.here { background: var(--raise2); box-shadow: inset 2px 0 0 #b070e0; }
+  .drop.two .sl button .dot { width: 6px; height: 6px; border-radius: 50%; background: #f0c94a; justify-self: end; }
+  .drop.two .sl p { margin: 10px 8px 6px; color: var(--faint); font-size: 11.5px; line-height: 1.45; }
+  .drop.two .pl { padding: 6px; overflow-y: auto; min-height: 0; max-height: min(560px, 100vh - 90px); scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .drop.two .pl h6 { display: flex; justify-content: space-between; gap: 10px; }
+  .drop.two .pl h6 b { color: var(--ink); font-weight: 600; }
+  .drop.two .pl .wait { padding: 10px 8px; color: var(--dim); font-size: 12.5px; line-height: 1.45; }
+  .drop.two .pl .wait button { display: inline; width: auto; height: auto; padding: 0; color: var(--ink); text-decoration: underline; font-size: inherit; }
+  .sltabs { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: #0e1014; border: 1px solid var(--line); min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .sltabs button { height: 30px; padding: 0 13px; border-radius: 7px; color: var(--dim); font-size: 13px; white-space: nowrap; display: flex; align-items: center; gap: 7px; }
+  .sltabs button:hover { color: var(--ink); }
+  .sltabs button.on { background: var(--raise2); color: var(--ink); font-weight: 600; }
+  .sltabs button i { width: 6px; height: 6px; border-radius: 50%; background: #f0c94a; }
+  .elsewhere { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border-radius: 9px; background: rgb(240 201 74 / .07); border: 1px solid rgb(240 201 74 / .28); color: var(--dim); font-size: 13px; }
+  .elsewhere b { color: var(--ink); font-weight: 600; }
+  .elsewhere .sp { flex: 1; }
+  .elsewhere.small { font-size: 12px; padding: 7px 9px; gap: 8px; flex-wrap: wrap; }
+  .slpick { height: 30px; border-radius: 7px; background: #0e1014; border: 1px solid var(--line); color: var(--ink); font: inherit; font-size: 12.5px; padding: 0 6px; }
   .drop.menu { left: 10px; width: 290px; }
   .drop.menu button { grid-template-columns: 1fr auto; height: auto; padding: 7px 10px; }
   .drop.menu button > svg { width: 14px; height: 14px; color: #f0c94a; }
@@ -1641,9 +1668,10 @@ function drawBar() {
   const preset = state.preset;
   $('presetNum').textContent = preset ? String(preset.number).padStart(3, '0') : '';
   $('presetName').textContent = preset ? preset.name || '' : 'Waiting for HX Edit';
-  $('setlist').textContent = preset && Number.isInteger(preset.setlist) ? 'Setlist ' + (preset.setlist + 1) : ' ';
+  $('setlist').textContent = preset && Number.isInteger(preset.setlist) ? setlistName(preset.setlist) :' ';
   $('edited').hidden = !unsaved();
-  const listed = !!preset && Array.isArray(state.presets) && state.presets.length > 0;
+  // (the setlist's own name over the preset's: "USER 1"; the list once the loaded setlist's names or the setlists are known)
+  const listed = !!preset && (!!loadedPresets() || setlistNames().length > 0);
   $('presetButton').disabled = !listed;
   $('presetButton').title = listed ? 'Choose a preset' : '';
   $('presetPrev').disabled = $('presetNext').disabled = !preset;
@@ -1682,20 +1710,40 @@ function drawBar() {
 }
 let shownPresets = '';
 function fillPresets() {
-  const list = $('presetList'), names = state.presets || [], at = state.preset ? state.preset.number : -1;
-  const top = pinnedHere(), key = at + '\n' + top.join(',') + '\n' + names.join('\n');
+  // The setlists beside the presets (Batch 3): a click on a setlist only shows its presets; the dot is the loaded
+  // preset's setlist. Without the setlists' names (setlists.js did not install), the loaded setlist's presets alone.
+  const list = $('presetList'), lists = setlistNames(), shown = shownSetlist(), read = namesIn(shown), names = read.names;
+  const at = lookingAt() === null && state.preset ? state.preset.number : -1, top = pinnedIn(shown, names);
+  const key = JSON.stringify([at, top, names, lists, shown, setlistOf(), read.state, lists.map((n, i) => workbenchSetlistCount(seenNames[i]))]);
   list.style.left = $('presetButton').offsetLeft + 'px';
-  if (key === shownPresets && list.childElementCount === names.length + (top.length ? top.length + 1 : 0)) return;
+  if (key === shownPresets && list.childElementCount) return;
   shownPresets = key;
   const row = (index, pinned) => {
     const button = el('button', (index === at ? 'cur' : '') + (pinned ? ' pinned' : ''));
     button.append(el('span', 'num', String(index).padStart(3, '0')), el('span', '', names[index]));
     if (pinned) button.title = 'Pinned';
-    button.onclick = () => { closePresets(); if (index !== at) loadPreset(index); };
+    button.onclick = () => { closePresets(); if (index !== at) loadPreset(presetTarget(index)); };
     return button;
   };
   // (the pinned ones first, then every preset in order)
-  list.replaceChildren(...top.map(index => row(index, true)), ...(top.length ? [el('hr')] : []), ...names.map((name, index) => row(index, false)));
+  const rows = [...top.map(index => row(index, true)), ...(top.length ? [el('hr')] : []), ...names.map((name, index) => row(index, false))];
+  if (!lists.length) { list.classList.remove('two'); list.replaceChildren(...rows); }
+  else {
+    list.classList.add('two');
+    const sl = el('div', 'sl'), pl = el('div', 'pl'), head = el('h6');
+    sl.append(el('h6', '', 'Setlists'));
+    lists.forEach((name, index) => {
+      const button = el('button', index === shown ? 'here' : '');
+      button.append(el('span', '', workbenchSetlistName(lists, index)), index === setlistOf() ? el('i', 'dot') : el('em', '', workbenchSetlistCount(seenNames[index])));
+      button.title = index === setlistOf() ? 'The loaded preset is in this setlist' : 'Show ' + workbenchSetlistName(lists, index) + '’s presets (nothing is loaded)';
+      button.onclick = () => lookAtSetlist(index);
+      sl.append(button);
+    });
+    sl.append(el('p', '', 'Looking at a setlist changes nothing. The dot is the setlist the loaded preset is in.'));
+    head.append(el('b', '', setlistName(shown)), el('span', '', 'click a preset to load it'));
+    pl.append(head, ...(read.state === 'ok' ? rows : [lookWait(shown, read.state)]));
+    list.replaceChildren(sl, pl);
+  }
   list.querySelectorAll('hr').forEach(line => { line.style.cssText = 'border:0;border-top:1px solid var(--line);margin:6px 4px'; });
 }
 function openPresets() {
@@ -1710,7 +1758,11 @@ function centerIn(list, row) {
   const top = row.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
   list.scrollTop = Math.max(0, top - (list.clientHeight - row.offsetHeight) / 2);
 }
-function closePresets() { $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false'); }
+function closePresets() {
+  $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false');
+  // (closed, it no longer looks at another setlist, unless the Presets drawer or view still shows it)
+  if (lookAt !== null && view.full !== 'presets' && view.drawer !== 'presets') { lookAt = null; shownPresets = ''; }
+}
 // ---- a name box of our own (Batch 3): the preset's name in the top bar, a snapshot's in its button -----------------
 // Ways in: the pencil beside the name (it shows when the pointer is over it), a double-click, F2 for the preset. Enter
 // renames, Esc (or a click elsewhere) keeps the old name; what the Floor would refuse is left out as it is typed
@@ -1811,11 +1863,13 @@ function savePreset() {
 }
 const SAVE_WAIT_MS = 2000;                                    // what a Save gets before the next preset is asked for (1.5 s was enough live)
 function loadPreset(target) {
-  // target: a preset's number in the loaded setlist, or 'previous' / 'next' (the top bar's arrows)
+  // target: a preset's number in the loaded setlist, 'previous' / 'next' (the top bar's arrows), or {setlist, number}:
+  // a preset of another setlist looked at (Batch 3; HX Edit's list loads it)
   if (leaving) return;
   if (!unsaved()) { ask('preset', target); return; }
-  const names = state.presets || [], three = n => String(n).padStart(3, '0'), now = state.preset;
-  const there = Number.isInteger(target) ? three(target) + ' ' + (names[target] || '') : 'the ' + target + ' preset';
+  const other = !!target && typeof target === 'object', number = other ? target.number : target;
+  const names = (other ? namesIn(target.setlist).names : loadedPresets()) || [], three = n => String(n).padStart(3, '0'), now = state.preset;
+  const there = Number.isInteger(number) ? three(number) + ' ' + (names[number] || '') + (other ? ' in ' + setlistName(target.setlist) : '') : 'the ' + target + ' preset';
   const shade = el('div', 'modal'), box = el('div', 'guard'), row = el('div', 'btnrow'), head = el('h4');
   const done = answer => {
     shade.remove(); removeEventListener('keydown', keys, true); leaving = false;
@@ -1829,7 +1883,7 @@ function loadPreset(target) {
     }
   };
   const stay = el('button', 'btn', 'Stay here'), drop = el('button', 'btn', 'Don\u2019t save');
-  const save = el('button', 'btn pri', 'Save, then load ' + (Number.isInteger(target) ? three(target) : 'it'));
+  const save = el('button', 'btn pri', 'Save, then load ' + (Number.isInteger(number) ? three(number) : 'it'));
   save.style.setProperty('--c', '176 112 224');
   stay.onclick = () => done(null); drop.onclick = () => done('drop'); save.onclick = () => done('save');
   drop.title = 'Load ' + there + ' and lose what was changed here'; save.title = "HX Edit's Save Preset, then " + there;
@@ -2135,8 +2189,10 @@ function expander(title, onclick) {
 // The Presets drawer: the loaded setlist's names (state.presets, as the top bar's list); a click loads one the same way.
 function drawPresetDrawer(box) {
   box.setAttribute('aria-label', 'Presets');
-  const names = state.presets || [], at = state.preset ? state.preset.number : -1;
-  const key = JSON.stringify(['presets', names, at, presetQuery, state.preset && state.preset.setlist, pins]);
+  // (Batch 3: a small chooser of the setlists; another setlist's presets shown under a strip, nothing loaded)
+  const lists = setlistNames(), shown = shownSetlist(), read = namesIn(shown), names = read.names;
+  const at = lookingAt() === null && state.preset ? state.preset.number : -1;
+  const key = JSON.stringify(['presets', names, at, presetQuery, state.preset && state.preset.setlist, pins, lists, shown, read.state, state.preset && state.preset.name]);
   if (key === shownDrawer) return;
   const first = shownDrawer === '' || !shownDrawer.startsWith('["presets"');
   shownDrawer = key;
@@ -2147,9 +2203,20 @@ function drawPresetDrawer(box) {
     find.append(input);
     box.replaceChildren(el('h3'), find, el('div'), el('div', 'prows'), el('div', 'dfoot', 'Click a preset to load it, as the list under the preset’s name does.'));
   }
-  const head = el('h3', '', 'Presets'), side = el('span', '', state.preset && Number.isInteger(state.preset.setlist) ? 'Setlist ' + (state.preset.setlist + 1) : '');
+  const head = el('h3', '', 'Presets'), side = el('span', '', lists.length ? '' : state.preset && Number.isInteger(state.preset.setlist) ? setlistName(state.preset.setlist) : '');
   if (WORKBENCH_SIZES.presets.includes('full') && THINGS.presets.ready) side.append(expander('The whole setlist on one screen', () => setView('expand', 'presets')));
   head.append(side);
+  const bar = el('div', 'slbar');
+  if (lists.length) {
+    const pick = el('select', 'slpick');
+    lists.forEach((name, index) => { const option = el('option', '', workbenchSetlistName(lists, index) + (index === setlistOf() ? '  • loaded' : '')); option.value = String(index); pick.append(option); });
+    pick.value = String(shown); pick.title = 'Show another setlist’s presets (nothing is loaded)'; pick.setAttribute('aria-label', 'Setlist');
+    pick.onchange = () => lookAtSetlist(Number(pick.value));
+    bar.append(pick);
+  }
+  const strip = elsewhereStrip(true);
+  if (strip) bar.append(strip);
+  if (bar.childElementCount) bar.style.cssText = 'display:grid;gap:6px;margin:0 10px 8px';
   const list = el('div', 'prows'), query = presetQuery;
   const row = (index, pinned) => {
     const name = names[index], number = String(index).padStart(3, '0');
@@ -2157,18 +2224,20 @@ function drawPresetDrawer(box) {
     const button = el('button', 'prow' + (index === at ? ' cur' : '') + (isBlank(name) ? ' blank' : '') + (pinned ? ' pinned' : ''));
     button.append(el('span', 'num', number), el('span', '', name));
     if (pinned) button.firstChild.classList.add('pinmark');                    // (a pinned one's number is gold)
-    button.title = number + ' ' + name + (isPinned(index) ? ' (pinned)' : '');
-    button.onclick = () => { if (index !== at) loadPreset(index); };
+    button.title = number + ' ' + name + (isPinned(index, shown) ? ' (pinned)' : '');
+    button.onclick = () => { if (index !== at) loadPreset(presetTarget(index)); };
     list.append(button);
   };
   // (the pinned ones first, then every preset in order)
-  const top = pinnedHere();
+  const top = pinnedIn(shown, names);
   top.forEach(index => row(index, true));
   if (top.length && list.childElementCount) { const line = el('div', 'grp', 'All presets'); line.style.cssText = 'padding:8px 10px 4px;color:var(--faint);font-size:11px;letter-spacing:.04em;text-transform:uppercase'; list.append(line); }
   names.forEach((name, index) => row(index, false));
-  if (!list.childElementCount) list.append(el('div', 'none', names.length ? 'No preset matches.' : 'Waiting for the setlist from HX Edit.'));
+  if (read.state !== 'ok') list.append(lookWait(shown, read.state));
+  else if (!list.childElementCount) list.append(el('div', 'none', names.length ? 'No preset matches.' : 'Waiting for the setlist from HX Edit.'));
   const scroll = box.querySelector('.prows').scrollTop;
   box.querySelector('h3').replaceWith(head); box.querySelector('.prows').replaceWith(list);
+  box.children[2].replaceWith(bar);
   list.scrollTop = scroll;
   if (first) centerIn(list, list.querySelector('.cur:not(.pinned)'));
 }
@@ -2178,24 +2247,93 @@ function drawPresetDrawer(box) {
 let pins = [];
 const STAR = '<svg viewBox="0 0 16 16" class="star"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>';
 const setlistOf = () => state && state.preset && Number.isInteger(state.preset.setlist) ? state.preset.setlist : null;
-const isPinned = number => setlistOf() !== null && pins.includes(setlistOf() + ':' + number);
-const pinnedHere = () => (state.presets || []).map((name, number) => number).filter(isPinned);
-function pin(number, on) {
-  if (setlistOf() === null) return;
-  const key = setlistOf() + ':' + number;
+// (pins are "setlist:number": a setlist looked at shows its own)
+const isPinned = (number, setlist = setlistOf()) => setlist !== null && pins.includes(setlist + ':' + number);
+const pinnedIn = (setlist, names) => (names || []).map((name, number) => number).filter(number => isPinned(number, setlist));
+const pinnedHere = () => pinnedIn(setlistOf(), loadedPresets());
+function pin(number, on, setlist = setlistOf()) {
+  if (setlist === null) return;
+  const key = setlist + ':' + number;
   pins = on ? pins.concat(pins.includes(key) ? [] : [key]) : pins.filter(k => k !== key);   // (shown at once; the editor's answer follows)
-  ask('pin', {setlist: setlistOf(), number, on});
+  ask('pin', {setlist, number, on});
   shownGrid = ''; shownDrawer = ''; shownPresets = ''; render(); if (!$('presetList').hidden) fillPresets();
 }
+// ---- setlists (Batch 3) ---------------------------------------------------------------------------------------------
+// The Floor's setlists by their own names (state.setlists: the names HX Edit's own chooser holds, setlists.js). Looking
+// at another setlist loads nothing: HX Edit's list is asked for that setlist's names (ask 'setlist'; state.looking follows
+// it: reading, ok with the names, or failed) and the loaded preset stays loaded. A preset clicked there goes through
+// loadPreset (so the unsaved-changes prompt applies) as {setlist, number}: HX Edit's list loads it, as a double-click
+// in it does. Once nothing looks elsewhere, HX Edit's list is asked back to the loaded preset's setlist (settleLook).
+let lookAt = null, backAskedAt = 0;
+let loadedNames = {setlist: null, names: null};           // the loaded setlist's names as last read (HX Edit's list may show another)
+const seenNames = {};                                     // setlist -> its names as read this session (the counts beside them)
+const setlistNames = () => state && state.setlists && Array.isArray(state.setlists.names) ? state.setlists.names : [];
+const setlistName = index => workbenchSetlistName(setlistNames(), index);
+function loadedPresets() {
+  if (Array.isArray(state.presets) && state.presets.length) return state.presets;
+  return loadedNames.setlist !== null && loadedNames.setlist === setlistOf() ? loadedNames.names : null;
+}
+const lookingAt = () => lookAt !== null && lookAt !== setlistOf() ? lookAt : null;
+const shownSetlist = () => lookingAt() ?? setlistOf();
+function namesIn(setlist) {
+  // a setlist's names as far as they are read: {state: 'ok' | 'reading' | 'failed', names}
+  if (setlist === setlistOf()) { const names = loadedPresets(); return {state: names ? 'ok' : 'reading', names: names || []}; }
+  const looked = state.looking;
+  if (looked && looked.setlist === setlist) return {state: looked.state, names: looked.state === 'ok' && Array.isArray(looked.names) ? looked.names : []};
+  return {state: 'reading', names: []};
+}
+function lookAtSetlist(index) {
+  if (!state || !Number.isInteger(index) || index < 0 || index >= setlistNames().length) return;
+  lookAt = index === setlistOf() ? null : index;
+  const looked = state.looking, there = looked && looked.setlist === index && looked.state !== 'failed' && state.setlists.shown === index;
+  if (lookAt === null) settleLook(true); else if (!there) ask('setlist', {setlist: index});
+  shownPresets = ''; shownDrawer = ''; shownGrid = ''; render();
+  if (!$('presetList').hidden) fillPresets();
+}
+let backTries = {word: '', count: 0};
+function settleLook(now) {
+  // nothing looks at another setlist any more: HX Edit's list goes back to the loaded preset's (asked every 3 s at
+  // most, three times for the same pair of setlists unless asked from a button)
+  if (!state || lookingAt() !== null || setlistOf() === null || !state.setlists || !Number.isInteger(state.setlists.shown) || state.setlists.shown === setlistOf()) return;
+  const word = state.setlists.shown + '>' + setlistOf();
+  if (word !== backTries.word) backTries = {word, count: 0};
+  if (!now && (Date.now() - backAskedAt < 3000 || backTries.count >= 3)) return;
+  backTries.count++; backAskedAt = Date.now(); ask('setlist', {setlist: setlistOf()});
+}
+function elsewhereStrip(small) {
+  // over another setlist's presets: what is looked at, what is still loaded, and the way back
+  const at = lookingAt();
+  if (at === null || !state.preset) return null;
+  const strip = el('div', 'elsewhere' + (small ? ' small' : '')), words = el('span');
+  words.append('You are looking at ', el('b', '', setlistName(at)), '. Still loaded: ', el('b', '', number3(state.preset.number) + ' ' + (state.preset.name || '')),
+    ' in ' + setlistName(setlistOf()) + '.' + (small ? '' : ' Nothing changes until you click a preset.'));
+  const back = el('button', 'btn sm', 'Back to ' + setlistName(setlistOf())); back.onclick = () => lookAtSetlist(setlistOf());
+  strip.append(words, el('span', 'sp'), back);
+  return strip;
+}
+function lookWait(setlist, how) {
+  // while another setlist's names are read, or when they could not be
+  const box = el('div', 'wait');
+  if (how === 'failed') {
+    const again = el('button', '', 'Try again'); again.onclick = () => { ask('setlist', {setlist}); };
+    box.append('HX Edit did not give ' + setlistName(setlist) + '’s presets. ', again);
+  } else box.append('Reading ' + setlistName(setlist) + ' from the Floor…');
+  return box;
+}
+// What a click on a preset of the setlist shown does: the loaded setlist's by its number, another's with its setlist.
+const presetTarget = number => lookingAt() === null ? number : {setlist: lookingAt(), number};
 const isBlank = name => /^new preset$/i.test(String(name || '').trim());
 const number3 = n => String(n).padStart(3, '0');
 let gridQuery = '', hideBlank = false, shownGrid = '';
 function drawPresetGrid() {
   const body = $('vbody');
   if (view.full !== 'presets' || !catalog || !state) return;
-  const names = state.presets || [], at = state.preset ? state.preset.number : -1, setlist = setlistOf();
+  // (Batch 3: the setlists as tabs over it; another setlist's presets under a strip, nothing loaded until a click)
+  const lists = setlistNames(), shown = shownSetlist(), read = namesIn(shown), names = read.names, setlist = setlistOf();
+  const at = lookingAt() === null && state.preset ? state.preset.number : -1;
   const rows = miniRows(), now = current();
-  const key = JSON.stringify([names, at, setlist, pins, gridQuery, hideBlank, state.preset && state.preset.name, unsaved(), state.snapshots, state.snapshot, dsp, miniKey(rows), now && [now.dsp, now.id]]);
+  const key = JSON.stringify([names, at, setlist, pins, gridQuery, hideBlank, state.preset && state.preset.name, unsaved(), state.snapshots, state.snapshot, dsp, miniKey(rows), now && [now.dsp, now.id],
+                              lists, shown, read.state]);
   if (key === shownGrid && body.querySelector('.pv')) return;
   shownGrid = key;
   // The frame is made once: the search box keeps its caret while the cards and the side are redrawn.
@@ -2209,13 +2347,27 @@ function drawPresetGrid() {
     blank.onclick = () => { hideBlank = !hideBlank; drawPresetGrid(); };
     head.append(el('span', 'setname'), find, blank, el('span', 'sp'), el('span', 'note2 count'));
     head.querySelector('.sp').style.flex = '1';
-    main.append(head, el('div', 'banks'));
+    main.append(el('div', 'sltabs'), head, el('div', 'elsewhere'), el('div', 'banks'));
     pv.append(main, el('aside', 'pd'));
     body.replaceChildren(pv);
   }
+  const main = body.querySelector('.pv .main'), tabs = el('div', 'sltabs'), strip = elsewhereStrip(false) || el('div', 'elsewhere');
+  lists.forEach((name, index) => {
+    const tab = el('button', index === shown ? 'on' : '', workbenchSetlistName(lists, index));
+    if (index === setlist) { const dot = el('i'); dot.title = 'The loaded preset is here'; tab.append(dot); }
+    tab.title = index === setlist ? 'The loaded preset’s setlist' : 'Show ' + workbenchSetlistName(lists, index) + '’s presets (nothing is loaded)';
+    tab.onclick = () => lookAtSetlist(index);
+    tabs.append(tab);
+  });
+  tabs.hidden = !lists.length; strip.hidden = lookingAt() === null;
+  main.querySelector('.sltabs').replaceWith(tabs); main.querySelector('.elsewhere').replaceWith(strip);
+  main.className = 'main' + (lists.length ? ' t' : '') + (lists.length && !strip.hidden ? ' s' : '');
   const used = names.filter(n => !isBlank(n)).length;
-  body.querySelector('.setname').textContent = setlist === null ? '' : 'Setlist ' + (setlist + 1);
-  body.querySelector('.count').textContent = names.length ? used + ' of ' + names.length + ' in use' : 'Waiting for the setlist from HX Edit';
+  body.querySelector('.setname').textContent = lists.length || setlist === null ? '' : setlistName(setlist);
+  body.querySelector('.setname').hidden = !!lists.length;
+  body.querySelector('.count').textContent = read.state === 'reading' ? 'Reading ' + setlistName(shown) + ' from the Floor…' :
+    read.state === 'failed' ? 'HX Edit did not give ' + setlistName(shown) + '’s presets' :
+    names.length ? used + ' of ' + names.length + ' in use' : 'Waiting for the setlist from HX Edit';
   body.querySelector('.head .btn').setAttribute('aria-pressed', hideBlank);
   $('vhead').querySelector('.sub').textContent = THINGS.presets.sub + (names.length ? ' · ' + used + ' of ' + names.length + ' in use' : '');
   // the cards: bank by bank (four presets each), two banks a row
@@ -2227,11 +2379,11 @@ function drawPresetGrid() {
     if (q && !hit) b.style.opacity = '.3';
     b.append(el('small', 'num', number3(number)), el('b', '', name));
     b.title = number3(number) + ' ' + name + (number === at ? ' (loaded)' : ': click to load it');
-    const mark = el('span', 'pin' + (isPinned(number) ? '' : ' off')); mark.innerHTML = STAR;
-    mark.title = isPinned(number) ? 'Pinned: click to unpin' : 'Pin it (it then sits at the top of the preset lists)';
-    mark.onclick = event => { event.stopPropagation(); pin(number, !isPinned(number)); };
+    const mark = el('span', 'pin' + (isPinned(number, shown) ? '' : ' off')); mark.innerHTML = STAR;
+    mark.title = isPinned(number, shown) ? 'Pinned: click to unpin' : 'Pin it (it then sits at the top of the preset lists)';
+    mark.onclick = event => { event.stopPropagation(); pin(number, !isPinned(number, shown), shown); };
     b.append(mark);
-    b.onclick = () => { if (number !== at) loadPreset(number); };
+    b.onclick = () => { if (number !== at) loadPreset(presetTarget(number)); };
     return b;
   };
   const banks = el('div', 'banks'), sides = [el('div', 'bank'), el('div', 'bank')];
@@ -2244,7 +2396,7 @@ function drawPresetGrid() {
   const side = el('aside', 'pd'), preset = state.preset;
   if (preset) {
     const top = el('div'), h = el('h3');
-    top.append(el('h5', '', 'Loaded now' + (setlist === null ? '' : ' · Setlist ' + (setlist + 1))));
+    top.append(el('h5', '', 'Loaded now' + (setlist === null ? '' : ' · ' + setlistName(setlist))));
     h.append(el('b', 'num', number3(preset.number)), el('span', '', preset.name || ''));
     if (unsaved()) { const dot = el('u'); dot.title = 'Changed, and not saved to the Floor'; h.append(dot); }
     top.append(h); side.append(top);
@@ -2808,7 +2960,7 @@ function drawLevels() {
     from.value = levelFrom ?? ''; to.value = levelTo ?? ''; from.disabled = to.disabled = !!running;
     from.onchange = () => { levelFrom = parseInt(from.value, 10); shownLevels = ''; drawLevels(); };
     to.onchange = () => { levelTo = parseInt(to.value, 10); shownLevels = ''; drawLevels(); };
-    range.append(from, el('span', 'note2', 'to'), to, el('span', 'note2', state.preset && Number.isInteger(state.preset.setlist) ? 'in Setlist ' + (state.preset.setlist + 1) : ''));
+    range.append(from, el('span', 'note2', 'to'), to, el('span', 'note2', state.preset && Number.isInteger(state.preset.setlist) ? 'in ' + setlistName(state.preset.setlist) : ''));
     range.hidden = levelScope !== 'range';
     const guitarLine = el('div', 'line'); guitarLine.append(record, remove);
     const targetLine = el('div', 'line'); targetLine.append(targetPick, custom);
@@ -3314,6 +3466,10 @@ function render() {
   drawDrawer();
   if (!view.full) { drawChain(); drawPanel(); } else { drawMini(); if (view.full === 'presets') drawPresetGrid(); }
   drawLook(); drawLevels(); drawLibrary(); drawTray();
+  // (Batch 3: nothing shows another setlist any more, the list under the name, the drawer and the view all closed or
+  // back: HX Edit's list goes back to the loaded preset's setlist)
+  if (lookAt !== null && $('presetList').hidden && view.full !== 'presets' && view.drawer !== 'presets') lookAt = null;
+  settleLook(false);
 }
 function receive(message) {
   if (!message || typeof message !== 'object') return;
@@ -3323,6 +3479,11 @@ function receive(message) {
     state = message.state;
     const after = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
     if (before !== after) snapGroup = null;
+    // (Batch 3: the loaded setlist's names are kept while HX Edit's list shows another; each setlist read is kept for
+    // the counts beside its name; a preset of the setlist looked at was loaded: it is the loaded one now)
+    if (Array.isArray(state.presets) && state.presets.length && setlistOf() !== null) { loadedNames = {setlist: setlistOf(), names: state.presets}; seenNames[setlistOf()] = state.presets; }
+    if (state.looking && state.looking.state === 'ok' && Array.isArray(state.looking.names)) seenNames[state.looking.setlist] = state.looking.names;
+    if (lookAt !== null && lookAt === setlistOf()) lookAt = null;
     // (another preset: unchanged from where HX Edit's undo position stands now; also once that position can be read)
     if (before !== after || savedMark.key !== after || (typeof savedMark.at !== 'number' && typeof state.undoAt === 'number')) savedMark = {key: after, at: state.undoAt};
     // (values set in other snapshots are shown as set until HX Edit's own record agrees: forgotten on another preset

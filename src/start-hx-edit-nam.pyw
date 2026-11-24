@@ -235,7 +235,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
                 ('library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
                  'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js', 'menu_row.js', 'menu_dark.js',
-                 'focus_view.js')) + '\n'
+                 'setlists.js', 'focus_view.js')) + '\n'
             config = dict(request=uuid4().hex, repeat=True, automatic=True, requireHostMonitor=True)
             # Validate original native bytes before namView attaches to shared
             # entry points. The callback runs only after toneView exists and the
@@ -252,8 +252,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             after = (f'\nconnectNativeExportLibrary({json.dumps(config)}, namView);'
                      '\nnamView.setLibraryOpener(window => toneView.openBrowser(window, {library:true, dockPanel:navigationBanner.dockPanel()}));'
                      '\ninstallNamSidebar(namView);'
+                     # The Workbench's setlists (setlists.js): optional; a failed byte guard leaves them out.
+                     "\nlet setlists = null; try { setlists = installSetlists(); } catch (error) { send({type: 'toneTrace', reason: 'setlists', stage: 'unavailable', error: String(error.message)}); }"
                      # Focus Mode is optional: a failed byte guard leaves the editor as it was.
-                     f"\ntry {{ installFocusView({json.dumps(focus_options)}, {{targetBinding, namView, toneView}}); }}"
+                     f"\ntry {{ installFocusView({json.dumps(focus_options)}, {{targetBinding, namView, toneView, setlists}}); }}"
                      " catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'unavailable', error: String(error.message)}); }")
         script = session.create_script(
             f"{before}{view}\n{imports}\n{tone}\n{initialize}const namView = installNamView({json.dumps(profiles)}, {sidebar_width()}, {json.dumps(ir_parameters(exe.parent / 'res'))}, {json.dumps(options)});"
@@ -423,7 +425,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # A block clicked in the pane's chain: HX Edit selects it, and the pane follows.
                     if shown and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': {'action': 'select', 'dsp': value['dsp'], 'id': value['id'][:16]}})
-                elif name in ('set', 'snapshot', 'preset', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'rename'):
+                elif name in ('set', 'snapshot', 'preset', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'rename', 'setlist'):
                     # A knob, a switch or the bypass (inside the model's own range: view.checked_set), another snapshot,
                     # another preset of the loaded setlist (focus_view.js first closes a drag left open, then asks back:
                     # 'load'), or another model or a capture for the block the pane shows.
@@ -435,7 +437,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                              'snapValue': view.checked_snap_value, 'splitType': view.checked_split_type,
                              'ir': view.checked_ir,
                              # the Workbench's name box: a snapshot's name in the edit buffer (one undo step)
-                             'rename': view.checked_rename}[name]
+                             'rename': view.checked_rename,
+                             # the Workbench's setlists: another setlist looked at (HX Edit's list asked for its names)
+                             'setlist': view.checked_look}[name]
                     command = check(value) if shown else None
                     if command and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': command})

@@ -708,13 +708,42 @@ class FocusView:
             number = (now - 1) % 128
         elif value == 'next':
             number = (now + 1) % 128
-        elif isinstance(value, int) and not isinstance(value, bool) and isinstance(state.get('presets'), list):
+        elif isinstance(value, int) and not isinstance(value, bool) and (isinstance(state.get('presets'), list) or state.get('looking')):
+            # (while the Workbench looks at another setlist, HX Edit's list shows that one and the loaded setlist's
+            # names are not read: a number of the loaded setlist is then one of the Floor's 128)
             number = value
-            if not 0 <= number < len(state['presets']) or number > 127 or number == now:
+            count = len(state['presets']) if isinstance(state.get('presets'), list) else 128
+            if not 0 <= number < count or number > 127 or number == now:
                 return None
+        elif isinstance(value, dict):
+            # The Workbench's setlists (Batch 3): {setlist, number}. Of the loaded setlist: as a number. Of another:
+            # only the one HX Edit's list shows now, the Workbench having looked at it (state "looking", read): loaded as
+            # a double-click in that list loads it (setlists.js), never by guessing at what the Floor has.
+            setlist, number = value.get('setlist'), value.get('number')
+            if any(isinstance(n, bool) or not isinstance(n, int) for n in (setlist, number)) or not 0 <= number <= 127:
+                return None
+            if setlist == preset.get('setlist'):
+                return self.checked_preset(number)
+            looking = state.get('looking') if isinstance(state.get('looking'), dict) else {}
+            names = looking.get('names') if looking.get('state') == 'ok' and looking.get('setlist') == setlist else None
+            if not 0 <= setlist <= 7 or not isinstance(names, list) or number >= len(names):
+                return None
+            return {'action': 'presetIn', 'setlist': setlist, 'number': number}
         else:
             return None
         return {'action': 'preset', 'number': number}
+
+    def checked_look(self, value):
+        """The Workbench's look at another setlist ({setlist}), as the command for focus_view.js, or None: one of the
+        setlists HX Edit's chooser lists (state "setlists"). Looking loads nothing: HX Edit's list is asked for that
+        setlist's names (the Librarian's "get preset names"), as its own chooser does."""
+        state = self.state if isinstance(self.state, dict) else {}
+        lists = state.get('setlists') if isinstance(state.get('setlists'), dict) else {}
+        names = lists.get('names') if isinstance(lists.get('names'), list) else []
+        setlist = value.get('setlist') if isinstance(value, dict) else None
+        if isinstance(setlist, bool) or not isinstance(setlist, int) or not 0 <= setlist < min(len(names), 8):
+            return None
+        return {'action': 'look', 'setlist': setlist}
 
     def checked_model(self, value):
         """The page's request to change a block's model, as the command for focus_view.js, or None: only a block
