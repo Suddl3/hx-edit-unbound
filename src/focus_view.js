@@ -237,21 +237,23 @@ function focusPresetNames(names, preset) {
 // already: same). Rows that never change are not taken as the other setlist's (the ask may not have worked): failed
 // after FOCUS_LOOK_SAME_MS, and "Try again" then reads them as they stand (the list shows that setlist by then); nothing
 // usable after FOCUS_LOOK_GIVE_UP_MS: failed. Never another setlist's names under this one's.
+// A slow first answer is not a failure (live check 2026-11-24 10:13: the first look after a launch took ~2.7 s, the
+// later ones 0.6-0.9 s): FOCUS_LOOK_SAME_MS is 6 s, and a look called failed that way keeps being watched (watch) until
+// FOCUS_LOOK_LATE_MS: rows that then change from what the list showed before, and settle, turn it into ok by itself.
 // look: {setlist, at, before, last, lastAt, same, state: 'reading'}; names: the list's rows now (namView.presetNames).
-const FOCUS_LOOK_SETTLE_MS = 500, FOCUS_LOOK_SAME_MS = 2500, FOCUS_LOOK_GIVE_UP_MS = 8000;
+const FOCUS_LOOK_SETTLE_MS = 500, FOCUS_LOOK_SAME_MS = 6000, FOCUS_LOOK_GIVE_UP_MS = 8000, FOCUS_LOOK_LATE_MS = 30000;
 function focusLookStep(look, names, now) {
-  if (!look || look.state !== 'reading') return look;
+  if (!look || !(look.state === 'reading' || (look.state === 'failed' && look.watch))) return look;
   const usable = Array.isArray(names) && names.length >= 1 && names.length <= 128 && names.every(name => typeof name === 'string');
-  if (now - look.at > FOCUS_LOOK_GIVE_UP_MS) return {setlist: look.setlist, at: look.at, state: 'failed'};
-  if (!usable) return look;
-  const word = JSON.stringify(names);
-  if (word !== look.last) return {...look, last: word, lastAt: now};
-  const settled = now - look.lastAt >= FOCUS_LOOK_SETTLE_MS;
-  if (settled && (look.same || word !== look.before)) {
+  const word = usable ? JSON.stringify(names) : null;
+  const next = usable && word !== look.last ? {...look, last: word, lastAt: now} : look;
+  if (usable && word === look.last && now - look.lastAt >= FOCUS_LOOK_SETTLE_MS && (look.same || word !== look.before)) {
     return {setlist: look.setlist, at: look.at, state: 'ok', names: names.map(name => name.trim().slice(0, 32))};
   }
-  if (now - look.at >= FOCUS_LOOK_SAME_MS) return {setlist: look.setlist, at: look.at, state: 'failed', unchanged: true};
-  return look;
+  if (look.state === 'failed') return now - look.at > FOCUS_LOOK_LATE_MS ? {...next, watch: false} : next;   // (still watched)
+  if (!usable && now - look.at > FOCUS_LOOK_GIVE_UP_MS) return {...next, state: 'failed', watch: true};
+  if (usable && now - look.at >= FOCUS_LOOK_SAME_MS) return {...next, state: 'failed', unchanged: word === look.before, watch: true};
+  return next;
 }
 function focusPaneBounds(sf, ed, main) {
   if (![sf, ed, main].every(box => box && [box.x, box.y, box.w, box.h].every(Number.isFinite))) return null;
@@ -776,11 +778,13 @@ function installFocusView(options, parts) {
         }
       }
       state.clearing = clearing ? clearing.slots : null;
-      if (looking && looking.state === 'reading') {
+      if (looking && (looking.state === 'reading' || (looking.state === 'failed' && looking.watch))) {
+        // (a look called failed is still watched for a while: late rows turn it into ok by themselves)
         let names = null;
         try { names = namView.presetNames?.(); } catch (_) { names = null; }
+        const was = looking.state;
         looking = focusLookStep(looking, names, Date.now());
-        if (looking.state !== 'reading') send({type: 'toneTrace', reason: 'focus-view', stage: 'look-' + looking.state, setlist: looking.setlist, ms: Date.now() - looking.at});
+        if (looking.state !== was) send({type: 'toneTrace', reason: 'focus-view', stage: 'look-' + looking.state + (was === 'failed' ? '-late' : ''), setlist: looking.setlist, ms: Date.now() - looking.at});
       }
       state.looking = looking ? {setlist: looking.setlist, state: looking.state, ...(looking.names ? {names: looking.names} : {})} : null;
       if (loadingIn && header.preset && header.preset.setlist === loadingIn.setlist && header.preset.number === loadingIn.number) loadingIn = null;

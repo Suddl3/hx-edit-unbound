@@ -256,16 +256,33 @@ class SetlistTests(unittest.TestCase):
         self.assertEqual(names, new)
         # rows that never change: never taken as the other setlist's (the ask may not have worked): failed, and "Try
         # again" (the list shows that setlist by then: same) reads them as they stand
-        states, names = steps(start, [[old, 100], [old, 700], [old, 2000], [old, 2600]])
-        self.assertEqual(states, ['reading', 'reading', 'reading', 'failed'])
+        states, names = steps(start, [[old, 100], [old, 700], [old, 2600], [old, 5900], [old, 6100], [old, 20000], [old, 31000], [old, 40000]])
+        self.assertEqual(states, ['reading', 'reading', 'reading', 'reading', 'failed', 'failed', 'failed', 'failed'])
+        self.assertIsNone(names)
+        # a slow first answer (live check 2026-11-24 10:13: ~2.7 s after a launch) is not a failure: read when it comes
+        states, names = steps(start, [[old, 100], [old, 2500], [new, 2727], [new, 3300]])
+        self.assertEqual(states, ['reading', 'reading', 'reading', 'ok'])
+        self.assertEqual(names, new)
+        # rows that come after it was called failed turn it into ok by themselves, while it is watched (30 s)
+        states, names = steps(start, [[old, 100], [old, 6100], [new, 9000], [new, 9600]])
+        self.assertEqual(states, ['reading', 'failed', 'failed', 'ok'])
+        self.assertEqual(names, new)
+        states, names = steps(start, [[old, 100], [old, 6100], [old, 31000], [new, 32000], [new, 33000]])
+        self.assertEqual(states, ['reading', 'failed', 'failed', 'failed', 'failed'])    # no longer watched: not taken
         self.assertIsNone(names)
         # the list was already there: as soon as the rows stand still
         states, _ = steps({**start, 'same': True}, [[old, 100], [old, 700]])
         self.assertEqual(states, ['reading', 'ok'])
-        # nothing usable: failed after a while
-        states, names = steps(start, [[None, 100], ['no-list', 4000], [None, 8100]])
-        self.assertEqual(states, ['reading', 'reading', 'failed'])
-        self.assertIsNone(names)
+        # nothing usable: failed after a while; rows that come later still turn it into ok
+        states, names = steps(start, [[None, 100], ['no-list', 4000], [None, 8100], [new, 9000], [new, 9600]])
+        self.assertEqual(states, ['reading', 'reading', 'failed', 'failed', 'ok'])
+        self.assertEqual(names, new)
+        # a failure made by the ask itself (setlists.look threw) is not watched
+        states, _ = steps({'setlist': 0, 'at': 0, 'state': 'failed'}, [[new, 100], [new, 700]])
+        self.assertEqual(states, ['failed', 'failed'])
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn('FOCUS_LOOK_SAME_MS = 6000, FOCUS_LOOK_GIVE_UP_MS = 8000, FOCUS_LOOK_LATE_MS = 30000', script)
+        self.assertIn("if (looking && (looking.state === 'reading' || (looking.state === 'failed' && looking.watch))) {", script)
 
     def test_the_script_asks_hx_edits_list_and_loads_as_its_double_click(self):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
