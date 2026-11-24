@@ -324,11 +324,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # stand over each other. HX Edit's own toolbar items (the meter, the Unbound button) step aside for either.
             workbench_on = [False]
             # HX Edit's window frame while either pane covers its screen (window_frame.py): a dark title bar. Its menu
-            # row stays unless settings.json "workbenchMenuBar" is false (the Workbench's menu has the switch): with
-            # the row away HX Edit's window grows by the row's height from one launch to the next (window_frame.py).
+            # row stays unless settings.json "workbenchMenuBar" is false (the Workbench's menu has the switch). With
+            # the row away HX Edit's window comes back one row taller at the next launch: the frame keeps the
+            # window's size (settings.json "hxWindowSize") and gives it its height back.
             # The row goes only once menu_row.js said it stands in for it ("menuRow" ready, below): without that HX
             # Edit ignores its own Save. A failure there never stops a pane from showing.
-            from window_frame import MENU_BAR, WindowFrame
+            from window_frame import MENU_BAR, WINDOW_SIZE, WindowFrame
             def menu_bar_kept():
                 return nam_catalog.load_settings().get(MENU_BAR) is not False
             def frame_kept(handle):
@@ -337,7 +338,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             def frame_dark(window, on):
                 if not detached.is_set():
                     script.post({'type': 'menuDark', 'payload': {'window': int(window) & 0xffffffff, 'on': bool(on)}})
-            frame = WindowFrame(trace=trace, on_kept=frame_kept, on_dark=frame_dark)
+            frame = WindowFrame(trace=trace, on_kept=frame_kept, on_dark=frame_dark,
+                                size=nam_catalog.load_settings().get(WINDOW_SIZE),
+                                on_size=lambda size: nam_catalog.save_setting(WINDOW_SIZE, size))
             def menu_options():
                 return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept()}
             def frame_show():

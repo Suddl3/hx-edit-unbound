@@ -16,6 +16,8 @@ class FakeWindows:
 
     def __init__(self, colours=True, dark=True):
         self.windows = {100}
+        self.place = (-8, -8, 1936, 1048)         # as a screen-filling window that is not maximized
+        self.zoomed = False
         self.menus = {55}
         self.menu_of = {100: 55}
         self.attributes = {}
@@ -51,9 +53,23 @@ class FakeWindows:
     def redraw(self, window):
         self.calls.append(('redraw', window))
 
+    def rect(self, window):
+        return self.place
+
+    def is_zoomed(self, window):
+        return self.zoomed
+
+    def menu_height(self):
+        return 20
+
+    def resize(self, window, width, height):
+        self.calls.append(('resize', window, width, height))
+        self.place = (self.place[0], self.place[1], width, height)
+        return True
+
 
 class WindowFrameTests(unittest.TestCase):
-    def frame(self, menu_ok=True, **options):
+    def frame(self, menu_ok=True, size=None, **options):
         self.api = FakeWindows(**options)
         self.traced, self.kept, self.darkened = [], [], []
 
@@ -61,7 +77,9 @@ class WindowFrameTests(unittest.TestCase):
             self.kept.append((handle, self.api.menu_of[100]))
         def dark(window, on):                     # (what menu_dark.js is told, and what the frame had been asked by then)
             self.darkened.append((window, on, len(self.api.calls)))
-        frame = WindowFrame(api=self.api, trace=self.traced.append, on_kept=kept, on_dark=dark)
+        self.now, self.sizes = [0.0], []
+        frame = WindowFrame(api=self.api, trace=self.traced.append, on_kept=kept, on_dark=dark,
+                            size=size, on_size=self.sizes.append, clock=lambda: self.now[0])
         frame.set_window(7)                       # (any window of HX Edit's: the frame is its top one's)
         frame.allow_menu(menu_ok)
         return frame
@@ -112,6 +130,57 @@ class WindowFrameTests(unittest.TestCase):
         self.assertEqual(self.darkened, [(100, True, 0)])
         frame.apply(False, True)
         self.assertEqual([(window, on) for window, on, _ in self.darkened], [(100, True), (100, False)])
+
+    def test_a_window_that_came_back_one_menu_row_taller_gets_its_height_back(self):
+        # Seen live 2026-11-23: HX Edit saved its inside height with the row away and made the next launch's window
+        # that much plus a row: 1068 where it had been 1048, over the taskbar.
+        frame = self.frame(size=[-8, -8, 1936, 1048])
+        self.api.place = (-8, -8, 1936, 1068)
+        frame.apply(True, False)
+        self.assertEqual(self.api.place, (-8, -8, 1936, 1048))
+        self.assertIn({'type': 'windowFrame', 'event': 'height-back', 'took': True, 'from': 1068, 'to': 1048}, self.traced)
+        self.assertEqual(self.sizes, [])                           # nothing new to keep
+        self.now[0] = 60
+        frame.apply(True, False)
+        self.assertEqual(self.sizes, [])
+
+    def test_only_that_one_case_is_touched(self):
+        for place, zoomed in (((-8, -8, 1936, 1048), False),     # as it was
+                              ((-8, -8, 1936, 1088), False),     # two rows taller: the user's own doing
+                              ((-8, -8, 1900, 1068), False),     # another width
+                              ((0, -8, 1936, 1068), False),      # another place
+                              ((-8, -8, 1936, 1068), True)):     # maximized
+            frame = self.frame(size=[-8, -8, 1936, 1048])
+            self.api.place, self.api.zoomed = place, zoomed
+            frame.apply(True, False)
+            self.assertEqual(self.api.place, place)
+            self.assertFalse([call for call in self.api.calls if call[0] == 'resize'])
+        frame = self.frame()                                       # nothing kept yet: nothing to compare with
+        self.api.place = (-8, -8, 1936, 1068)
+        frame.apply(True, False)
+        self.assertEqual(self.api.place, (-8, -8, 1936, 1068))
+
+    def test_the_windows_size_is_kept_once_the_launch_has_settled(self):
+        frame = self.frame(size=[-8, -8, 1936, 1048])
+        self.api.place = (100, 80, 1400, 900)                      # the user's own size, from HX Edit's prefs
+        frame.apply(True, False)
+        self.assertEqual(self.sizes, [])                           # the first seconds: only the one-row check
+        self.now[0] = 11
+        frame.apply(True, False)
+        self.assertEqual(self.sizes, [[100, 80, 1400, 900]])
+        self.api.place = (100, 80, 1400, 920)                      # resized later by 20: kept, never undone
+        frame.apply(True, False)
+        self.assertEqual(self.sizes[-1], [100, 80, 1400, 920])
+        self.assertFalse([call for call in self.api.calls if call[0] == 'resize'])
+        self.api.zoomed = True
+        self.api.place = (-8, -8, 1936, 1048)
+        frame.apply(True, False)
+        self.assertEqual(len(self.sizes), 2)                       # maximized: not kept
+
+    def test_a_kept_size_that_is_not_one_is_ignored(self):
+        for bad in (None, 'x', [1, 2, 3], [-8, -8, 1936.0, 1048], [-8, -8, 10, 10], [True, 0, 1936, 1048]):
+            self.assertIsNone(WindowFrame.checked_size(bad))
+        self.assertEqual(WindowFrame.checked_size([-8, -8, 1936, 1048]), (-8, -8, 1936, 1048))
 
     def test_asking_twice_changes_nothing(self):
         frame = self.frame()

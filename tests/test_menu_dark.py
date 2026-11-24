@@ -159,7 +159,7 @@ class MenuDarkTests(unittest.TestCase):
         self.assertIn("'menu_row.js', 'menu_dark.js',", launcher)
         self.assertIn("try { installMenuDark(); } catch (error) { send({type: 'menuDark', event: 'unavailable'", launcher)
         self.assertIn("script.post({'type': 'menuDark', 'payload': {'window': int(window) & 0xffffffff, 'on': bool(on)}})", launcher)
-        self.assertIn('frame = WindowFrame(trace=trace, on_kept=frame_kept, on_dark=frame_dark)', launcher)
+        self.assertIn('frame = WindowFrame(trace=trace, on_kept=frame_kept, on_dark=frame_dark,', launcher)
         self.assertIn("'menu_dark.js'", (ROOT / 'build-windows.py').read_text(encoding='utf-8'))
 
 

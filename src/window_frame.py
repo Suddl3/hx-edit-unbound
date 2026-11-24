@@ -20,16 +20,23 @@ themselves (Preferences, Command Center, Global EQ, Help). Nothing here talks to
 While the row is on the window it is drawn dark too: that is done inside HX Edit (menu_dark.js), and ``on_dark`` tells
 it when, before the frame is asked to redraw.
 
-The row stays by default (the launcher asks for it away only when that setting is false). Seen live 2026-11-23:
-HX Edit keeps its window's size as the height of what is inside the frame ("UIHeight" in its own HX Edit.prefs) and
-makes the window that much plus a menu row at its next launch. With the row away the inside is one row (20 px)
-taller, HX Edit saved that, and the next launch's window was 20 px taller than the screen's work area. It would grow
-again at every launch after a save with the row away. Not solved here.
+The row stays by default (the launcher asks for it away only when that setting is false).
+
+The window's height from one launch to the next. Seen live 2026-11-23: HX Edit keeps its window's size as the height of
+what is inside the frame ("UIHeight" in its own HX Edit.prefs, written when it closes) and makes the window that much
+plus a menu row at its next launch. With the row away the inside is one row (20 px) taller, so the next launch's
+window comes one row taller, over the taskbar, and one more at every launch after that. So the window's own size is
+kept here too (``size``, the launcher's settings.json "hxWindowSize"): in the first seconds of a launch, a window
+that is exactly one menu row taller than it was, at the same place and width, gets its height back; after that the
+size as the user has it is what is kept. A maximized window is left alone.
 """
 import ctypes
 from threading import Lock
+import time
 
 MENU_BAR = 'workbenchMenuBar'          # settings.json: False takes HX Edit's menu row away while a pane is shown
+WINDOW_SIZE = 'hxWindowSize'           # settings.json: HX Edit's window [x, y, width, height] as last seen
+SETTLE_SECONDS = 10                    # after a launch's first look: only the one-row-taller check, nothing is kept yet
 
 # The panes' own colours (workbench.html --panel, the title's ink, --line), as Windows wants them: 0x00BBGGRR
 CAPTION, TEXT, BORDER = 0x001B1614, 0x00D6CDC9, 0x00382E2A
@@ -55,7 +62,25 @@ class Win32:
             function.restype, function.argtypes = result, arguments
         dwm.DwmSetWindowAttribute.restype = ctypes.c_long
         dwm.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
-        self.user, self.dwm = user, dwm
+        user.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+        user.IsZoomed.argtypes = [wintypes.HWND]
+        self.user, self.dwm, self.RECT = user, dwm, wintypes.RECT
+
+    def rect(self, window):
+        """The window on the screen: (x, y, width, height), or None."""
+        found = self.RECT()
+        if not self.user.GetWindowRect(window, ctypes.byref(found)):
+            return None
+        return (found.left, found.top, found.right - found.left, found.bottom - found.top)
+
+    def is_zoomed(self, window):
+        return bool(self.user.IsZoomed(window))
+
+    def menu_height(self):
+        return int(self.user.GetSystemMetrics(15))             # SM_CYMENU
+
+    def resize(self, window, width, height):
+        return bool(self.user.SetWindowPos(window, None, 0, 0, width, height, 0x0002 | 0x0004 | 0x0010))   # NOMOVE | NOZORDER | NOACTIVATE
 
     def is_window(self, window):
         return bool(window) and bool(self.user.IsWindow(window))
@@ -88,13 +113,18 @@ class WindowFrame:
     allow_menu(True) said HX Edit's script stands in for it). Asking twice changes nothing. The window is the one
     focus_view.js reports (set_window); until it is known nothing is done.
     on_kept(handle): the menu taken off the window (0: none), for menu_row.js.
-    on_dark(window, on): the frame goes dark or plain, for menu_dark.js (the menu row in the same colours)."""
+    on_dark(window, on): the frame goes dark or plain, for menu_dark.js (the menu row in the same colours).
+    size / on_size([x, y, width, height]): the window as last seen, kept by the launcher from one launch to the next."""
 
-    def __init__(self, api=None, trace=None, on_kept=None, on_dark=None):
+    def __init__(self, api=None, trace=None, on_kept=None, on_dark=None, size=None, on_size=None, clock=time.monotonic):
         self.api = api
         self.trace = trace or (lambda value: None)
         self.on_kept = on_kept or (lambda handle: None)
         self.on_dark = on_dark or (lambda window, on: None)
+        self.on_size = on_size or (lambda size: None)
+        self.size = self.checked_size(size)
+        self.clock = clock
+        self.first = None              # when this launch's window was first looked at
         self.window = None
         self.dark = False
         self.kept = 0                  # HX Edit's own menu handle while its row is away
@@ -112,6 +142,30 @@ class WindowFrame:
             if root != self.window:
                 self.window, self.dark, self.kept = root, False, 0
 
+    @staticmethod
+    def checked_size(size):
+        """A kept window size as (x, y, width, height), or None for anything that is not one."""
+        if (isinstance(size, (list, tuple)) and len(size) == 4 and all(type(n) is int for n in size)
+                and 200 <= size[2] <= 20000 and 200 <= size[3] <= 20000):
+            return tuple(size)
+        return None
+
+    def keep_size(self, api, window):
+        """The window one menu row taller than it was, just after a launch: its height back. Later: its size kept."""
+        now = api.rect(window)
+        if not now or api.is_zoomed(window):
+            return
+        if self.first is None:
+            self.first = self.clock()
+        last, settling = self.size, self.clock() - self.first < SETTLE_SECONDS
+        if settling and last and now[:3] == last[:3] and now[3] == last[3] + api.menu_height():
+            took = api.resize(window, last[2], last[3])
+            self.trace({'type': 'windowFrame', 'event': 'height-back', 'took': bool(took), 'from': now[3], 'to': last[3]})
+            return
+        if not settling and now != last:
+            self.size = now
+            self.on_size(list(now))
+
     def allow_menu(self, on):
         """Whether the menu row may be taken off: only while menu_row.js stands in for it."""
         with self.lock:
@@ -122,6 +176,7 @@ class WindowFrame:
             if self.api is None or not self.window or not self.api.is_window(self.window):
                 return False
             api, window, covered = self.api, self.window, bool(covered)
+            self.keep_size(api, window)
             if covered != self.dark:
                 self.on_dark(window, covered)          # menu_dark.js first: the redraw below draws the row in its new colours
                 took = api.attribute(window, DARK_MODE, 1 if covered else 0) or api.attribute(window, DARK_MODE_OLD, 1 if covered else 0)

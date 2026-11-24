@@ -1752,9 +1752,9 @@ function openMenu() {
     item('Classic+', 'Classic, with the new look', '', null),
     item('Rig on stage', 'Your rig as gear on a stage', '', null),
     // (HX Edit's own menu row can be taken away while the Workbench is shown, where this build can keep its commands
-    // working without it: options.menuRow. It stays by default: with it away HX Edit's window grows by the row's
-    // height from one launch to the next, seen live 2026-11-23; window_frame.py.)
-    ...(options.menuRow ? [el('hr'), item("Show HX Edit's menu bar", 'Off hides File, Edit and the rest. Known fault: HX Edit’s window then grows a little at each restart.', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar))] : []));
+    // working without it: options.menuRow. It stays by default, drawn dark; window_frame.py keeps the window's height
+    // right from one launch to the next when it is away.)
+    ...(options.menuRow ? [el('hr'), item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar))] : []));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
 }
 function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
