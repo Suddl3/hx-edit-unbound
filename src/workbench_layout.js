@@ -125,6 +125,16 @@ function workbenchMixNote(join) {
   return 'A ' + level(join.values['A Level']) + ', B ' + level(join.values['B Level']);
 }
 
+// The room a split's or a mixer's note has beside its node, inside the chain's own box (live check 2026-11-24: a
+// split at a path's first place put its note out over Classic+'s sidebar). The split's note ends left of the split:
+// it has the row from the grid's start to there, plus the path label's column (empty at lane B's line); the mixer's
+// starts right of the mixer and has the rest of the row. Under 40 px the note is left out (the node's title has it).
+const WORKBENCH_NOTE_GAP = 20, WORKBENCH_NOTE_LEAST = 40;
+function workbenchNoteRoom(side, x, width, tag) {
+  const room = Math.floor(side === 'split' ? x - WORKBENCH_NOTE_GAP + (tag || 0) : width - x - WORKBENCH_NOTE_GAP);
+  return room >= WORKBENCH_NOTE_LEAST ? room : 0;
+}
+
 function workbenchPending(blocks, pending, namEngine) {
   // The chain as the page shows it while a change it asked for is on its way: HX Edit passes through other states
   // first (a moved block is briefly in neither place; an added capture first reads as a NAM block on IR slot 1), so the
@@ -496,7 +506,7 @@ function workbenchSlotUsers(usage, slot, loaded) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
-                     WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved,
+                     WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
                      workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, workbenchPreviewOn, WORKBENCH_PREVIEW_END_WAIT_MS, WORKBENCH_PREVIEW_STEP_MS, workbenchSaveHold, WORKBENCH_BACK_MS,
 

@@ -626,9 +626,9 @@
   .gap-drop { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 1.5px solid #6b7180; background: #101216;
               opacity: .7; pointer-events: none; z-index: 2; transition: transform .12s, border-color .12s; }
   .gap-drop.over { border-color: #f0c94a; background: rgb(240 201 74 / .25); transform: scale(1.5); opacity: 1; }
-  .note { position: absolute; display: grid; gap: 1px; line-height: 1.2; white-space: nowrap; margin-top: -16px; }
+  .note { position: absolute; display: grid; gap: 1px; line-height: 1.2; width: max-content; white-space: normal; overflow-wrap: break-word; margin-top: -16px; }   /* (max-width: its room, workbenchNoteRoom) */
   .note b { font-weight: 600; font-size: 12.5px; } .note small { color: var(--dim); font-size: 11.5px; }
-  .note.r { text-align: right; }
+  .note.r { text-align: right; transform: translateX(-100%); }
 
   /* ---- the panel under the chain: the selected block --------------------------------------------------------- */
   .insp { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 0; }
@@ -911,6 +911,8 @@
   .lay-stage .tile.gear.small .pic { height: calc(var(--gh, 120px) * .64); width: 110%; }
   .lay-stage button.tile.gear:hover .pic { filter: brightness(1.12) drop-shadow(0 12px 10px rgb(0 0 0 / .65)); }
   .lay-stage .tile.gear.off .pic { filter: grayscale(.85) brightness(.5) drop-shadow(0 12px 10px rgb(0 0 0 / .6)); }
+  /* (a bypassed piece stays grey while hovered, only lifted a little: live check 2026-11-24) */
+  .lay-stage button.tile.gear.off:hover .pic { filter: grayscale(.85) brightness(.6) drop-shadow(0 12px 10px rgb(0 0 0 / .65)); }
   .lay-stage .tile.gear .led { display: none; }
   /* (a name stays inside its own place's column, --col: a long one, a capture's name, is cut short; the whole name is
      the gear's title. Live check 2026-11-24 14:20: an EVH capture's name ran over its neighbour's.) */
@@ -1119,7 +1121,7 @@ function image(urls, cls, small, lazy) {
 }
 
 // ---- the chain --------------------------------------------------------------------------------------------------
-let YA = 52, YB = 166, TILE_H = 104, TILE_TOP = 52, TILE_W = 105;
+let YA = 52, YB = 166, TILE_H = 104, TILE_TOP = 52, TILE_W = 105, TAG = 88;
 const X0 = 74, R = 14;
 // The chain's sizes in each layout (Batch 4): the same paths, places, drags and asks, drawn smaller in Classic+ (as HX
 // Edit's own signal flow) and as gear on the stage (stageSizes). YA / YB: each lane's line; TILE_H: a block's height,
@@ -1127,7 +1129,7 @@ const X0 = 74, R = 14;
 const CHAIN_SIZES = {workbench: {YA: 52, YB: 166, TILE_H: 104, TILE_TOP: 52, TILE_W: 105, TAG: 88}, classicplus: {YA: 36, YB: 136, TILE_H: 84, TILE_TOP: 34, TILE_W: 105, TAG: 0}};
 function chainSizes(paths) {
   const s = layout === 'stage' ? stageSizes(paths) : CHAIN_SIZES[layout] || CHAIN_SIZES.workbench;
-  YA = s.YA; YB = s.YB; TILE_H = s.TILE_H; TILE_TOP = s.TILE_TOP; TILE_W = s.TILE_W;
+  YA = s.YA; YB = s.YB; TILE_H = s.TILE_H; TILE_TOP = s.TILE_TOP; TILE_W = s.TILE_W; TAG = s.TAG || 0;
   return s;
 }
 let shownChain = '';
@@ -1238,9 +1240,12 @@ function drawPath(p, g, now) {
       node.title = model(p.split).name + ': click for its settings, drag it left or right along the path.';
       node.onpointerdown = event => liftNode(event, p, 'split', node, g);
       node.onclick = () => { if (!dragDone) ask('select', {dsp: p.dsp, id: 'split'}); };
-      const note = el('div', 'note r'); note.append(el('b', '', model(p.split).name), el('small', '', workbenchSplitNote(p.split, splitFormat(p.split))));
-      note.style.cssText = `right:${g.width - g.gap(from) + 20}px;top:${YB}px`;
-      out.push(node, note);
+      // (its note stays in the chain's box: it wraps to the room it has, workbenchNoteRoom, or is left out)
+      const words = workbenchSplitNote(p.split, splitFormat(p.split)), room = workbenchNoteRoom('split', g.gap(from), g.width, TAG);
+      const note = el('div', 'note r'); note.append(el('b', '', model(p.split).name), el('small', '', words));
+      note.style.cssText = `left:${g.gap(from) - WORKBENCH_NOTE_GAP}px;top:${YB}px;max-width:${room}px`;   // (.note.r: its right end there)
+      note.title = model(p.split).name + ': ' + words;
+      out.push(node); if (room) out.push(note);
     }
     if (p.outputB) out.push(io(p.outputB, YB, true));
     else if (p.join) {
@@ -1248,9 +1253,11 @@ function drawPath(p, g, now) {
       node.title = 'Mixer: click for its settings, drag it left or right along the path.';
       node.onpointerdown = event => liftNode(event, p, 'join', node, g);
       node.onclick = () => { if (!dragDone) ask('select', {dsp: p.dsp, id: 'join'}); };
-      const note = el('div', 'note'); note.append(el('b', '', 'Mixer'), el('small', '', workbenchMixNote(p.join)));
-      note.style.cssText = `left:${g.gap(to) + 20}px;top:${YB}px`;
-      out.push(node, note);
+      const words = workbenchMixNote(p.join), room = workbenchNoteRoom('join', g.gap(to), g.width, TAG);
+      const note = el('div', 'note'); note.append(el('b', '', 'Mixer'), el('small', '', words));
+      note.style.cssText = `left:${g.gap(to) + WORKBENCH_NOTE_GAP}px;top:${YB}px;max-width:${room}px`;
+      note.title = 'Mixer: ' + words;
+      out.push(node); if (room) out.push(note);
     }
   }
   p.a.forEach((block, k) => out.push(block ? tileOf(block, k, YA) : slot(k, YA, 0)));

@@ -426,5 +426,52 @@ class StageTests(unittest.TestCase):
         self.assertEqual(steps, [['', '', 'look'], ['', '', ''], ['', '', 'level'], ['', '', ''], ['presets', '', ''], ['presets', '', 'presets']])
 
 
+
+class LiveCheckTests(unittest.TestCase):
+    """The faults the live check of 2026-11-24 (~16:50, preset 032) found in the two new layouts."""
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_a_split_or_mixer_note_has_only_the_room_inside_the_chains_box(self):
+        # 032: a split at Path 1's first place put "Split Y / evenly to lanes A and B" out over Classic+'s sidebar. The
+        # split's note ends left of the split: the row up to there plus the path label's column; under 40 px it is left out.
+        rooms = js('[workbenchNoteRoom("split", 74, 900, 0), workbenchNoteRoom("split", 74, 900, 88), workbenchNoteRoom("split", 74, 900, 104),'
+                   ' workbenchNoteRoom("split", 180.6, 900, 0), workbenchNoteRoom("split", 50, 900, 0),'
+                   ' workbenchNoteRoom("join", 700, 900, 88), workbenchNoteRoom("join", 860, 900, 88), WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST]')
+        self.assertEqual(rooms, [54, 142, 158, 160, 0, 180, 0, 20, 40])
+
+    def test_the_notes_wrap_to_their_room_in_every_layout(self):
+        text = page()
+        chain = between(text, 'function drawPath(', '// ---- moving a block')
+        self.assertIn("room = workbenchNoteRoom('split', g.gap(from), g.width, TAG);", chain)
+        self.assertIn("room = workbenchNoteRoom('join', g.gap(to), g.width, TAG);", chain)
+        # the split's note is placed by the split itself (its right end there), not by the row's width: on the stage
+        # with a drawer open the row can be wider than the board, and a note set from the right moved under the drawer
+        self.assertIn("note.style.cssText = `left:${g.gap(from) - WORKBENCH_NOTE_GAP}px;top:${YB}px;max-width:${room}px`;", chain)
+        self.assertIn("note.style.cssText = `left:${g.gap(to) + WORKBENCH_NOTE_GAP}px;top:${YB}px;max-width:${room}px`;", chain)
+        self.assertNotIn('right:${g.width - g.gap(from)', chain)
+        self.assertEqual(chain.count('out.push(node); if (room) out.push(note);'), 2)
+        self.assertIn("note.title = model(p.split).name + ': ' + words;", chain)
+        self.assertIn("note.title = 'Mixer: ' + words;", chain)
+        self.assertIn('.note { position: absolute; display: grid; gap: 1px; line-height: 1.2; width: max-content; white-space: normal; overflow-wrap: break-word;', text)
+        self.assertIn('.note.r { text-align: right; transform: translateX(-100%); }', text)
+        self.assertNotIn('.note { position: absolute; display: grid; gap: 1px; line-height: 1.2; white-space: nowrap;', text)
+        # the path label's column is each layout's own (none in Classic+, where the label is hidden)
+        self.assertIn('TAG = s.TAG || 0;', text)
+        self.assertIn('classicplus: {YA: 36, YB: 136, TILE_H: 84, TILE_TOP: 34, TILE_W: 105, TAG: 0}', text)
+        self.assertIn('.lay-classicplus .path .tag { display: none; }', text)
+
+    def test_a_bypassed_gear_stays_grey_while_hovered(self):
+        # The hover's brightness rule outranked the bypassed look: a bypassed pedal lit up as if it were on.
+        css = between(page(), '/* ---- Rig on stage', '</style>')
+        hover, off = '.lay-stage button.tile.gear:hover .pic {', '.lay-stage .tile.gear.off .pic {'
+        both = '.lay-stage button.tile.gear.off:hover .pic {'
+        self.assertIn(hover, css)
+        self.assertIn(off, css)
+        rule = between(css, both, '}')
+        self.assertIn('grayscale(.85)', rule)
+        self.assertIn('brightness(.6)', rule)                         # a slight lift over the bypassed .5, not the 1.12
+        self.assertGreater(css.index(both), css.index(off))           # (and more specific than both: classes + :hover + .off)
+
+
 if __name__ == '__main__':
     unittest.main()
