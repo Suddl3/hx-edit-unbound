@@ -1821,7 +1821,7 @@ function centerIn(list, row) {
 function closePresets() {
   $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false');
   // (closed, it no longer looks at another setlist, unless the Presets drawer or view still shows it)
-  if (lookAt !== null && view.full !== 'presets' && view.drawer !== 'presets') { lookAt = null; shownPresets = ''; }
+  letLookGo();
 }
 // ---- a name box of our own (Batch 3): the preset's name in the top bar, a snapshot's in its button -----------------
 // Ways in: the pencil beside the name (it shows when the pointer is over it), a double-click, F2 for the preset. Enter
@@ -1947,7 +1947,10 @@ function loadPreset(target) {
   // target: a preset's number in the loaded setlist, 'previous' / 'next' (the top bar's arrows), or {setlist, number}:
   // a preset of another setlist looked at (Batch 3; HX Edit's list loads it)
   if (leaving) return;
+  // (a preset of the loaded setlist: HX Edit's list is sent back to that setlist first, should it still show another)
+  if (!(target && typeof target === 'object')) settleLook(true);
   if (!changedHere()) { ask('preset', target); return; }
+
   const other = !!target && typeof target === 'object', number = other ? target.number : target;
   const names = (other ? namesIn(target.setlist).names : loadedPresets()) || [], three = n => String(n).padStart(3, '0'), now = state.preset;
   const there = Number.isInteger(number) ? three(number) + ' ' + (names[number] || '') + (other ? ' in ' + setlistName(target.setlist) : '') : 'the ' + target + ' preset';
@@ -2100,6 +2103,7 @@ function commitView(next) {
   // (the chain has less, or more, room; a tool's window follows its frame: reading where it is lays the page out)
   if (catalog && state && !view.full) drawChain(true);
   syncTool(); syncLevels();
+  letLookGo();                                                    // (the Presets drawer or view left: HX Edit's list goes back)
 }
 // A block picked in the chain: HX Edit selects it (its own click on the chain); Levels in the lower half gives way to
 // the block's panel, Floor look stays.
@@ -2373,13 +2377,25 @@ function lookAtSetlist(index) {
 }
 let backTries = {word: '', count: 0};
 function settleLook(now) {
-  // nothing looks at another setlist any more: HX Edit's list goes back to the loaded preset's (asked every 3 s at
-  // most, three times for the same pair of setlists unless asked from a button)
-  if (!state || lookingAt() !== null || setlistOf() === null || !state.setlists || !Number.isInteger(state.setlists.shown) || state.setlists.shown === setlistOf()) return;
-  const word = state.setlists.shown + '>' + setlistOf();
-  if (word !== backTries.word) backTries = {word, count: 0};
-  if (!now && (Date.now() - backAskedAt < 3000 || backTries.count >= 3)) return;
-  backTries.count++; backAskedAt = Date.now(); ask('setlist', {setlist: setlistOf()});
+  // Nothing looks at another setlist any more: HX Edit's list goes back to the loaded preset's (workbenchBackAsk: at
+  // once on a way out, now = true; else WORKBENCH_BACK_MS apart, WORKBENCH_BACK_TRIES times). Called on every way out
+  // (the list closed, the Presets view or drawer left, "Back to", a load of the loaded setlist), after each render, and
+  // by BACK_TIMER every second: an idle HX Edit sends no state message (live check 2026-11-24 09:58).
+  if (!state || !state.setlists) return;
+  const decided = workbenchBackAsk({looking: lookingAt(), loaded: setlistOf(), shown: state.setlists.shown, now: Date.now(),
+                                    askedAt: backAskedAt, tries: backTries, force: now === true});
+  backTries = decided.tries;
+  if (decided.ask) { backAskedAt = Date.now(); ask('setlist', {setlist: setlistOf()}); }
+}
+// (the retry that does not wait for a state message)
+const BACK_TIMER = setInterval(() => { if (visible && state && lookAt === null) settleLook(false); }, 1000);
+// Nothing shows another setlist any more (the top bar's list closed, the Presets drawer and view not open): it is let go
+// and HX Edit's list asked back at once. True when it was let go.
+function letLookGo() {
+  if (lookAt === null || !$('presetList').hidden || view.full === 'presets' || view.drawer === 'presets') return false;
+  lookAt = null; shownPresets = ''; shownDrawer = ''; shownGrid = '';
+  settleLook(true);
+  return true;
 }
 function elsewhereStrip(small) {
   // over another setlist's presets: what is looked at, what is still loaded, and the way back
@@ -3768,7 +3784,7 @@ function render() {
   drawLook(); drawLevels(); drawLibrary(); drawTray();
   // (Batch 3: nothing shows another setlist any more, the list under the name, the drawer and the view all closed or
   // back: HX Edit's list goes back to the loaded preset's setlist)
-  if (lookAt !== null && $('presetList').hidden && view.full !== 'presets' && view.drawer !== 'presets') lookAt = null;
+  letLookGo();
   settleLook(false);
 }
 function receive(message) {

@@ -329,6 +329,22 @@ function workbenchPendingHere(pending, key) {
   return pending && key && pending.key === key ? pending : null;
 }
 
+// Whether to ask HX Edit's list back to the loaded preset's setlist (Batch 3; live check 2026-11-24 09:58: after Esc
+// the list stayed on the setlist looked at, because the page asked only on a new state message, and an idle HX Edit
+// sends none). s: {looking (the setlist looked at, or null), loaded, shown (the setlist HX Edit's list shows), now,
+// askedAt, tries: {word, count}, force}. Asked when nothing looks elsewhere and the list shows another setlist: at once
+// when forced (a way out: the list closed, the view left, "Back to", a load), else WORKBENCH_BACK_MS apart and
+// WORKBENCH_BACK_TRIES times for the same pair. {ask, tries}.
+const WORKBENCH_BACK_MS = 3000, WORKBENCH_BACK_TRIES = 5;
+function workbenchBackAsk(s) {
+  const tries = s.tries && typeof s.tries === 'object' ? s.tries : {word: '', count: 0};
+  if (s.looking !== null && s.looking !== undefined) return {ask: false, tries};
+  if (!Number.isInteger(s.loaded) || !Number.isInteger(s.shown) || s.shown === s.loaded) return {ask: false, tries};
+  const word = s.shown + '>' + s.loaded, mine = word === tries.word ? tries : {word, count: 0};
+  if (!s.force && ((s.askedAt && s.now - s.askedAt < WORKBENCH_BACK_MS) || mine.count >= WORKBENCH_BACK_TRIES)) return {ask: false, tries: mine};
+  return {ask: true, tries: {word, count: mine.count + 1}};
+}
+
 // ---- setlists (Batch 3) ----------------------------------------------------------------------------------------------
 // A setlist's own name as HX Edit's chooser holds it ("USER 1"), or "Setlist 3" while the names are not known.
 function workbenchSetlistName(names, index) {
@@ -375,6 +391,6 @@ function workbenchSlotUsers(usage, slot, loaded) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
-                     workbenchPendingNamed, workbenchPendingHere, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
+                     workbenchPendingNamed, workbenchPendingHere, WORKBENCH_BACK_MS, WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

@@ -289,6 +289,44 @@ class SetlistTests(unittest.TestCase):
         self.assertIn("'setlists.js'", (ROOT / 'build-windows.py').read_text(encoding='utf-8'))
 
     @unittest.skipUnless(NODE, 'node is not installed')
+    def test_hx_edits_list_is_asked_back_at_once_on_a_way_out_and_then_retried_without_a_state_message(self):
+        # Live check 2026-11-24 09:58: after a look at setlist 4 and Esc, HX Edit's list stayed on 4 (the page asked only
+        # on a state message, and an idle HX Edit sends none).
+        def run(steps):
+            code = '(() => { let tries = {word: "", count: 0}, askedAt = 0; const out = [];\n'
+            code += 'for (const s of %s) { const d = workbenchBackAsk({...s, askedAt, tries}); tries = d.tries; if (d.ask) askedAt = s.now; out.push(d.ask); }\n' % json.dumps(steps)
+            code += 'return out; })()'
+            return run_js(['workbench_layout.js'], code)
+        away = {'looking': None, 'loaded': 3, 'shown': 4}
+        # the list closed (forced): asked at once; then the timer every second: again only WORKBENCH_BACK_MS apart
+        self.assertEqual(run([{**away, 'now': 1000, 'force': True}, {**away, 'now': 2000}, {**away, 'now': 3500}, {**away, 'now': 4000}, {**away, 'now': 7100}]),
+                         [True, False, False, True, True])
+        # at most WORKBENCH_BACK_TRIES times for the same pair, unless forced (a button, a load)
+        steps = [{**away, 'now': 1000 + 4000 * i} for i in range(8)] + [{**away, 'now': 40000, 'force': True}]
+        self.assertEqual(run(steps), [True] * 5 + [False] * 3 + [True])
+        # never while something still looks elsewhere, nor when the list shows the loaded setlist, nor without readings
+        for quiet in ({**away, 'looking': 4}, {**away, 'shown': 3}, {**away, 'shown': None}, {**away, 'loaded': None}):
+            self.assertEqual(run([{**quiet, 'now': 1000, 'force': True}]), [False], quiet)
+        # another pair starts afresh
+        self.assertEqual(run([{**away, 'now': 1000 + 4000 * i} for i in range(5)] + [{**away, 'shown': 5, 'now': 30000}]), [True] * 6)
+        self.assertEqual(run_js(['workbench_layout.js'], '[WORKBENCH_BACK_MS, WORKBENCH_BACK_TRIES]'), [3000, 5])
+
+    def test_every_way_out_sends_hx_edits_list_back(self):
+        source = page()
+        close = source[source.index('function closePresets() {'):source.index('// ---- a name box of our own')]
+        self.assertLess(close.index("$('presetList').hidden = true;"), close.index('letLookGo();'))              # Esc, a click outside, a pick
+        let_go = source[source.index('function letLookGo() {'):source.index('// What a click on a preset of the setlist shown does')]
+        self.assertIn("if (lookAt === null || !$('presetList').hidden || view.full === 'presets' || view.drawer === 'presets') return false;", let_go)
+        self.assertIn('settleLook(true);', let_go)                                                             # at once
+        commit = source[source.index('function commitView(next) {'):source.index('function pickBlock(block) {')]
+        self.assertIn('letLookGo();', commit)                                                                   # the drawer or view left
+        self.assertIn('if (lookAt === null) settleLook(true);', source)                                         # "Back to X"
+        self.assertIn("if (!(target && typeof target === 'object')) settleLook(true);", source)                 # a load of the loaded setlist
+        self.assertIn('const BACK_TIMER = setInterval(() => { if (visible && state && lookAt === null) settleLook(false); }, 1000);', source)
+        render = source[source.index('function render() {'):source.index('function receive(message) {')]
+        self.assertIn('letLookGo();\n  settleLook(false);', render)
+
+    @unittest.skipUnless(NODE, 'node is not installed')
     def test_the_setlists_own_names(self):
         name = lambda names, index: run_js(['workbench_layout.js'], f'workbenchSetlistName({json.dumps(names)}, {index})')
         self.assertEqual(name(SETLISTS, 2), 'USER 1')
@@ -320,7 +358,7 @@ class SetlistTests(unittest.TestCase):
         self.assertIn("const other = !!target && typeof target === 'object', number = other ? target.number : target;", source)
         # looking asks HX Edit's list for the names; nothing else; back to the loaded setlist once nothing looks elsewhere
         self.assertIn("ask('setlist', {setlist: index})", source)
-        self.assertIn("backTries.count++; backAskedAt = Date.now(); ask('setlist', {setlist: setlistOf()});", source)
+        self.assertIn("if (decided.ask) { backAskedAt = Date.now(); ask('setlist', {setlist: setlistOf()}); }", source)
         self.assertIn('settleLook(false);', source)
         # pins are per setlist
         self.assertIn("pin(number, !isPinned(number, shown), shown)", source)
