@@ -266,6 +266,24 @@ def previews_view(previews, leftover=None):
             if isinstance(name, str) and name and isinstance(when, str)][-64:]
 
 
+LAYOUT = 'workbenchLayout'             # settings.json: the Workbench's layout (Batch 4), kept from one launch to the next
+# The layouts of the Workbench's own page (workbench_layout.js WORKBENCH_LAYOUTS; the page shows one only once it is
+# built there). Classic, HX Edit's own screen, is not one of them: it is the Workbench switched off ("workbench": false),
+# so coming back from it finds the layout chosen before.
+LAYOUTS = ('workbench', 'classicplus', 'stage')
+
+
+def layout_of(settings):
+    """The layout kept in settings.json, or "workbench" (the default) for anything else."""
+    found = settings.get(LAYOUT) if isinstance(settings, dict) else None
+    return found if isinstance(found, str) and found in LAYOUTS else 'workbench'
+
+
+def checked_layout(value):
+    """A layout the page's chooser asked for, or None for anything that is not one."""
+    return value if isinstance(value, str) and value in LAYOUTS else None
+
+
 def setting_on(settings):
     """Whether the Workbench is shown at launch: only once it has been switched on (settings.json "workbench": true)."""
     return isinstance(settings, dict) and settings.get(SETTING) is True

@@ -345,8 +345,15 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             frame = WindowFrame(trace=trace, on_kept=frame_kept, on_dark=frame_dark,
                                 size=nam_catalog.load_settings().get(WINDOW_SIZE),
                                 on_size=lambda size: nam_catalog.save_setting(WINDOW_SIZE, size))
+            def layout_kept():
+                # the Workbench's layout (Batch 4), settings.json "workbenchLayout"; the Workbench when it cannot be read
+                try:
+                    from workbench import layout_of
+                    return layout_of(nam_catalog.load_settings())
+                except Exception:
+                    return 'workbench'
             def menu_options():
-                return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept()}
+                return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept(), 'layout': layout_kept()}
             def frame_show():
                 try:
                     frame.apply(focus_on[0] or workbench_on[0], menu_bar_kept())
@@ -680,6 +687,14 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         frame_show()
                         workbench.show_options(menu_options())
                     return
+                if name == 'layout':
+                    # The logo menu's layout chooser (Batch 4): the page switches at once, the choice is kept in
+                    # settings.json for the next launch (workbench.checked_layout). Classic is "menu" "classic" below.
+                    choice = checked_layout(value)
+                    if choice:
+                        nam_catalog.save_setting(LAYOUT, choice)
+                        workbench.show_options(menu_options())
+                    return
                 if name == 'menu':
                     # The page's Editor | Focus switch and its Unbound menu. The tools are panels of HX Edit's own
                     # screen, which the pane would cover: the Workbench steps aside for them.
@@ -706,7 +721,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if workbench is not None:
                 workbench.on_action = workbench_action
                 workbench.show_options(menu_options())
-                from workbench import (LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_library, import_files,
+                from workbench import (LAYOUT, LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_layout, checked_library, import_files,
                                        library_view, pinned, pins_after, prefs, prefs_after, previews_view, usage_view)
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
                 workbench.show_prefs(prefs(nam_catalog.load_settings()))

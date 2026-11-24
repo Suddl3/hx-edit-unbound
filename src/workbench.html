@@ -481,6 +481,19 @@
   .drop.menu button small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
   .drop.menu h6 { margin: 8px 10px 4px; font-size: 11px; font-weight: 500; color: var(--faint); letter-spacing: .04em; text-transform: uppercase; }
   .drop.menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
+  /* the layout chooser (Batch 4): four cards, a small picture each */
+  .drop.menu.lay4 { width: 404px; padding: 10px; display: grid; gap: 4px; border-radius: 12px; box-shadow: 0 0 0 1px #343945, 0 30px 80px rgb(0 0 0 / .8); max-height: calc(100vh - 70px); }
+  .drop.menu.lay4 h6 { margin: 0; padding: 4px 8px 6px; font-size: 11.5px; letter-spacing: 0; text-transform: none; }
+  .drop.menu .lay { display: grid; grid-template-columns: 96px minmax(0, 1fr) 18px; gap: 12px; align-items: center; height: auto; padding: 8px; border-radius: 9px; text-align: left; }
+  .drop.menu .lay:hover:not(:disabled) { background: var(--raise); }
+  .drop.menu .lay.on { background: var(--raise2); box-shadow: inset 2px 0 0 #b070e0; }
+  .drop.menu .lay b { font-weight: 600; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+  .drop.menu .lay b em { font-style: normal; font-size: 10.5px; font-weight: 400; color: var(--dim); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; margin: 0; }
+  .drop.menu .lay small { display: block; color: var(--dim); font-size: 12px; line-height: 1.4; margin-top: 2px; white-space: normal; }
+  .drop.menu .lay > svg:not(.th) { width: 14px; height: 14px; color: #f0c94a; }
+  .drop.menu .lay:disabled .th { opacity: .55; }
+  .drop.menu .th { width: 96px; height: 58px; border-radius: 7px; border: 1px solid var(--line); overflow: hidden; display: block; background: #0c0d10; }
+  .drop.menu p.same { margin: 2px 8px 4px; color: var(--faint); font-size: 11.5px; line-height: 1.45; }
   .toast { position: absolute; left: 50%; top: 66px; z-index: 10; transform: translateX(-50%); max-width: 600px; padding: 10px 16px; border-radius: 10px;
            background: #15171c; box-shadow: 0 0 0 1px #3a3f4b, 0 18px 40px rgb(0 0 0 / .7); font-size: 14px; line-height: 1.35; text-align: center; }
 
@@ -754,7 +767,7 @@
 </style>
 </head>
 <body>
-<div class="app" id="app">
+<div class="app lay-workbench" id="app">
   <header class="top" id="top">
     <div class="logo"><button id="menuButton" title="HX Edit Unbound: the layout, and HX Edit's menu bar" aria-label="HX Edit Unbound menu" aria-expanded="false"><svg class="app" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="ubx" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#9b84f6"/><stop offset=".5" stop-color="#5fa8f2"/><stop offset="1" stop-color="#3fd3c8"/></linearGradient><radialGradient id="ubt" cx=".5" cy=".45" r=".7"><stop stop-color="#231f31"/><stop offset="1" stop-color="#14121c"/></radialGradient></defs><rect x=".5" y=".5" width="31" height="31" rx="7" fill="url(#ubt)" stroke="rgb(255 255 255 / .09)"/><path d="M7.5 8l6.3 8-6.3 8M24.5 8l-6.3 8 6.3 8" stroke="url(#ubx)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="caret" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 2.5l3 3 3-3"/></svg></button></div>
     <div class="now">
@@ -2055,19 +2068,68 @@ function openMenu() {
     button.onclick = () => { closeMenu(); onclick(); };
     return button;
   };
-  // Layout: this screen or HX Edit's own; the other two are planned (BACKLOG, Workbench roadmap). The tools are on the
-  // rail and Focus Mode on the Editor | Focus switch, so the menu no longer repeats them.
+  // Layout (Batch 4): four cards, each a small picture, its name and one line; the tick on the one shown. Workbench,
+  // Classic+ and Rig on stage are arrangements of this page (setLayout: at once, nothing restarts); Classic is HX Edit's
+  // own screen (the page steps aside; HX Edit's Unbound menu > Workbench comes back to the layout chosen before). A
+  // layout not built yet says "later" and cannot be picked (WORKBENCH_LAYOUTS). The tools are on the rail and Focus
+  // Mode on the Editor | Focus switch, so the menu does not repeat them.
+  const card = (name, words, tag, onclick) => {
+    const ready = name === 'classic' || WORKBENCH_LAYOUTS[name].built, on = name === layout;
+    const button = el('button', 'lay' + (on ? ' on' : '')), text = el('span'), head = el('b', '', LAYOUT_NAMES[name]);
+    if (tag) head.append(el('em', '', tag));
+    if (!ready) { head.append(el('em', '', 'later')); button.disabled = true; }
+    text.append(head, el('small', '', words));
+    button.insertAdjacentHTML('beforeend', layoutThumb(name));
+    button.append(text);
+    if (on) button.insertAdjacentHTML('beforeend', TICK); else button.append(el('i'));
+    button.setAttribute('aria-pressed', on);
+    button.onclick = () => { closeMenu(); if (!on) onclick(); };
+    return button;
+  };
+  menu.classList.add('lay4');
   menu.replaceChildren(
     el('h6', '', 'Layout'),
-    item('Workbench', 'This screen', TICK, () => {}),
-    item('Classic', "HX Edit's own screen. Back here: its Unbound menu > Workbench.", '', () => ask('menu', 'classic')),
-    item('Classic+', 'Classic, with the new look', '', null),
-    item('Rig on stage', 'Your rig as gear on a stage', '', null),
+    card('workbench', 'A rail of tools, a big chain, knobs underneath.', 'Default', () => setLayout('workbench', true)),
+    card('classicplus', 'HX Edit’s own arrangement in the new look: lists on the left, the model list and sliders below.', '', () => setLayout('classicplus', true)),
+    card('stage', 'Your gear standing on its scene, as Focus Mode shows it, with the controls docked below.', '', () => setLayout('stage', true)),
+    card('classic', 'HX Edit exactly as Line 6 made it.', '', () => ask('menu', 'classic')),
+    el('p', 'same', 'Every layout has the same tools and does the same things. Focus Mode is the same from all of them.'),
     // (HX Edit's own menu row can be taken away while the Workbench is shown, where this build can keep its commands
     // working without it: options.menuRow. It stays by default, drawn dark; window_frame.py keeps the window's height
     // right from one launch to the next when it is away.)
     ...(options.menuRow ? [el('hr'), item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar))] : []));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
+}
+// ---- the layouts (Batch 4): this page arranged three ways (workbench_layout.js) ----------------------------------------
+// layout: the one shown. Switching is instant: only where things sit and how the chain and the block's controls are
+// drawn change; what is open moves where the new layout has a place for it (workbenchSwitch); the preset, the selected
+// block, a pending rename, an open name box and the unsaved state are the page's own and stay as they are.
+const LAYOUT_NAMES = {workbench: 'Workbench', classicplus: 'Classic+', stage: 'Rig on stage', classic: 'Classic'};
+let layout = 'workbench', layoutAsked = null;
+function setLayout(name, mine) {
+  const next = workbenchLayoutOf(name);
+  if (mine) { layoutAsked = {name: next, at: Date.now()}; ask('layout', next); }   // (kept in settings.json for the next launch)
+  if (next === layout) return;
+  layout = next;
+  // (the block picker is a dialog of the Workbench and the stage; Classic+ shows the model list in place of it)
+  if (picking && picking.block && layout === 'classicplus') picking = false;
+  const app = $('app');
+  for (const key of Object.keys(LAYOUT_NAMES)) app.classList.toggle('lay-' + key, key === layout);
+  shownRail = ''; shownDrawer = ''; shownFrame = ''; shownChain = ''; shownPanel = ''; $('drawer').replaceChildren();
+  commitView(workbenchSwitch(view, layout), true);
+}
+// The chooser's small pictures (the mock-up's own, research/modern-ui/batch4/mock.js)
+function layoutThumb(kind) {
+  const r = (x, y, w, h, f, o = 1) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.5" fill="${f}" opacity="${o}"/>`;
+  const dots = (y, n, x0, gap, f) => Array.from({length: n}, (_, i) => `<rect x="${x0 + gap * i}" y="${y}" width="7" height="7" rx="1.5" fill="${f}"/>`).join('');
+  const rings = (n, x0, y, f, rr) => Array.from({length: n}, (_, i) => `<circle cx="${x0 + 10 * i}" cy="${y}" r="${rr}" fill="none" stroke="${f}" stroke-width="1.2"/>`).join('');
+  const body = {
+    workbench: r(0, 0, 96, 8, '#1c1f26') + r(0, 8, 9, 50, '#15171c') + dots(14, 7, 14, 11, '#b070e0') + dots(25, 5, 14, 11, '#5a606c') + r(12, 36, 22, 20, '#1c1f26') + rings(5, 44, 47, '#b070e0', 3.2),
+    classicplus: r(0, 0, 96, 8, '#1c1f26') + r(2, 10, 26, 46, '#1c1f26') + Array.from({length: 7}, (_, i) => r(4, 14 + 5.6 * i, 22, 2.4, '#5a606c')).join('') + dots(13, 6, 32, 10.5, '#b070e0') + dots(22, 5, 32, 10.5, '#5a606c') + r(30, 33, 14, 23, '#1c1f26') + r(46, 33, 16, 23, '#1c1f26') + Array.from({length: 5}, (_, i) => r(66, 36 + 4.2 * i, 26, 1.8, '#b070e0', .9 - i * .12)).join(''),
+    stage: '<defs><linearGradient id="skyth" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#2a0f4a"/><stop offset=".55" stop-color="#ff5a36"/><stop offset=".56" stop-color="#1a0a16"/><stop offset="1" stop-color="#050506"/></linearGradient></defs>' + r(0, 0, 96, 58, 'url(#skyth)') + '<circle cx="48" cy="30" r="11" fill="#ffd21e" opacity=".9"/>' + r(0, 32, 96, 26, '#0a0508', .78) + dots(26, 6, 14, 12, '#eceef2') + r(4, 44, 88, 11, '#15171c', .92) + rings(5, 34, 49.5, '#ff8a5c', 2.6),
+    classic: r(0, 0, 96, 6, '#e9e9e9') + r(0, 6, 96, 52, '#2b2b2b') + r(2, 9, 24, 47, '#3a3a3a') + Array.from({length: 7}, (_, i) => r(4, 13 + 5.6 * i, 20, 2.4, '#8a8a8a')).join('') + dots(12, 6, 31, 10.5, '#c9c9c9') + dots(21, 5, 31, 10.5, '#8a8a8a') + r(29, 32, 14, 24, '#3a3a3a') + r(45, 32, 16, 24, '#3a3a3a') + Array.from({length: 5}, (_, i) => r(65, 35 + 4.2 * i, 27, 1.8, '#d0d0d0', .9)).join(''),
+  }[kind];
+  return `<svg class="th" viewBox="0 0 96 58" aria-hidden="true">${body}</svg>`;
 }
 function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
 let toastTimer = 0;
@@ -2160,7 +2222,7 @@ const THINGS = {
 const OLD_PAGES = new Set(['tone']);
 const levelsIn = v => v.full === 'level' || (!v.full && v.half === 'level');
 function setView(action, name) {
-  const next = workbenchView(view, action, name);
+  const next = workbenchView(view, action, name, layout);
   // (closing Levels stops a scan or an Apply and puts the presets back: asked first)
   if (levelsIn(view) && !levelsIn(next) && levelRunning()) {
     confirmBox((levelRunning() === 'apply' ? 'Levels is applying. ' : 'Levels is busy. ') + 'Closing it stops that and puts the presets back as they were.', 'Close Levels')
@@ -2169,11 +2231,12 @@ function setView(action, name) {
   }
   commitView(next);
 }
-function commitView(next) {
+function commitView(next, relaid) {
+  // (relaid: the layout changed: everything is drawn again in its new place, even with the same things open)
   const before = view;
   view = next;
   if (view.drawer !== before.drawer) { capKind = ''; capQuery = ''; presetQuery = ''; $('drawer').replaceChildren(); shownDrawer = ''; }   // (each drawer its own search)
-  if (['drawer', 'half', 'full'].every(size => view[size] === before[size])) return;
+  if (!relaid && ['drawer', 'half', 'full'].every(size => view[size] === before[size])) return;
   shownRail = '';
   drawFrames(); drawRail(); drawDrawer();
   // (the chain has less, or more, room; a tool's window follows its frame: reading where it is lays the page out)
@@ -2197,7 +2260,7 @@ function drawFrames() {
   if (key === shownFrame) return;
   shownFrame = key;
   if (full) {
-    const thing = THINGS[full], head = $('vhead'), more = WORKBENCH_SIZES[full].length > 1;
+    const thing = THINGS[full], head = $('vhead'), more = workbenchSizes(layout)[full].length > 1;
     const button = (icon, words, onclick, title) => { const b = el('button', 'btn'); b.innerHTML = ICON[icon]; b.append(words); b.onclick = onclick; if (title) b.title = title; return b; };
     head.replaceChildren(el('h2', '', thing.title), el('span', 'sub', thing.sub), el('span', 'sp'), el('div', 'mini'),
       ...(more ? [button('shrink', thing.shrink, () => setView('shrink'))] : []),
@@ -2276,11 +2339,11 @@ function toolClosed() {
   if (was) setView('close', was);
 }
 function drawRail() {
-  const key = JSON.stringify([view, !!options.level]);
+  const key = JSON.stringify([view, !!options.level, layout]);
   if (key === shownRail) return;
   shownRail = key;
   const button = (name, words, icon, cls, title) => {
-    const on = workbenchRailOn(view, name), b = el('button', [cls, on ? 'on' : ''].join(' ').trim());
+    const on = workbenchRailOn(view, name, layout), b = el('button', [cls, on ? 'on' : ''].join(' ').trim());
     b.innerHTML = RAIL_ICON[icon]; b.append(words); b.title = title; b.setAttribute('aria-pressed', on);
     b.onclick = () => setView('rail', name);
     return b;
@@ -3914,7 +3977,12 @@ function receive(message) {
   }
   else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
   else if (message.type === 'dspCosts') { costs = message.costs && typeof message.costs === 'object' ? message.costs : {}; shownPanel = ''; }
-  else if (message.type === 'options') { options = message.options || {}; drawRail(); return; }
+  else if (message.type === 'options') {
+    options = message.options || {};
+    // (the kept layout; an answer to an earlier pick that crosses a newer one is not followed)
+    if (!(layoutAsked && Date.now() - layoutAsked.at < 2000 && options.layout !== layoutAsked.name)) setLayout(options.layout, false);
+    drawRail(); return;
+  }
   else if (message.type === 'notice') { toast(message.text); if (snapHeld.size) { snapHeld.clear(); shownPanel = ''; render(); } return; }   // (a change refused: shown as it is)
   else if (message.type === 'shown') {
     // (hidden, a tool's window goes back over HX Edit's own panel: shown again, it is placed over its frame again)

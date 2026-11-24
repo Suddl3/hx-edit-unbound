@@ -187,20 +187,42 @@ const WORKBENCH_SIZES = Object.freeze({
   presets: ['drawer', 'full'], captures: ['drawer'], irs: ['drawer'],
   look: ['half', 'full'], level: ['half', 'full'], library: ['full'], tone: ['full']});
 
-function workbenchView(view, action, name) {
+// ---- the layouts (Batch 4): other arrangements of this same page --------------------------------------------------
+// Every layout has the same tools, lists, dialogs and asks; a layout only decides where things sit and how the chain
+// and the block's controls are drawn (Nick, 2026-11-24). The chosen one is the editor's own setting (settings.json
+// "workbenchLayout", workbench.py); Classic (HX Edit's own screen) is not one of these: it switches the page off.
+//   workbench: the rail of tools on the left, drawers beside the chain, a tool in the lower half, knobs underneath;
+//   classicplus: HX Edit's own arrangement: a sidebar always there (Presets | Captures | IRs, its tools at its foot),
+//     the chain across the top, the Edit area with the model list in place of the picker and the controls as sliders;
+//   stage: the gear standing on the preset's scene, a glass rail and glass drawers over it, the block's dock below;
+//     a tool that has a lower-half size elsewhere opens as its full view there (no lower half under a stage).
+// built: offered in the chooser (a layout not built yet says "later" and cannot be picked).
+const WORKBENCH_LAYOUTS = Object.freeze({workbench: {built: true}, classicplus: {built: false}, stage: {built: false}});
+function workbenchLayoutOf(name) {
+  // The layout a setting names, when it is one that is built; anything else is the Workbench.
+  return typeof name === 'string' && Object.prototype.hasOwnProperty.call(WORKBENCH_LAYOUTS, name) && WORKBENCH_LAYOUTS[name].built ? name : 'workbench';
+}
+function workbenchSizes(layout) {
+  // The sizes each thing has in a layout, its first the one the rail opens (WORKBENCH_SIZES in the Workbench).
+  return layout === 'stage' ? {...WORKBENCH_SIZES, look: ['full'], level: ['full']} : WORKBENCH_SIZES;
+}
+
+function workbenchView(view, action, name, layout) {
   // The next {drawer, half, full} after an action: "rail" (a rail button: opens the thing in its first size, or closes
   // it when it is open there), "open" (the same without closing), "expand" (to its full view), "shrink" (back to its
   // other size), "back" (Back to the chain), "close" (that thing, wherever it is), "escape" (the full view, else the
   // lower half), "select" (a block picked in the chain: Levels gives way to the block's panel; Floor look stays and
   // follows it), "goto" (a small tile of a full view's header: everything over the chain closes).
+  // layout: the Workbench's rules by default. In Classic+ the side list is the sidebar's tab, always there: its tab
+  // never closes by a second click, and it stays beside a tool in the lower half (it is not beside the chain there).
   const v = {drawer: '', half: '', full: '', ...(view || {})};
-  const sizes = WORKBENCH_SIZES[name] || [];
+  const sizes = workbenchSizes(layout)[name] || [], sidebar = layout === 'classicplus';
   const openFull = () => { v.full = name; if (v.half && v.half !== name) v.half = ''; };
   // One thing open at a time beside or under the chain (Nick, 2026-11-23: a side list and a lower-half tool open
   // together read as confusing): a side list closes the tool under the chain, and the other way round.
-  const place = (size, thing) => { v[size] = thing; if (thing) v[size === 'drawer' ? 'half' : 'drawer'] = ''; };
+  const place = (size, thing) => { v[size] = thing; if (thing && !sidebar) v[size === 'drawer' ? 'half' : 'drawer'] = ''; };
   if (action === 'rail' || action === 'open') {
-    const size = sizes[0], toggle = action === 'rail';
+    const size = sizes[0], toggle = action === 'rail' && !(sidebar && size === 'drawer');
     if (size === 'drawer' || size === 'half') {
       if (v.full) { v.full = ''; place(size, name); } else place(size, toggle && v[size] === name ? '' : name);
     } else if (size === 'full') {
@@ -209,13 +231,13 @@ function workbenchView(view, action, name) {
   } else if (action === 'expand') {
     if (sizes.includes('full')) openFull();
   } else if (action === 'shrink') {
-    const was = v.full, size = (WORKBENCH_SIZES[was] || [])[0];
+    const was = v.full, size = (workbenchSizes(layout)[was] || [])[0];
     v.full = '';
     if (size === 'drawer' || size === 'half') place(size, was);
   } else if (action === 'back') {
     v.full = '';
   } else if (action === 'close') {
-    for (const size of ['drawer', 'half', 'full']) if (v[size] === name) v[size] = '';
+    for (const size of ['drawer', 'half', 'full']) if (v[size] === name && !(sidebar && size === 'drawer')) v[size] = '';
   } else if (action === 'escape') {
     if (v.full) v.full = ''; else v.half = '';
   } else if (action === 'select') {
@@ -226,10 +248,45 @@ function workbenchView(view, action, name) {
   return v;
 }
 
-function workbenchRailOn(view, name) {
-  // Whether a rail button is lit: what the full view shows, else what is open beside or under the chain.
+function workbenchRailOn(view, name, layout) {
+  // Whether a rail button is lit: what the full view shows, else what is open beside or under the chain. (Classic+'s
+  // sidebar tabs: the tab shown, whatever else is open.)
   if (!view) return false;
+  if (layout === 'classicplus' && (WORKBENCH_SIZES[name] || [])[0] === 'drawer') return view.drawer === name;
   return view.full ? view.full === name : view.drawer === name || view.half === name;
+}
+
+// What a switch of layout keeps (Batch 4): the preset, the selected block, a rename and the unsaved state are the
+// page's own and never move; what is open moves to where the new layout has a place for it:
+//   to Classic+: the side list shown (else WORKBENCH_SIDE_FIRST, the Presets tab), the lower half, the full view;
+//   to the Workbench: a side list and a tool in the lower half are never open together there: the tool stays;
+//   to the stage: a lower-half tool opens as its full view (the stage has no lower half), a side list stays.
+const WORKBENCH_SIDE_FIRST = 'presets';
+function workbenchSwitch(view, to) {
+  const v = {drawer: '', half: '', full: '', ...(view || {})};
+  const sizes = workbenchSizes(to);
+  for (const size of ['drawer', 'half', 'full']) if (v[size] && !(sizes[v[size]] || []).includes(size)) {
+    // (a thing with no such size in the new layout: its full view when it has one, else it closes)
+    if (size !== 'full' && (sizes[v[size]] || []).includes('full') && !v.full) v.full = v[size];
+    v[size] = '';
+  }
+  if (to === 'classicplus' && !v.drawer) v.drawer = WORKBENCH_SIDE_FIRST;
+  if (to === 'workbench' && v.drawer && v.half) v.drawer = '';
+  return v;
+}
+
+// Where things are drawn in a layout for a view: {rail: the rail's form ('rail' | 'side' | 'glass'), drawer: the side
+// list shown ('' none), half, full, chain: the chain and the block's panel are shown, sidebar: Classic+'s sidebar}.
+function workbenchPlaces(layout, view) {
+  const v = {drawer: '', half: '', full: '', ...(view || {})}, plus = layout === 'classicplus', stage = layout === 'stage';
+  return {
+    rail: plus ? 'side' : stage ? 'glass' : 'rail',
+    sidebar: plus,
+    drawer: v.drawer && (plus || !v.full) ? v.drawer : '',
+    half: !v.full && !stage ? v.half : '',
+    full: v.full,
+    chain: !v.full,
+  };
 }
 
 // ---- Levels: from a scan to what Apply sets (the library page's own sums, library_card.html renderLevel) ------------
@@ -439,7 +496,8 @@ function workbenchSlotUsers(usage, slot, loaded) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
-                     WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
+                     WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved,
+                     WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
                      workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, workbenchPreviewOn, WORKBENCH_PREVIEW_END_WAIT_MS, WORKBENCH_PREVIEW_STEP_MS, workbenchSaveHold, WORKBENCH_BACK_MS,
 
  WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
