@@ -30,7 +30,7 @@ APP_FILES = (
     'library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
     'nav_resources.py', 'nav_banner.js', 'target_binding.js',
     'nam_sidebar.py', 'nam_sidebar.js', 'NamLibrary.cs', 'floor_memory.py', 'capture_icons.py',
-    'dsp_meter.py', 'dsp_meter.js', 'window_keep.js', 'menu_row.js', 'floor_store.py',
+    'dsp_meter.py', 'dsp_meter.js', 'window_keep.js', 'menu_row.js', 'menu_dark.js', 'floor_store.py',
     'focus_view.py', 'focus_view.js', 'focus_view.cs', 'focus_view.html',
     'pane_controls.js', 'workbench.py', 'workbench.html', 'workbench_layout.js', 'dsp_costs.py', 'window_frame.py',
 )

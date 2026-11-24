@@ -17,6 +17,9 @@ lookup; ``on_kept`` tells it which menu that is, before the row goes and after i
 The Workbench's menu has a switch ("Show HX Edit's menu bar", settings.json "workbenchMenuBar") for the menus
 themselves (Preferences, Command Center, Global EQ, Help). Nothing here talks to the device.
 
+While the row is on the window it is drawn dark too: that is done inside HX Edit (menu_dark.js), and ``on_dark`` tells
+it when, before the frame is asked to redraw.
+
 The row stays by default (the launcher asks for it away only when that setting is false). Seen live 2026-11-23:
 HX Edit keeps its window's size as the height of what is inside the frame ("UIHeight" in its own HX Edit.prefs) and
 makes the window that much plus a menu row at its next launch. With the row away the inside is one row (20 px)
@@ -84,12 +87,14 @@ class WindowFrame:
     covered: one of our panes is shown (a dark title bar; the menu row away unless menu_bar, and only once
     allow_menu(True) said HX Edit's script stands in for it). Asking twice changes nothing. The window is the one
     focus_view.js reports (set_window); until it is known nothing is done.
-    on_kept(handle): the menu taken off the window (0: none), for menu_row.js."""
+    on_kept(handle): the menu taken off the window (0: none), for menu_row.js.
+    on_dark(window, on): the frame goes dark or plain, for menu_dark.js (the menu row in the same colours)."""
 
-    def __init__(self, api=None, trace=None, on_kept=None):
+    def __init__(self, api=None, trace=None, on_kept=None, on_dark=None):
         self.api = api
         self.trace = trace or (lambda value: None)
         self.on_kept = on_kept or (lambda handle: None)
+        self.on_dark = on_dark or (lambda window, on: None)
         self.window = None
         self.dark = False
         self.kept = 0                  # HX Edit's own menu handle while its row is away
@@ -118,6 +123,7 @@ class WindowFrame:
                 return False
             api, window, covered = self.api, self.window, bool(covered)
             if covered != self.dark:
+                self.on_dark(window, covered)          # menu_dark.js first: the redraw below draws the row in its new colours
                 took = api.attribute(window, DARK_MODE, 1 if covered else 0) or api.attribute(window, DARK_MODE_OLD, 1 if covered else 0)
                 colours = [api.attribute(window, attribute, value if covered else DEFAULT_COLOUR)
                            for attribute, value in ((CAPTION_COLOUR, CAPTION), (TEXT_COLOUR, TEXT), (BORDER_COLOUR, BORDER))]

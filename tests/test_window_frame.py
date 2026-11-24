@@ -55,11 +55,13 @@ class FakeWindows:
 class WindowFrameTests(unittest.TestCase):
     def frame(self, menu_ok=True, **options):
         self.api = FakeWindows(**options)
-        self.traced, self.kept = [], []
+        self.traced, self.kept, self.darkened = [], [], []
 
         def kept(handle):                         # (what menu_row.js is told, with the window's menu at that moment)
             self.kept.append((handle, self.api.menu_of[100]))
-        frame = WindowFrame(api=self.api, trace=self.traced.append, on_kept=kept)
+        def dark(window, on):                     # (what menu_dark.js is told, and what the frame had been asked by then)
+            self.darkened.append((window, on, len(self.api.calls)))
+        frame = WindowFrame(api=self.api, trace=self.traced.append, on_kept=kept, on_dark=dark)
         frame.set_window(7)                       # (any window of HX Edit's: the frame is its top one's)
         frame.allow_menu(menu_ok)
         return frame
@@ -101,6 +103,15 @@ class WindowFrameTests(unittest.TestCase):
         self.assertEqual(self.kept, [(55, 55)])                                    # told while the menu is still on the window
         frame.apply(False, False)
         self.assertEqual(self.kept, [(55, 55), (0, 55)])                           # and "none" once it is back
+
+    def test_the_menu_rows_own_drawing_hears_first(self):
+        # menu_dark.js draws the row dark inside HX Edit: it is told before the frame is asked to redraw, and once
+        frame = self.frame()
+        frame.apply(True, True)
+        frame.apply(True, True)
+        self.assertEqual(self.darkened, [(100, True, 0)])
+        frame.apply(False, True)
+        self.assertEqual([(window, on) for window, on, _ in self.darkened], [(100, True), (100, False)])
 
     def test_asking_twice_changes_nothing(self):
         frame = self.frame()
