@@ -1726,9 +1726,10 @@ let snapGroup = null;                                         // which four snap
 function drawBar() {
   const preset = state.preset;
   $('presetNum').textContent = preset ? String(preset.number).padStart(3, '0') : '';
-  $('presetName').textContent = preset ? preset.name || '' : 'Waiting for HX Edit';
+  $('presetName').textContent = preset ? presetShownName() : 'Waiting for HX Edit';
+  $('presetName').title = pendingHere() ? 'Renamed here: the Floor gets this name at the next Save' : '';
   $('setlist').textContent = preset && Number.isInteger(preset.setlist) ? setlistName(preset.setlist) :' ';
-  $('edited').hidden = !unsaved();
+  $('edited').hidden = !changedHere();
   // (the setlist's own name over the preset's: "USER 1"; the list once the loaded setlist's names or the setlists are known)
   const listed = !!preset && (!!loadedPresets() || setlistNames().length > 0);
   $('presetButton').disabled = !listed;
@@ -1779,7 +1780,7 @@ function fillPresets() {
   shownPresets = key;
   const row = (index, pinned) => {
     const button = el('button', (index === at ? 'cur' : '') + (pinned ? ' pinned' : ''));
-    button.append(el('span', 'num', String(index).padStart(3, '0')), el('span', '', names[index]));
+    button.append(el('span', 'num', String(index).padStart(3, '0')), el('span', '', pendingRow(index, names)));
     if (pinned) button.title = 'Pinned';
     button.onclick = () => { closePresets(); if (index !== at) loadPreset(presetTarget(index)); };
     return button;
@@ -1828,12 +1829,20 @@ function closePresets() {
 // (workbenchNameTyped: 16 / 10 printable characters). A snapshot's name is the edit buffer's (focus_view
 // checked_rename -> target_binding renameSnapshot): one undo step, the unsaved dot shows, Save keeps it, and the
 // page shows the new name until HX Edit's own reading has it (or says it could not, after RENAME_WAIT_MS).
-// A preset's name is held (options.presetRename): HX Edit renames a preset only in the Floor's stored copy, at once
-// and with no Undo (its Librarian's "rename preset", static study 2026-11-24), never in the edit buffer, so the box
-// says so and changes nothing until that is decided.
-let naming = null, renamed = null;
+// A preset's name (Nick, 2026-11-24: "rename at the next Save"): HX Edit renames a preset only in the copy stored on
+// the Floor (its Librarian's "rename preset"), never in the edit buffer. So Enter keeps the new name pending for that
+// preset only (pendingName: shown at once with the unsaved dot, nothing sent); the Workbench's Save (its button, Ctrl+S
+// in the pane, "Save, then load") runs HX Edit's Save, then asks for the stored copy to be renamed (savePreset ->
+// "rename" {what: 'preset', setlist, number, name} -> setlists.js renamePreset) and the script reads it back
+// (state.presetRename). Leaving the preset unsaved drops it, as any other unsaved change; Enter with the stored name
+// clears it. Without the script's rename (state.presetRenameReady false) the box says so and keeps nothing.
+let naming = null, renamed = null, pendingName = null, renameAsked = null;
 const RENAME_WAIT_MS = 3000;
-const PRESET_RENAME_HELD = 'The preset was not renamed. HX Edit renames a preset only in the copy stored on the Floor, at once and with no Undo; renaming it here waits for that to be decided.';
+const PRESET_RENAME_UNAVAILABLE = 'This copy cannot rename a preset: HX Edit’s Presets list could not be reached. Nothing was kept.';
+const pendingHere = () => workbenchPendingHere(pendingName, presetWord());
+const presetShownName = () => { const p = pendingHere(); return p ? p.name : String((state && state.preset && state.preset.name) || ''); };
+// (a row of the preset lists for the loaded preset: its pending name, marked as not saved)
+const pendingRow = (index, names) => lookingAt() === null && pendingHere() && state.preset && index === state.preset.number ? pendingHere().name + ' (not saved)' : names[index];
 const PEN = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.5l3 3-8 8H2.5v-3z"/><path d="M9 4l3 3"/></svg>';
 function nameHint(anchor, parts) {
   const top = $('top'), hint = el('div', 'namehint');
@@ -1847,7 +1856,7 @@ const textHint = words => { const span = el('span', '', words); return span.oute
 function startRename(what, index) {
   if (!visible || !state || !state.preset || naming || leaving) return;
   const limit = WORKBENCH_NAME_LIMITS[what];
-  const before = what === 'preset' ? String(state.preset.name || '') : (state.snapshots || [])[index];
+  const before = what === 'preset' ? presetShownName() : (state.snapshots || [])[index];
   if (!limit || typeof before !== 'string') return;
   const button = what === 'snapshot' ? $('snaps').querySelector('button[data-index="' + index + '"]') : $('presetButton');
   if (!button) return;
@@ -1872,8 +1881,9 @@ function startRename(what, index) {
       renamed = {index, name, preset: presetWord(), until: Date.now() + RENAME_WAIT_MS};
       ask('rename', {what: 'snapshot', index, name});
       setTimeout(() => { if (state) drawBar(); }, RENAME_WAIT_MS + 100);
-    } else if (name && options.presetRename) ask('rename', {what: 'preset', name});
-    else if (name) toast(PRESET_RENAME_HELD);
+    } else if (name && state.presetRenameReady !== true) toast(PRESET_RENAME_UNAVAILABLE);
+    else if (name) pendingName = workbenchPendingNamed(presetWord(), name, state.preset.name);   // (the stored name again: nothing pending)
+    if (name) { shownPresets = ''; shownDrawer = ''; shownGrid = ''; render(); }
     if (state) drawBar();
   };
   input.onkeydown = e => {
@@ -1888,7 +1898,7 @@ function startRename(what, index) {
     box = el('span', 'namebox'); box.style.cssText = 'max-width:none;overflow:visible'; box.append(input, count);
     button.classList.add('naming'); $('presetName').hidden = true; $('presetName').after(box);
     hint = nameHint(input, [kbdHint('Enter', 'rename'), kbdHint('Esc', 'keep the old name'),
-      textHint(options.presetRename ? 'The Floor shows it once you Save the preset.' : 'Not connected yet: Enter changes nothing (see the note).')]);
+      textHint(state.presetRenameReady === true ? 'The Floor shows it once you Save the preset. It is not an Undo step.' : 'This copy cannot rename a preset.')]);
   } else {
     button.classList.add('naming');
     button.replaceChildren(el('b', 'num', String(index + 1)), input, count);
@@ -1915,9 +1925,21 @@ function snapshotShown(index, name) {
 let savedMark = {key: '', at: null}, leaving = false;
 const presetWord = () => state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
 const unsaved = () => !!state && workbenchUnsaved(state.undoAt, presetWord(), savedMark);
+const changedHere = () => unsaved() || !!pendingHere();          // (a pending name is an unsaved change too)
 function savePreset() {
   if (state && state.preset && typeof state.undoAt === 'number') savedMark = {key: presetWord(), at: state.undoAt};
   ask('save');
+  // A pending name: HX Edit's Save first, then the stored copy renamed (asked before anything a "Save, then load" asks
+  // next: its timer is set after this one), and only while that preset is still the loaded one.
+  const pending = pendingHere();
+  if (pending && state.preset) {
+    const ask_ = {key: pending.key, setlist: state.preset.setlist, number: state.preset.number, name: pending.name};
+    renameAsked = ask_;
+    setTimeout(() => {
+      if (presetWord() === ask_.key && renameAsked === ask_) ask('rename', {what: 'preset', setlist: ask_.setlist, number: ask_.number, name: ask_.name});
+      else if (renameAsked === ask_) renameAsked = null;
+    }, SAVE_WAIT_MS);
+  }
   drawBar();
 }
 const SAVE_WAIT_MS = 2000;                                    // what a Save gets before the next preset is asked for (1.5 s was enough live)
@@ -1925,7 +1947,7 @@ function loadPreset(target) {
   // target: a preset's number in the loaded setlist, 'previous' / 'next' (the top bar's arrows), or {setlist, number}:
   // a preset of another setlist looked at (Batch 3; HX Edit's list loads it)
   if (leaving) return;
-  if (!unsaved()) { ask('preset', target); return; }
+  if (!changedHere()) { ask('preset', target); return; }
   const other = !!target && typeof target === 'object', number = other ? target.number : target;
   const names = (other ? namesIn(target.setlist).names : loadedPresets()) || [], three = n => String(n).padStart(3, '0'), now = state.preset;
   const there = Number.isInteger(number) ? three(number) + ' ' + (names[number] || '') + (other ? ' in ' + setlistName(target.setlist) : '') : 'the ' + target + ' preset';
@@ -2281,7 +2303,7 @@ function drawPresetDrawer(box) {
     const name = names[index], number = String(index).padStart(3, '0');
     if (query && !String(name).toLowerCase().includes(query) && !number.includes(query)) return;
     const button = el('button', 'prow' + (index === at ? ' cur' : '') + (isBlank(name) ? ' blank' : '') + (pinned ? ' pinned' : ''));
-    button.append(el('span', 'num', number), el('span', '', name));
+    button.append(el('span', 'num', number), el('span', '', pendingRow(index, names)));
     if (pinned) button.firstChild.classList.add('pinmark');                    // (a pinned one's number is gold)
     button.title = number + ' ' + name + (isPinned(index, shown) ? ' (pinned)' : '');
     button.onclick = () => { if (index !== at) loadPreset(presetTarget(index)); };
@@ -2436,7 +2458,7 @@ function drawPresetGrid() {
     if (hideBlank && blank && number !== at) return null;
     const b = el('button', 'pc' + (blank ? ' blank' : '') + (number === at ? ' on' : '') + (hit ? ' hit' : ''));
     if (q && !hit) b.style.opacity = '.3';
-    b.append(el('small', 'num', number3(number)), el('b', '', name));
+    b.append(el('small', 'num', number3(number)), el('b', '', pendingRow(number, names)));
     b.title = number3(number) + ' ' + name + (number === at ? ' (loaded)' : ': click to load it');
     const mark = el('span', 'pin' + (isPinned(number, shown) ? '' : ' off')); mark.innerHTML = STAR;
     mark.title = isPinned(number, shown) ? 'Pinned: click to unpin' : 'Pin it (it then sits at the top of the preset lists)';
@@ -2456,8 +2478,8 @@ function drawPresetGrid() {
   if (preset) {
     const top = el('div'), h = el('h3');
     top.append(el('h5', '', 'Loaded now' + (setlist === null ? '' : ' · ' + setlistName(setlist))));
-    h.append(el('b', 'num', number3(preset.number)), el('span', '', preset.name || ''));
-    if (unsaved()) { const dot = el('u'); dot.title = 'Changed, and not saved to the Floor'; h.append(dot); }
+    h.append(el('b', 'num', number3(preset.number)), el('span', '', presetShownName() + (pendingHere() ? ' (not saved)' : '')));
+    if (changedHere()) { const dot = el('u'); dot.title = 'Changed, and not saved to the Floor'; h.append(dot); }
     top.append(h); side.append(top);
     reusable = gather(body.querySelector('.pd'));
     try {
@@ -3757,6 +3779,16 @@ function receive(message) {
     state = message.state;
     const after = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
     if (before !== after) snapGroup = null;
+    // (a pending preset name is for that preset only: leaving it unsaved drops it; the outcome of a rename asked after
+    // a Save: done, the stored name is the Floor's now; not done, said so and the old name shows)
+    if (before !== after) pendingName = null;
+    const outcome = state.presetRename;
+    if (renameAsked && outcome && outcome.setlist === renameAsked.setlist && outcome.number === renameAsked.number && outcome.name === renameAsked.name && outcome.state !== 'asked') {
+      if (outcome.state === 'failed') toast('HX Edit did not rename ' + number3(renameAsked.number) + ' on the Floor. Its name is as it was.');
+      if (pendingName && pendingName.key === renameAsked.key) pendingName = null;
+      renameAsked = null; shownPresets = ''; shownDrawer = ''; shownGrid = '';
+    }
+
     // (Batch 3: the loaded setlist's names are kept while HX Edit's list shows another; each setlist read is kept for
     // the counts beside its name; a preset of the setlist looked at was loaded: it is the loaded one now)
     if (Array.isArray(state.presets) && state.presets.length && setlistOf() !== null) { loadedNames = {setlist: setlistOf(), names: state.presets}; seenNames[setlistOf()] = state.presets; }
@@ -3822,6 +3854,9 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'F2' && visible && !e.target.closest('input, textarea')) { e.preventDefault(); startRename('preset'); return; }
+  // Ctrl+S in the pane: the Workbench's own Save (HX Edit's Save, then a pending preset name; the pane's browser keys are
+  // off, so nothing else takes it). HX Edit's own Ctrl+S and File > Save Preset do not rename a pending name.
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === 's' && visible && !naming && !leaving) { e.preventDefault(); savePreset(); return; }
   if (e.key !== 'Escape' || !visible) return;
   if (!$('presetList').hidden) closePresets(); else if (!$('menu').hidden) closeMenu(); else if (picking && !view.full) closePicker();
   else if (view.full || view.half) setView('escape');

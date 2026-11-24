@@ -682,10 +682,13 @@ class FocusView:
     def checked_rename(self, value):
         """The Workbench's name box, as the command for focus_view.js, or None. Only a snapshot of the loaded preset,
         renamed in the edit buffer ({what: 'snapshot', index, name}: the Floor's 10 printable characters, not the name
-        it has now). A preset's own name is not renamed this way: HX Edit renames a preset only on the Floor's stored
-        copy (its Librarian, "rename preset"), never in the edit buffer, so that waits for a decision (BACKLOG)."""
+        it has now). A preset's own name ({what: 'preset', ...}): HX Edit renames a preset only on the Floor's stored
+        copy (its Librarian, "rename preset"), never in the edit buffer, so the page keeps it pending and asks for it
+        right after HX Edit's own Save (_checked_preset_rename)."""
         state = self.state if isinstance(self.state, dict) else {}
         names = state.get('snapshots') or []
+        if isinstance(value, dict) and value.get('what') == 'preset':
+            return self._checked_preset_rename(state, value)
         if not isinstance(value, dict) or value.get('what') != 'snapshot':
             return None
         index, name = value.get('index'), value.get('name')
@@ -694,6 +697,25 @@ class FocusView:
         if not isinstance(name, str) or not self.NAME.fullmatch(name) or name != name.rstrip() or name == names[index]:
             return None
         return {'action': 'rename', 'what': 'snapshot', 'index': index, 'name': name}
+
+    PRESET_NAME = re.compile(r'[\x20-\x7e]{1,16}')
+
+    def _checked_preset_rename(self, state, value):
+        # The Workbench's pending preset name (Nick, 2026-11-24: "rename at the next Save"), asked right after HX Edit's
+        # own Save: {what: 'preset', setlist, number, name}. Only the loaded preset (the one just saved), only a name the
+        # Floor keeps (16 printable characters, no space at its end) that differs from its name now, and only when the
+        # script says it can (state "presetRenameReady": its guards held, HX Edit's Librarian model is there).
+        preset = state.get('preset') if isinstance(state.get('preset'), dict) else {}
+        setlist, number, name = value.get('setlist'), value.get('number'), value.get('name')
+        if state.get('presetRenameReady') is not True:
+            return None
+        if any(isinstance(n, bool) or not isinstance(n, int) for n in (setlist, number)):
+            return None
+        if (setlist, number) != (preset.get('setlist'), preset.get('number')) or not 0 <= setlist <= 7 or not 0 <= number <= 127:
+            return None
+        if not isinstance(name, str) or not self.PRESET_NAME.fullmatch(name) or name != name.rstrip() or name == preset.get('name'):
+            return None
+        return {'action': 'presetRename', 'setlist': setlist, 'number': number, 'name': name}
 
     def checked_preset(self, value):
         """The page's request for another preset of the loaded setlist, as the command for focus_view.js, or None:

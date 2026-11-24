@@ -369,6 +369,11 @@ function installFocusView(options, parts) {
   // The Workbench's Floor slots (Batch 3): what User IR 128 holds (its name, each full reading), and a Clear asked of
   // HX Edit until the slots read empty (CLEAR_MS at most).
   let slot128 = '', clearing = null;
+  // A preset's stored copy renamed right after HX Edit's Save (setlists.js renamePreset), followed until HX Edit shows
+  // the name (the loaded preset's header, or its row in HX Edit's list) or RENAME_PRESET_MS has passed: the outcome stays
+  // in the state ("presetRename") for the page until the next one.
+  let renaming = null;
+  const RENAME_PRESET_MS = 8000;
   const CLEAR_MS = 8000;
   const CLEAR_REFUSED = {
     used: slots => `Slot ${slots.join(', ')} ${slots.length === 1 ? 'is' : 'are'} used by the loaded preset, so nothing was cleared. Load a preset that does not use ${slots.length === 1 ? 'it' : 'them'}, then clear again.`,
@@ -419,7 +424,10 @@ function installFocusView(options, parts) {
       try { word = setlists.explain(); } catch (error) { word = 'explain-failed: ' + String(error.message).slice(0, 60); }
       if (word !== setlistsWord) { setlistsWord = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'setlists', result: word}); }
     }
-    return {preset, snapshots, presets, tempo: typeof tempo === 'number' && Number.isFinite(tempo) ? tempo : null, topology, setlists: lists};
+    // (a preset's name can be renamed only when HX Edit's Librarian model is there and its guards held: setlists.js)
+    let renameReady = false;
+    try { renameReady = !!(setlists && setlists.canRename()); } catch (_) { renameReady = false; }
+    return {preset, snapshots, presets, tempo: typeof tempo === 'number' && Number.isFinite(tempo) ? tempo : null, topology, setlists: lists, renameReady};
   }
   // Value writes from the pane, and the drag HX Edit has been told has begun (ended by us if the pane never does).
   const writes = [];
@@ -680,6 +688,13 @@ function installFocusView(options, parts) {
           loadingIn = {setlist: command.setlist, number: command.number, until: Date.now() + LOAD_IN_MS};
           changed = true;
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-in', setlist: command.setlist, number: command.number});
+        } else if (command.action === 'presetRename') {
+          // The Workbench's pending name, asked right after HX Edit's own Save of that preset (the page's Save): the copy
+          // stored on the Floor is renamed as HX Edit's list renames it (operation 3), then read back.
+          renaming = {setlist: command.setlist, number: command.number, name: command.name, until: Date.now() + RENAME_PRESET_MS, state: 'asked'};
+          setlists.renamePreset(command.setlist, command.number, command.name);
+          changed = true;
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-rename', setlist: command.setlist, number: command.number});
         } else if (command.action === 'clear') {
           // The Workbench's Floor slots: Clear, after the player said so there (nam_view clearSlotsChecked: HX Edit's
           // own Clear, never a slot the loaded preset uses). Followed until the slots read empty.
@@ -705,6 +720,7 @@ function installFocusView(options, parts) {
         // (a look that could not be asked: the page says that setlist could not be read; a load: said at once)
         if (command.action === 'look') looking = {setlist: command.setlist, at: Date.now(), state: 'failed'};
         if (command.action === 'presetIn') { loadingIn = null; send({type: 'dspNotice', text: 'HX Edit did not load that preset: ' + String(error.message)}); }
+        if (command.action === 'presetRename' && renaming) renaming = {...renaming, state: 'failed', error: String(error.message).slice(0, 80)};
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
@@ -738,6 +754,17 @@ function installFocusView(options, parts) {
       state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots; state.tempo = header.tempo; state.topology = header.topology;
       state.setlists = header.setlists;
       state.slot128 = slot128 ? {name: slot128} : null;
+      state.presetRenameReady = header.renameReady === true;
+      if (renaming && renaming.state === 'asked') {
+        // read back: the loaded preset's own name (when it is still that preset), or its row in HX Edit's list
+        const here = header.preset && header.preset.setlist === renaming.setlist && header.preset.number === renaming.number;
+        let row = null;
+        try { if (setlists.shown() === renaming.setlist) { const rows = namView.presetNames?.(); if (Array.isArray(rows)) row = String(rows[renaming.number] ?? '').trim(); } } catch (_) { row = null; }
+        if ((here && header.preset.name === renaming.name) || row === renaming.name) renaming = {...renaming, state: 'ok'};
+        else if (Date.now() > renaming.until) renaming = {...renaming, state: 'failed', error: 'not seen'};
+        if (renaming.state !== 'asked') send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-rename-' + renaming.state, header: here ? header.preset.name : null, row});
+      }
+      state.presetRename = renaming ? {setlist: renaming.setlist, number: renaming.number, name: renaming.name, state: renaming.state} : null;
       if (clearing) {
         let left = clearing.slots;
         try { left = clearing.slots.filter(slot => !namView.slotEmpty(slot)); } catch (_) { left = clearing.slots; }
@@ -843,7 +870,7 @@ function installFocusView(options, parts) {
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null; downFollow = null;
     pickKey = null; pickTries = 0;
     header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null], setlists: null};
-    looking = null; loadingIn = null; slot128 = ''; clearing = null;
+    looking = null; loadingIn = null; slot128 = ''; clearing = null; renaming = null;
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }
     send({type: 'toneTrace', reason: 'focus-view', stage: on ? 'on' : 'off'});
   }
@@ -904,6 +931,11 @@ function installFocusView(options, parts) {
       } else if (on && setlists && value.action === 'presetIn' && Number.isInteger(value.setlist) && value.setlist >= 0 && value.setlist <= 7 &&
                  Number.isInteger(value.number) && value.number >= 0 && value.number <= 127 && writes.length < 32) {
         writes.push({action: 'presetIn', setlist: value.setlist, number: value.number});
+        queued = false; ask();
+      } else if (on && setlists && value.action === 'presetRename' && Number.isInteger(value.setlist) && value.setlist >= 0 && value.setlist <= 7 &&
+                 Number.isInteger(value.number) && value.number >= 0 && value.number <= 127 && typeof value.name === 'string' &&
+                 /^[\x20-\x7e]{1,16}$/.test(value.name) && writes.length < 32) {
+        writes.push({action: 'presetRename', setlist: value.setlist, number: value.number, name: value.name});
         queued = false; ask();
       } else if (on && value.action === 'clear' && Array.isArray(value.slots) && value.slots.length >= 1 && value.slots.length <= 128 &&
                  value.slots.every(slot => Number.isInteger(slot) && slot >= 1 && slot <= 128) && new Set(value.slots).size === value.slots.length &&

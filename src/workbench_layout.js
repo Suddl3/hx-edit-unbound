@@ -317,6 +317,18 @@ function workbenchNameDone(text, before, limit) {
   return name && name !== String(before == null ? '' : before).replace(/\s+$/, '') ? name : null;
 }
 
+// A preset's new name is kept pending until the next Save (Nick, 2026-11-24: HX Edit renames only the copy stored on
+// the Floor, so the Workbench renames it right after HX Edit's Save): {key: "setlist:number", name}, for that preset
+// only. Enter with the stored name again: nothing pending.
+function workbenchPendingNamed(key, name, stored) {
+  const clean = String(name == null ? '' : name).replace(/\s+$/, '');
+  return !key || !clean || clean === String(stored == null ? '' : stored).replace(/\s+$/, '') ? null : {key, name: clean};
+}
+// The pending name of the preset loaded now (key), or null: a pending name never follows to another preset.
+function workbenchPendingHere(pending, key) {
+  return pending && key && pending.key === key ? pending : null;
+}
+
 // ---- setlists (Batch 3) ----------------------------------------------------------------------------------------------
 // A setlist's own name as HX Edit's chooser holds it ("USER 1"), or "Setlist 3" while the names are not known.
 function workbenchSetlistName(names, index) {
@@ -363,6 +375,6 @@ function workbenchSlotUsers(usage, slot, loaded) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
-                     workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
+                     workbenchPendingNamed, workbenchPendingHere, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

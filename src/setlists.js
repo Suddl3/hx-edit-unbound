@@ -18,6 +18,11 @@
 //   HX Edit's own chooser is then shown that setlist (0x3bcb20(index, 1, 0), as HX Edit does after it fills it).
 // - A double-click on a preset of the list ("plst", "dbl!", 0x244ac8): the model's 0x3f89c0(setlist, index), the
 //   Librarian operation 29, "load preset": what HX Edit's own list does to load a preset of the setlist it shows.
+// - Renaming a preset (Batch 3, Nick 2026-11-24: "rename at the next Save"): HX Edit renames a preset only in the copy
+//   stored on the Floor, as its list's inline box does at its end ("plst", "cbl!", 0x244ae4): a String made from the
+//   text (0x1a1640(this, text, 1): copied), then the model's 0x3fb7a0(setlist, index, &String) = the Librarian
+//   operation 3, "rename preset" (0x3fb8a8 setlist, 0x3fb93c index, 0x3fb9f2 the name, copied), and the String
+//   destroyed (0x1a0120). Not the edit buffer, no undo: the Workbench asks it only right after HX Edit's own Save.
 // Every call is made on HX Edit's UI thread (the caller's job: focus_view.js's reading runs there), only on the
 // controller found by its own constructor and vtable, and only for a setlist the chooser lists.
 //
@@ -45,6 +50,14 @@ const setlistGuards = Object.freeze({
   '3ac030': '558bec81c1500100005de9',     // the chooser's item: add ecx, 0x150; jmp 0x386220
   '386220': '558bec8b417c8b4d083b4808730e8b400485c0740d8b0488',   // items at [+0x7c]+4, count at +8
   '3bcb20': '558bec807d1000b8',           // the chooser's selection (index, 1, 0)
+  '3fb7a0': '558bec6aff',                 // the model's "rename preset" (operation 3)
+  '3fb80b': 'c745d803000000',             //   operation = 3
+  '3fb8a8': '8b4508c745c00500',           //   its first argument is the setlist
+  '3fb93c': '8b450cc745b00500',           //   its second, the preset's index
+  '3fb9f2': 'ff75108bce',                 //   its third, the name (a String, copied)
+  '244ae4': '6a01ff75108d4dece84fcbf5ff', // HX Edit's own: String(text, 1) at the end of the list's inline box
+  '1a1640': '558bec8a450c538b',           // the String made from a text
+  '1a0120': '558bec6aff',                 // and destroyed
 });
 const SETLIST_CONTROLLER_VTABLE = 0x8e0b24;
 const SETLIST_DEVICE_LAST = Object.freeze({0x210005: 0x7f, 0x210006: 0x7d});   // the last preset HX Edit asks for (else 0x7f)
@@ -83,6 +96,9 @@ function installSetlists() {
   const askSetlistNames = method(0x3fcbc0, 'void', ['int', 'int']);
   const loadPreset = method(0x3f89c0, 'void', ['int', 'int']);
   const selectItem = method(0x3bcb20, 'void', ['int', 'int', 'int']);
+  const renameStored = method(0x3fb7a0, 'void', ['int', 'int', 'pointer']);
+  const makeString = method(0x1a1640, 'pointer', ['pointer', 'int']);
+  const dropString = method(0x1a0120, 'void', []);
   const vtable = base.add(SETLIST_CONTROLLER_VTABLE);
   let controller = NULL, via = '', asks = 0, askedAt = 0;
   const usable = object => { try { return !object.isNull() && object.readPointer().equals(vtable); } catch (_) { return false; } };
@@ -183,7 +199,20 @@ function installSetlists() {
     loadPreset(found.model, setlist, number);
     return true;
   }
-  return {names, shown, look, load, explain, askNames, ready: () => !!parts().chooser};
+  function renamePreset(setlist, number, name) {
+    // The copy of a preset stored on the Floor renamed, as HX Edit's list's inline box renames it (operation 3).
+    // Only a name the Floor keeps (16 printable characters). UI thread only; the caller reads the result back.
+    const found = parts();
+    if (!found.model) throw new Error('HX Edit\'s Presets list is not ready');
+    if (!Number.isInteger(setlist) || setlist < 0 || setlist > 7 || !Number.isInteger(number) || number < 0 || number > 127) throw new Error('no such preset');
+    if (typeof name !== 'string' || !/^[\x20-\x7e]{1,16}$/.test(name)) throw new Error('not a name the Floor keeps');
+    const text = Memory.allocUtf8String(name), string = Memory.alloc(16);
+    makeString(string, text, 1);
+    try { renameStored(found.model, setlist, number, string); }
+    finally { dropString(string); }
+    return true;
+  }
+  return {names, shown, look, load, explain, askNames, renamePreset, canRename: () => !!parts().model, ready: () => !!parts().chooser};
 }
 
 if (typeof module !== 'undefined' && module.exports) {

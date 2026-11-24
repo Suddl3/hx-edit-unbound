@@ -482,7 +482,8 @@ class PresetTests(unittest.TestCase):
     def test_leaving_a_changed_preset_asks_and_save_is_hx_edits_own(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         guard = page[page.index('function loadPreset(target) {'):page.index('function openMenu() {')]
-        self.assertIn("if (!unsaved()) { ask('preset', target); return; }", guard)
+        self.assertIn("if (!changedHere()) { ask('preset', target); return; }", guard)     # (Batch 3: a pending name counts)
+
         for words in ("'Stay here'", "'Save, then load '", "has unsaved changes"):
             self.assertIn(words, guard)
         self.assertIn("if (answer === 'drop') ask('preset', target);", guard)
@@ -492,7 +493,8 @@ class PresetTests(unittest.TestCase):
         self.assertIn('const SAVE_WAIT_MS = 2000;', page)
         self.assertEqual(page.count("ask('save')"), 1)                                    # only savePreset asks it
         self.assertIn("$('save').onclick = savePreset;", page)
-        self.assertIn("$('edited').hidden = !unsaved();", page)
+        self.assertIn("$('edited').hidden = !changedHere();", page)                     # (Batch 3: or a pending name)
+
         # a preset starts unchanged from where HX Edit's undo position stands when it is loaded; a Save moves the mark
         self.assertIn("if (before !== after || savedMark.key !== after || (typeof savedMark.at !== 'number' && typeof state.undoAt === 'number')) savedMark = {key: after, at: state.undoAt};", page)
         self.assertIn("savedMark = {key: presetWord(), at: state.undoAt};", page)

@@ -63,7 +63,7 @@ class RenameTests(unittest.TestCase):
                         {'what': 'snapshot', 'index': 1, 'name': 'Eleven char'}, {'what': 'snapshot', 'index': 1, 'name': ''},
                         {'what': 'snapshot', 'index': 1, 'name': 'Café'}, {'what': 'snapshot', 'index': 1, 'name': 'Rhythm '},
                         {'what': 'snapshot', 'index': 1, 'name': 'Crunch'},       # its name now
-                        {'what': 'preset', 'name': 'New Name'},                  # held: HX Edit renames only the stored copy
+                        {'what': 'preset', 'name': 'New Name'},                  # a preset: its own check (setlist, number)
                         {'what': 'snapshot', 'index': 1}, 'Crunch', None):
             self.assertIsNone(check(refused), refused)
 
@@ -78,9 +78,10 @@ class RenameTests(unittest.TestCase):
         # (a failure says so in the pane, as for any other change of the chain)
         self.assertIn("'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice'", script)
 
-    def test_the_name_boxes_are_the_mock_ups_and_a_preset_rename_says_it_is_held(self):
+    def test_the_name_boxes_are_the_mock_ups(self):
         source = page()
-        for words in ("kbdHint('Enter', 'rename')", "kbdHint('Esc', 'keep the old name')", "'The Floor shows it once you Save the preset.'",
+        for words in ("kbdHint('Enter', 'rename')", "kbdHint('Esc', 'keep the old name')", "'The Floor shows it once you Save the preset. It is not an Undo step.'",
+
                       "'Saved with the preset. Undo takes it back.'", "kbdHint('Esc', 'keep “' + (before || 'Snapshot ' + (index + 1)) + '”')"):
             self.assertIn(words, source)
         # ways in: the pencil, a double-click, F2 for the preset
@@ -93,11 +94,10 @@ class RenameTests(unittest.TestCase):
         self.assertIn("if (e.key === 'Enter') { e.preventDefault(); done(true); }", source)
         self.assertIn("else if (e.key === 'Escape') { e.preventDefault(); done(false); }", source)
         self.assertIn('input.onblur = () => done(false);', source)
-        # a snapshot: asked of HX Edit; a preset: held unless this build says it may (it does not)
+        # a snapshot: asked of HX Edit; a preset: kept pending until the next Save (PresetRenameTests)
         self.assertIn("ask('rename', {what: 'snapshot', index, name});", source)
-        self.assertIn("else if (name && options.presetRename) ask('rename', {what: 'preset', name});", source)
-        self.assertIn('else if (name) toast(PRESET_RENAME_HELD);', source)
-        self.assertNotIn('presetRename:', launcher())
+        self.assertNotIn('PRESET_RENAME_HELD', source)
+        self.assertNotIn('options.presetRename', source)
         # while a box is open, a click on its button does not open the list or recall the snapshot
         self.assertIn("$('presetButton').onclick = () => { if (!naming) $('presetList').hidden ? openPresets() : closePresets(); };", source)
         self.assertIn("button.onclick = () => { if (!naming) ask('snapshot', index); };", source)
@@ -106,7 +106,73 @@ class RenameTests(unittest.TestCase):
 SETLISTS = ['FACTORY 1', 'FACTORY 2', 'USER 1', 'USER 2', 'USER 3', 'USER 4', 'USER 5', 'TEMPLATES']
 
 
+class PresetRenameTests(unittest.TestCase):
+    """Nick, 2026-11-24: a preset's new name is kept until the next Save, then the stored copy is renamed."""
+
+    def setUp(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe', costs_file=None)
+        self.addCleanup(self.view.close)
+        self.view.state = {'preset': {'setlist': 3, 'number': 32, 'name': 'Spare'}, 'snapshots': ['Clean'], 'presetRenameReady': True}
+
+    def test_only_the_loaded_preset_with_a_name_the_floor_keeps_and_only_when_the_script_can(self):
+        check = self.view.checked_rename
+        ask = lambda **v: check({'what': 'preset', 'setlist': 3, 'number': 32, 'name': 'Spare Test', **v})
+        self.assertEqual(ask(), {'action': 'presetRename', 'setlist': 3, 'number': 32, 'name': 'Spare Test'})
+        self.assertEqual(ask(name='Sixteen chars!!!')['name'], 'Sixteen chars!!!')
+        for refused in ({'number': 33}, {'setlist': 2}, {'setlist': True}, {'name': 'Seventeen chars!!'}, {'name': 'Spare'},
+                        {'name': 'Café'}, {'name': 'Trailing '}, {'name': ''}, {'name': None}):
+            self.assertIsNone(ask(**refused), refused)
+        self.view.state['presetRenameReady'] = False                   # the script's guards did not hold
+        self.assertIsNone(ask())
+        self.view.state['presetRenameReady'] = None
+        self.assertIsNone(ask())
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_a_pending_name_is_for_one_preset_and_the_stored_name_again_clears_it(self):
+        named = lambda *a: run_js(['workbench_layout.js'], 'workbenchPendingNamed(%s)' % ', '.join(json.dumps(x) for x in a))
+        self.assertEqual(named('3:32', 'Spare Test', 'Spare'), {'key': '3:32', 'name': 'Spare Test'})
+        self.assertIsNone(named('3:32', 'Spare', 'Spare'))              # back to the stored name: nothing pending
+        self.assertIsNone(named('3:32', 'Spare  ', 'Spare'))
+        self.assertIsNone(named('', 'Spare Test', 'Spare'))
+        here = lambda pending, key: run_js(['workbench_layout.js'], f'workbenchPendingHere({json.dumps(pending)}, {json.dumps(key)})')
+        self.assertEqual(here({'key': '3:32', 'name': 'X'}, '3:32'), {'key': '3:32', 'name': 'X'})
+        self.assertIsNone(here({'key': '3:32', 'name': 'X'}, '3:33'))  # never follows to another preset
+        self.assertIsNone(here(None, '3:32'))
+
+    def test_save_runs_first_then_the_stored_copy_is_renamed_and_read_back(self):
+        source = page()
+        save = source[source.index('function savePreset() {'):source.index('const SAVE_WAIT_MS = 2000;')]
+        self.assertLess(save.index("ask('save');"), save.index("ask('rename', {what: 'preset', setlist: ask_.setlist, number: ask_.number, name: ask_.name})"))
+        self.assertIn('if (presetWord() === ask_.key && renameAsked === ask_)', save)
+        self.assertIn('}, SAVE_WAIT_MS);', save)
+        # a pending name is an unsaved change: the dot, and the prompt before leaving; leaving drops it
+        self.assertIn('const changedHere = () => unsaved() || !!pendingHere();', source)
+        self.assertIn("$('edited').hidden = !changedHere();", source)
+        self.assertIn("if (!changedHere()) { ask('preset', target); return; }", source)
+        self.assertIn('if (before !== after) pendingName = null;', source)
+        self.assertIn("if (outcome.state === 'failed') toast('HX Edit did not rename ' + number3(renameAsked.number) + ' on the Floor. Its name is as it was.');", source)
+        # Enter: pending (or nothing, back to the stored name); without the script's rename, said so and nothing kept
+        self.assertIn("else if (name) pendingName = workbenchPendingNamed(presetWord(), name, state.preset.name);", source)
+        self.assertIn("} else if (name && state.presetRenameReady !== true) toast(PRESET_RENAME_UNAVAILABLE);", source)
+        self.assertIn("'The Floor shows it once you Save the preset. It is not an Undo step.'", source)
+        # the lists show it for the loaded preset only, marked
+        self.assertIn("pendingHere().name + ' (not saved)' : names[index];", source)
+        self.assertEqual(source.count('pendingRow('), 3)                  # the top bar's list, the drawer, the grid
+        # Ctrl+S in the pane is the Workbench's own Save
+        self.assertIn("String(e.key).toLowerCase() === 's' && visible && !naming && !leaving) { e.preventDefault(); savePreset(); return; }", source)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("value.action === 'presetRename' && Number.isInteger(value.setlist)", script)
+        self.assertIn('setlists.renamePreset(command.setlist, command.number, command.name);', script)
+        self.assertIn("if ((here && header.preset.name === renaming.name) || row === renaming.name) renaming = {...renaming, state: 'ok'};", script)
+        self.assertIn("else if (Date.now() > renaming.until) renaming = {...renaming, state: 'failed', error: 'not seen'};", script)
+        self.assertIn('state.presetRenameReady = header.renameReady === true;', script)
+
+
 class SetlistTests(unittest.TestCase):
+
     """Stage 2: the setlists by their own names; looking at another setlist loads nothing."""
 
     def setUp(self):
@@ -133,7 +199,7 @@ class SetlistTests(unittest.TestCase):
         from test_target_binding import FIXTURE, _reader
         source = (ROOT / 'setlists.js').read_text(encoding='utf-8')
         guards = re.findall(r"'([0-9a-f]+)': '([0-9a-f]+)'", source[source.index('const setlistGuards'):source.index('const SETLIST_CONTROLLER_VTABLE')])
-        self.assertEqual(len(guards), 16)
+        self.assertEqual(len(guards), 24)
         # (HX Edit.exe has a dynamic base: no absolute operand in a guard)
         for _, expected in guards:
             self.assertNotIn('ff15', expected)

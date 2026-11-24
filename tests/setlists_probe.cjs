@@ -30,8 +30,13 @@ global.Process = {arch: 'ia32', pointerSize: 4, mainModule: {base: p(BASE)}};
 global.Interceptor = {attach(at, callbacks) { hooks.set(at.value - BASE, callbacks); return {detach() {}}; }};
 global.NativeFunction = function (at) {
   const rva = at.value - BASE;
-  return (...args) => { calls.push([rva.toString(16), ...args.map(a => a instanceof Pointer ? a.value : a)]); };
+  return (...args) => {
+    // (HX Edit's String made from a text: the text kept, to see what the rename call was given)
+    if (rva === 0x1a1640) strings.set(args[0].value, strings.get(args[1].value));
+    calls.push([rva.toString(16), ...args.map(a => a instanceof Pointer ? (rva === 0x3fb7a0 && strings.has(a.value) ? 'String:' + strings.get(a.value) : a.value) : a)]);
+  };
 };
+global.Memory = {alloc: size => alloc(size), allocUtf8String: text => { const at = alloc(text.length + 1); strings.set(at.value, text); return at; }};
 
 // the pure part: names as the chooser's items give them
 assert.deepEqual(setlistNamesFrom(2, i => ['USER 1 ', 'TEMPLATES'][i]), ['USER 1', 'TEMPLATES']);
@@ -130,6 +135,20 @@ for (let i = 1; i < SETLIST_ASKS; i++) assert.equal(api.askNames(1000 + i * SETL
 assert.equal(api.askNames(1000 + 9 * SETLIST_ASK_MS), false);              // not more than SETLIST_ASKS times
 assert.equal(calls.length, SETLIST_ASKS);
 array.add(8).writeU32(NAMES.length);
+// a preset's stored copy renamed (Nick: "rename at the next Save"), as HX Edit's list's inline box renames it: a String
+// made from the text (copied: 1), the model's "rename preset" (setlist, index, &String), the String destroyed
+calls.length = 0;
+assert.equal(api.canRename(), true);
+assert.equal(api.renamePreset(3, 32, 'Spare Test'), true);
+assert.equal(calls.length, 3);
+const [made_, renamed_, dropped_] = calls;
+assert.deepEqual([made_[0], made_[3], renamed_[0], renamed_[1], renamed_[2], renamed_[3], renamed_[4], dropped_[0]],
+                 ['1a1640', 1, '3fb7a0', model.value, 3, 32, 'String:Spare Test', '1a0120']);
+assert.equal(made_[1], dropped_[1]);                                        // the same String, destroyed after the call
+for (const [setlist, number, name] of [[3, 32, 'Seventeen chars!!'], [3, 32, 'Café'], [3, 32, ''], [8, 1, 'A'], [3, 128, 'A'], [3, 32, 5]]) {
+  assert.throws(() => api.renamePreset(setlist, number, name));
+}
+assert.equal(calls.length, 3);                                              // refused before anything is made
 // the controller found from the library container on its tab switch (its +0x58), when the other hooks missed it
 const third = alloc(0x300);
 third.writeU32(BASE + SETLIST_CONTROLLER_VTABLE); third.add(0x29c).writeU32(model.value); third.add(0x40).writeU32(chooser.value); third.add(0x54).writeS32(1);
