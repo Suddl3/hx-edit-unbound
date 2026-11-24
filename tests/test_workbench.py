@@ -462,16 +462,22 @@ class PresetTests(unittest.TestCase):
         self.assertEqual(page.count("ask('preset', target)"), 3)        # nothing unsaved; Don't save; after the Save
 
     @unittest.skipUnless(NODE, 'node is not installed')
-    def test_unsaved_is_hx_edits_undo_position_unless_a_save_was_asked_there(self):
+    def test_unsaved_is_hx_edits_undo_position_against_where_it_stood_at_the_load_or_the_save(self):
+        # Seen live 2026-11-23 on presets 032/033: HX Edit keeps its undo position through a preset load (1 on 032,
+        # still 1 on 033, which then wrongly asked) and through a Save (2 before and after).
         unsaved = lambda *args: run_js(['workbench_layout.js'], 'workbenchUnsaved(%s)' % ', '.join(json.dumps(a) for a in args))
-        self.assertFalse(unsaved(0, '3:33', {'key': '', 'at': 0}))                 # as loaded
-        self.assertTrue(unsaved(2, '3:33', {'key': '', 'at': 0}))                  # two changes
-        self.assertFalse(unsaved(2, '3:33', {'key': '3:33', 'at': 2}))             # saved right there
-        self.assertTrue(unsaved(3, '3:33', {'key': '3:33', 'at': 2}))              # changed again after the Save
-        self.assertTrue(unsaved(1, '3:33', {'key': '3:33', 'at': 2}))              # undone to before it
-        self.assertTrue(unsaved(2, '3:34', {'key': '3:33', 'at': 2}))              # another preset's Save
-        self.assertFalse(unsaved(None, '3:33', None))                              # HX Edit's position could not be read
-        self.assertFalse(unsaved(4, '', None))                                     # no preset
+        self.assertFalse(unsaved(0, '3:32', {'key': '3:32', 'at': 0}))             # as loaded
+        self.assertTrue(unsaved(1, '3:32', {'key': '3:32', 'at': 0}))              # one change
+        self.assertFalse(unsaved(1, '3:33', {'key': '3:33', 'at': 1}))             # the next preset, loaded with the position at 1
+        self.assertTrue(unsaved(2, '3:33', {'key': '3:33', 'at': 1}))              # and changed there
+        self.assertFalse(unsaved(2, '3:32', {'key': '3:32', 'at': 2}))             # saved right there
+        self.assertTrue(unsaved(3, '3:32', {'key': '3:32', 'at': 2}))              # changed again after the Save
+        self.assertTrue(unsaved(1, '3:32', {'key': '3:32', 'at': 2}))              # undone to before it
+        self.assertFalse(unsaved(2, '3:33', {'key': '3:32', 'at': 0}))             # no mark for this preset yet
+        self.assertFalse(unsaved(None, '3:32', {'key': '3:32', 'at': 0}))          # HX Edit's position could not be read
+        self.assertFalse(unsaved(4, '3:32', {'key': '3:32', 'at': None}))          # nor where it stood
+        self.assertFalse(unsaved(4, '3:32', None))
+        self.assertFalse(unsaved(4, '', {'key': '', 'at': 0}))                     # no preset
 
     def test_leaving_a_changed_preset_asks_and_save_is_hx_edits_own(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
@@ -480,15 +486,17 @@ class PresetTests(unittest.TestCase):
         for words in ("'Stay here'", "'Save, then load '", "has unsaved changes"):
             self.assertIn(words, guard)
         self.assertIn("if (answer === 'drop') ask('preset', target);", guard)
-        # Save, then the preset: HX Edit's own Save (the top bar's), then the load once HX Edit's undo position is
-        # back at 0 or after a moment; never when another preset was loaded meanwhile
-        self.assertLess(guard.index('savePreset();'), guard.index("Date.now() - began >= SAVE_WAIT_MS) ask('preset', target)"))
-        self.assertIn('if (presetWord() !== from) return;', guard)
+        # Save, then the preset: HX Edit's own Save (the top bar's), then the load a moment later (HX Edit gives no
+        # sign that a Save is done; 1.5 s was enough live); never when another preset was loaded meanwhile
+        self.assertLess(guard.index('savePreset();'), guard.index("setTimeout(() => { if (presetWord() === from) ask('preset', target); }, SAVE_WAIT_MS);"))
+        self.assertIn('const SAVE_WAIT_MS = 2000;', page)
         self.assertEqual(page.count("ask('save')"), 1)                                    # only savePreset asks it
         self.assertIn("$('save').onclick = savePreset;", page)
         self.assertIn("$('edited').hidden = !unsaved();", page)
-        # the mark of a Save goes with the preset, and when nothing is left to undo
-        self.assertIn("if (before !== after || state.undoAt === 0) savedMark = {key: '', at: 0};", page)
+        # a preset starts unchanged from where HX Edit's undo position stands when it is loaded; a Save moves the mark
+        self.assertIn("if (before !== after || savedMark.key !== after || (typeof savedMark.at !== 'number' && typeof state.undoAt === 'number')) savedMark = {key: after, at: state.undoAt};", page)
+        self.assertIn("savedMark = {key: presetWord(), at: state.undoAt};", page)
+        self.assertNotIn('state.undoAt === 0', page)
         # two banks of four a row: a preset's bank (number / 4) alternates between the two columns
         self.assertIn("if (item) sides[Math.floor(number / 4) % 2].append(item);", page)
 
@@ -1430,9 +1438,9 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray'})
 
-    def test_the_menu_is_the_logo_and_holds_the_layout_and_hx_edits_menu_bar(self):
+    def test_the_menu_is_the_logo_and_holds_the_layout(self):
         # Batch 1 (Nick, 2026-11-23): the app icon top left opens the menu, the "Unbound" button is gone, and the menu
         # no longer repeats the rail's tools or Focus Mode.
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
@@ -1441,17 +1449,14 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn('chip unbound', page)
         menu = page[page.index('function openMenu() {'):page.index('function closeMenu() {')]
         for words in ("el('h6', '', 'Layout')", "item('Workbench', 'This screen', TICK", "() => ask('menu', 'classic')",
-                      "item('Classic+', 'Classic, with the new look', '', null)", "item('Rig on stage',",
-                      "() => ask('menuBar', !options.menuBar)"):
+                      "item('Classic+', 'Classic, with the new look', '', null)", "item('Rig on stage',"):
             self.assertIn(words, menu)
-        for gone in ("'focus'", "'level'", "'look'", "'library'", "setView("):
+        # (no switch for HX Edit's menu row: off the window, HX Edit ignores its own Save; window_frame.py)
+        for gone in ("'focus'", "'level'", "'look'", "'library'", "setView(", 'menuBar'):
             self.assertNotIn(gone, menu)
         self.assertIn("$('toFocus').onclick = () => ask('menu', 'focus');", page)      # Focus Mode: the Editor | Focus switch
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        for piece in ("if name == 'menuBar':", 'nam_catalog.save_setting(MENU_BAR, value)',
-                      "workbench.show_options({'level': bool(preview.level), 'menuBar': value})",
-                      "frame.apply(focus_on[0] or workbench_on[0], nam_catalog.load_settings().get(MENU_BAR) is True)",
-                      "frame.set_window(payload.get('window'))", 'frame.restore()'):
+        for piece in ('frame.apply(focus_on[0] or workbench_on[0])', "frame.set_window(payload.get('window'))", 'frame.restore()'):
             self.assertIn(piece, launcher)
         show = launcher[launcher.index('            def workbench_show():'):launcher.index('            def workbench_mode(')]
         self.assertIn('frame_show()', show)                                            # either pane on or off: the frame follows

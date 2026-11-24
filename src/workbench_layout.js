@@ -294,12 +294,13 @@ function workbenchLevelChanges(plan) {
 }
 
 // ---- changes that are not saved ------------------------------------------------------------------------------------
-// The loaded preset has changes that were not saved while HX Edit's undo position is above 0 (something changed since
-// the preset was loaded), unless a Save was asked for here at exactly this position of this preset (mark: {key, at};
-// preset: "setlist:number"). The page drops the mark with the preset and when the position is back at 0.
+// The loaded preset has changes that were not saved when HX Edit's undo position is no longer where it stood when the
+// preset was loaded, or when a Save was last asked for here (mark: {key: "setlist:number", at}; the page keeps it).
+// HX Edit keeps its undo position through a preset load and through a Save (seen live 2026-11-23), so the position
+// alone says nothing. Without a mark for this preset, or a position that could be read, nothing counts as changed.
 function workbenchUnsaved(undoAt, preset, mark) {
-  if (!preset || typeof undoAt !== 'number' || undoAt <= 0) return false;
-  return !(mark && mark.key === preset && mark.at === undoAt);
+  if (!preset || typeof undoAt !== 'number' || !mark || mark.key !== preset || typeof mark.at !== 'number') return false;
+  return undoAt !== mark.at;
 }
 
 if (typeof module !== 'undefined' && module.exports) {

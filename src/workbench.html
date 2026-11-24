@@ -397,9 +397,6 @@
   .drop.menu button > svg { width: 14px; height: 14px; color: #f0c94a; }
   .drop.menu button:disabled { opacity: .45; cursor: default; background: none; }
   .drop.menu button em { font-style: normal; font-size: 10.5px; color: var(--dim); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; margin-left: 8px; }
-  .drop.menu .sw { width: 28px; height: 16px; border-radius: 8px; background: #2c303a; position: relative; }
-  .drop.menu .sw::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #9aa0ac; }
-  .drop.menu .sw.on { background: rgb(176 112 224 / .55); } .drop.menu .sw.on::after { left: 14px; background: #fff; }
   .drop.menu button span:first-child { color: var(--ink); white-space: normal; }
   .drop.menu button small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
   .drop.menu h6 { margin: 8px 10px 4px; font-size: 11px; font-weight: 500; color: var(--faint); letter-spacing: .04em; text-transform: uppercase; }
@@ -615,7 +612,7 @@
 <body>
 <div class="app" id="app">
   <header class="top" id="top">
-    <div class="logo"><button id="menuButton" title="HX Edit Unbound: the layout, and HX Edit's menu bar" aria-label="HX Edit Unbound menu" aria-expanded="false"><svg class="app" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="ubx" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#9b84f6"/><stop offset=".5" stop-color="#5fa8f2"/><stop offset="1" stop-color="#3fd3c8"/></linearGradient><radialGradient id="ubt" cx=".5" cy=".45" r=".7"><stop stop-color="#231f31"/><stop offset="1" stop-color="#14121c"/></radialGradient></defs><rect x=".5" y=".5" width="31" height="31" rx="7" fill="url(#ubt)" stroke="rgb(255 255 255 / .09)"/><path d="M7.5 8l6.3 8-6.3 8M24.5 8l-6.3 8 6.3 8" stroke="url(#ubx)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="caret" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 2.5l3 3 3-3"/></svg></button></div>
+    <div class="logo"><button id="menuButton" title="HX Edit Unbound: the layout" aria-label="HX Edit Unbound menu" aria-expanded="false"><svg class="app" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="ubx" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#9b84f6"/><stop offset=".5" stop-color="#5fa8f2"/><stop offset="1" stop-color="#3fd3c8"/></linearGradient><radialGradient id="ubt" cx=".5" cy=".45" r=".7"><stop stop-color="#231f31"/><stop offset="1" stop-color="#14121c"/></radialGradient></defs><rect x=".5" y=".5" width="31" height="31" rx="7" fill="url(#ubt)" stroke="rgb(255 255 255 / .09)"/><path d="M7.5 8l6.3 8-6.3 8M24.5 8l-6.3 8 6.3 8" stroke="url(#ubx)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="caret" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 2.5l3 3 3-3"/></svg></button></div>
     <div class="now">
       <button class="step" id="presetPrev" title="Previous preset" aria-label="Previous preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg></button>
       <button class="preset" id="presetButton" title="Choose a preset" aria-expanded="false"><small id="setlist">&nbsp;</small><strong><b class="num" id="presetNum"></b><span id="presetName">Waiting for HX Edit</span><i id="edited" title="Changed since it was loaded" hidden></i></strong></button>
@@ -1651,12 +1648,13 @@ function centerIn(list, row) {
 }
 function closePresets() { $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false'); }
 // ---- leaving a preset with changes that are not saved ---------------------------------------------------------------
-// "Changed" is HX Edit's own undo position (state.undoAt > 0: something was changed since the preset was loaded).
-// A Save asked for here is remembered with the position it was asked at, so a saved preset does not ask again while
-// HX Edit keeps its undo steps; the mark is dropped with the preset, and when the position is back at 0.
+// "Changed" is HX Edit's own undo position (state.undoAt) against where it stood when this preset was loaded, or
+// when a Save was last asked for here (savedMark). HX Edit keeps that position through a preset load and through a
+// Save (seen live 2026-11-23: 1 on 032, still 1 on 033; 2 before a Save and after it), so "above 0" says nothing.
+// After HX Edit restarts the position is 0 again: a preset left unsaved on the Floor then counts as unchanged.
 // Only the Workbench's own ways to another preset ask (the top bar's list and arrows, the drawer, the grid): a
 // footswitch on the Floor and HX Edit's own screen load as they always did.
-let savedMark = {key: '', at: 0}, leaving = false;
+let savedMark = {key: '', at: null}, leaving = false;
 const presetWord = () => state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
 const unsaved = () => !!state && workbenchUnsaved(state.undoAt, presetWord(), savedMark);
 function savePreset() {
@@ -1664,7 +1662,7 @@ function savePreset() {
   ask('save');
   drawBar();
 }
-const SAVE_WAIT_MS = 1500;                                    // what a Save gets before the next preset is asked for
+const SAVE_WAIT_MS = 2000;                                    // what a Save gets before the next preset is asked for (1.5 s was enough live)
 function loadPreset(target) {
   // target: a preset's number in the loaded setlist, or 'previous' / 'next' (the top bar's arrows)
   if (leaving) return;
@@ -1676,14 +1674,11 @@ function loadPreset(target) {
     shade.remove(); removeEventListener('keydown', keys, true); leaving = false;
     if (answer === 'drop') ask('preset', target);
     if (answer === 'save') {
-      // HX Edit's own Save, then the preset: once HX Edit's undo position is back at 0, or after a moment
+      // HX Edit's own Save, then the preset a moment later (HX Edit gives no sign that the Save is done)
       savePreset();
-      const began = Date.now(), from = presetWord();
-      const go = () => {
-        if (presetWord() !== from) return;                       // (another preset meanwhile: nothing more to load)
-        if ((state && state.undoAt === 0) || Date.now() - began >= SAVE_WAIT_MS) ask('preset', target); else setTimeout(go, 100);
-      };
-      setTimeout(go, 400);
+      const from = presetWord();
+      toast('Saving, then loading ' + there + '\u2026');
+      setTimeout(() => { if (presetWord() === from) ask('preset', target); }, SAVE_WAIT_MS);   // (another preset meanwhile: nothing more to load)
     }
   };
   const stay = el('button', 'btn', 'Stay here'), drop = el('button', 'btn', 'Don\u2019t save');
@@ -1720,9 +1715,7 @@ function openMenu() {
     item('Workbench', 'This screen', TICK, () => {}),
     item('Classic', "HX Edit's own screen. Back here: its Unbound menu > Workbench.", '', () => ask('menu', 'classic')),
     item('Classic+', 'Classic, with the new look', '', null),
-    item('Rig on stage', 'Your rig as gear on a stage', '', null),
-    el('hr'),
-    item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar)));
+    item('Rig on stage', 'Your rig as gear on a stage', '', null));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
 }
 function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
@@ -3112,7 +3105,8 @@ function receive(message) {
     state = message.state;
     const after = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
     if (before !== after) snapGroup = null;
-    if (before !== after || state.undoAt === 0) savedMark = {key: '', at: 0};   // (another preset, or nothing left to undo: no Save to remember)
+    // (another preset: unchanged from where HX Edit's undo position stands now; also once that position can be read)
+    if (before !== after || savedMark.key !== after || (typeof savedMark.at !== 'number' && typeof state.undoAt === 'number')) savedMark = {key: after, at: state.undoAt};
     // (values set in other snapshots are shown as set until HX Edit's own record agrees: forgotten on another preset
     // or an undo)
     if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();

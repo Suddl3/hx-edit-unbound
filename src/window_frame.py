@@ -1,24 +1,18 @@
-"""HX Edit's window frame while one of our panes covers its screen: a dark title bar, and its menu row put away.
+"""HX Edit's window frame while one of our panes covers its screen: a dark title bar.
 
-The Workbench and Focus Mode are dark; HX Edit's title bar and its menu row (File, Edit, Snapshots, Window, Help,
-Devices) are Windows' own and white. While either pane is shown the launcher asks Windows for a dark title bar in the
-pane's colours and takes the menu row off the window. On HX Edit's own screen both are as HX Edit made them.
+The Workbench and Focus Mode are dark; HX Edit's title bar is Windows' own and white. While either pane is shown the
+launcher asks Windows for a dark title bar in the pane's colours (DwmSetWindowAttribute on HX Edit's main window: dark
+mode, and on Windows 11 the caption, text and border colours). On HX Edit's own screen it is as HX Edit made it:
+``apply(False)`` undoes it. Nothing here talks to the device, and nothing is written into HX Edit.
 
-Two things are asked of Windows, both on HX Edit's main window, both undone by ``apply(False, ...)``:
-
-  DwmSetWindowAttribute   the title bar: dark mode, and on Windows 11 the caption, text and border colours
-  SetMenu                 the menu row: the window's own menu handle is kept here and given back as it was;
-                          the menu itself is never changed or freed
-
-HX Edit's keys (Ctrl+S, Ctrl+Z, ...) and the commands the panes post (Export) do not need the row. While it is away
-HX Edit cannot update it (its Devices menu), so the row comes back as it was left; the Workbench's menu has a switch
-("Show HX Edit's menu bar", settings.json "workbenchMenuBar") for whoever wants it kept. Nothing here talks to the
-device, and nothing is written into HX Edit.
+HX Edit's menu row (File, Edit, Snapshots, Window, Help, Devices) is white too, and it stays. Taking it off the window
+(SetMenu(window, None), the handle kept and given back) was tried live on 2026-11-23: with the row away HX Edit ignored
+its own Save, both its Ctrl+S and its File > Save Preset command (32779) posted to the window, and saved again as soon
+as the row was back. It asks its menu whether a command is allowed, so the menu has to stay on the window. A dark row
+needs HX Edit's menu drawn dark inside HX Edit, or the row covered: not done here.
 """
 import ctypes
 from threading import Lock
-
-MENU_BAR = 'workbenchMenuBar'          # settings.json: True keeps HX Edit's menu row while a pane is shown
 
 # The panes' own colours (workbench.html --panel, the title's ink, --line), as Windows wants them: 0x00BBGGRR
 CAPTION, TEXT, BORDER = 0x001B1614, 0x00D6CDC9, 0x00382E2A
@@ -37,8 +31,6 @@ class Win32:
         user, dwm = ctypes.windll.user32, ctypes.windll.dwmapi
         for name, result, arguments in (
                 ('IsWindow', wintypes.BOOL, [wintypes.HWND]), ('GetAncestor', wintypes.HWND, [wintypes.HWND, wintypes.UINT]),
-                ('GetMenu', wintypes.HMENU, [wintypes.HWND]), ('SetMenu', wintypes.BOOL, [wintypes.HWND, wintypes.HMENU]),
-                ('IsMenu', wintypes.BOOL, [wintypes.HMENU]),
                 ('SetWindowPos', wintypes.BOOL, [wintypes.HWND, wintypes.HWND] + [ctypes.c_int] * 4 + [wintypes.UINT])):
             function = getattr(user, name)
             function.restype, function.argtypes = result, arguments
@@ -57,31 +49,21 @@ class Win32:
         number = ctypes.c_uint32(value)
         return self.dwm.DwmSetWindowAttribute(window, attribute, ctypes.byref(number), ctypes.sizeof(number)) == 0
 
-    def menu(self, window):
-        return self.user.GetMenu(window) or 0
-
-    def is_menu(self, menu):
-        return bool(menu) and bool(self.user.IsMenu(menu))
-
-    def set_menu(self, window, menu):
-        return bool(self.user.SetMenu(window, menu or None))
-
     def redraw(self, window):
         self.user.SetWindowPos(window, None, 0, 0, 0, 0, FRAME_CHANGED)
 
 
 class WindowFrame:
-    """The frame of HX Edit's main window, as the launcher wants it: apply(covered, menu_bar).
+    """The frame of HX Edit's main window, as the launcher wants it: apply(covered).
 
-    covered: one of our panes is shown (a dark title bar; the menu row away unless menu_bar). Asking twice changes
-    nothing. The window is the one focus_view.js reports (set_window); until it is known nothing is done."""
+    covered: one of our panes is shown (a dark title bar). Asking twice changes nothing. The window is the one
+    focus_view.js reports (set_window); until it is known nothing is done."""
 
     def __init__(self, api=None, trace=None):
         self.api = api
         self.trace = trace or (lambda value: None)
         self.window = None
         self.dark = False
-        self.kept = 0                  # HX Edit's own menu handle while its row is away
         self.lock = Lock()
 
     def set_window(self, window):
@@ -93,9 +75,9 @@ class WindowFrame:
                 self.api = Win32()
             root = self.api.root(window)
             if root != self.window:
-                self.window, self.dark, self.kept = root, False, 0
+                self.window, self.dark = root, False
 
-    def apply(self, covered, menu_bar):
+    def apply(self, covered):
         with self.lock:
             if self.api is None or not self.window or not self.api.is_window(self.window):
                 return False
@@ -107,22 +89,11 @@ class WindowFrame:
                 api.redraw(window)
                 self.dark = covered
                 self.trace({'type': 'windowFrame', 'event': 'dark' if covered else 'plain', 'took': bool(took), 'colours': all(colours)})
-            now = api.menu(window)
-            if covered and not menu_bar:
-                if now:                # (also a menu HX Edit set again meanwhile)
-                    self.kept = now
-                    if not api.set_menu(window, 0):
-                        self.kept = 0
-                    self.trace({'type': 'windowFrame', 'event': 'menu-away', 'took': bool(self.kept)})
-            elif not now and self.kept:
-                took = api.is_menu(self.kept) and api.set_menu(window, self.kept)
-                self.trace({'type': 'windowFrame', 'event': 'menu-back', 'took': bool(took)})
-                self.kept = 0
             return True
 
     def restore(self):
         """HX Edit's frame as it made it (the launcher is closing)."""
         try:
-            return self.apply(False, True)
+            return self.apply(False)
         except Exception:              # the window has gone with HX Edit
             return False

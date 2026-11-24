@@ -319,14 +319,14 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # it is on and Focus Mode is not: Focus Mode's "Editor" button comes back to it, and the two panes never
             # stand over each other. HX Edit's own toolbar items (the meter, the Unbound button) step aside for either.
             workbench_on = [False]
-            # HX Edit's window frame while either pane covers its screen (window_frame.py): a dark title bar, and its
-            # menu row away unless settings.json "workbenchMenuBar" is true (the Workbench's menu has the switch).
-            # A failure there never stops a pane from showing.
-            from window_frame import MENU_BAR, WindowFrame
+            # HX Edit's window frame while either pane covers its screen (window_frame.py): a dark title bar. Its menu
+            # row stays (off the window, HX Edit ignores its own Save: window_frame.py). A failure there never stops
+            # a pane from showing.
+            from window_frame import WindowFrame
             frame = WindowFrame(trace=trace)
             def frame_show():
                 try:
-                    frame.apply(focus_on[0] or workbench_on[0], nam_catalog.load_settings().get(MENU_BAR) is True)
+                    frame.apply(focus_on[0] or workbench_on[0])
                 except Exception as error:
                     trace({'type': 'windowFrame', 'event': 'failed', 'error': str(error)})
             def workbench_show():
@@ -635,13 +635,6 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     if place is not None and preview is not None and preview.bounds_override is not None:
                         preview.place_over(place)
                     return
-                if name == 'menuBar':
-                    # The menu's "Show HX Edit's menu bar": kept in settings.json, the frame follows at once.
-                    if isinstance(value, bool):
-                        nam_catalog.save_setting(MENU_BAR, value)
-                        frame_show()
-                        workbench.show_options({'level': bool(preview.level), 'menuBar': value})
-                    return
                 if name == 'menu':
                     # The page's Editor | Focus switch and its Unbound menu. The tools are panels of HX Edit's own
                     # screen, which the pane would cover: the Workbench steps aside for them.
@@ -667,7 +660,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 focus.on_action = focus_action
             if workbench is not None:
                 workbench.on_action = workbench_action
-                workbench.show_options({'level': bool(preview.level), 'menuBar': nam_catalog.load_settings().get(MENU_BAR) is True})
+                workbench.show_options({'level': bool(preview.level)})
                 from workbench import (LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_library, import_files,
                                        library_view, pinned, pins_after, prefs, prefs_after)
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
@@ -817,7 +810,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 if workbench:
                     workbench.close()
                 if frame is not None:
-                    frame.restore()                      # (HX Edit still open: its title bar and menu row as it made them)
+                    frame.restore()                      # (HX Edit still open: its title bar as it made it)
             finally:
                 if preview:
                     preview.close_diagnostics()
