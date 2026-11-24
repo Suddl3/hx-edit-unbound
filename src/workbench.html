@@ -397,6 +397,9 @@
   .drop.menu button > svg { width: 14px; height: 14px; color: #f0c94a; }
   .drop.menu button:disabled { opacity: .45; cursor: default; background: none; }
   .drop.menu button em { font-style: normal; font-size: 10.5px; color: var(--dim); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; margin-left: 8px; }
+  .drop.menu .sw { width: 28px; height: 16px; border-radius: 8px; background: #2c303a; position: relative; }
+  .drop.menu .sw::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #9aa0ac; }
+  .drop.menu .sw.on { background: rgb(176 112 224 / .55); } .drop.menu .sw.on::after { left: 14px; background: #fff; }
   .drop.menu button span:first-child { color: var(--ink); white-space: normal; }
   .drop.menu button small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
   .drop.menu h6 { margin: 8px 10px 4px; font-size: 11px; font-weight: 500; color: var(--faint); letter-spacing: .04em; text-transform: uppercase; }
@@ -612,7 +615,7 @@
 <body>
 <div class="app" id="app">
   <header class="top" id="top">
-    <div class="logo"><button id="menuButton" title="HX Edit Unbound: the layout" aria-label="HX Edit Unbound menu" aria-expanded="false"><svg class="app" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="ubx" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#9b84f6"/><stop offset=".5" stop-color="#5fa8f2"/><stop offset="1" stop-color="#3fd3c8"/></linearGradient><radialGradient id="ubt" cx=".5" cy=".45" r=".7"><stop stop-color="#231f31"/><stop offset="1" stop-color="#14121c"/></radialGradient></defs><rect x=".5" y=".5" width="31" height="31" rx="7" fill="url(#ubt)" stroke="rgb(255 255 255 / .09)"/><path d="M7.5 8l6.3 8-6.3 8M24.5 8l-6.3 8 6.3 8" stroke="url(#ubx)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="caret" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 2.5l3 3 3-3"/></svg></button></div>
+    <div class="logo"><button id="menuButton" title="HX Edit Unbound: the layout, and HX Edit's menu bar" aria-label="HX Edit Unbound menu" aria-expanded="false"><svg class="app" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="ubx" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#9b84f6"/><stop offset=".5" stop-color="#5fa8f2"/><stop offset="1" stop-color="#3fd3c8"/></linearGradient><radialGradient id="ubt" cx=".5" cy=".45" r=".7"><stop stop-color="#231f31"/><stop offset="1" stop-color="#14121c"/></radialGradient></defs><rect x=".5" y=".5" width="31" height="31" rx="7" fill="url(#ubt)" stroke="rgb(255 255 255 / .09)"/><path d="M7.5 8l6.3 8-6.3 8M24.5 8l-6.3 8 6.3 8" stroke="url(#ubx)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="caret" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 2.5l3 3 3-3"/></svg></button></div>
     <div class="now">
       <button class="step" id="presetPrev" title="Previous preset" aria-label="Previous preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg></button>
       <button class="preset" id="presetButton" title="Choose a preset" aria-expanded="false"><small id="setlist">&nbsp;</small><strong><b class="num" id="presetNum"></b><span id="presetName">Waiting for HX Edit</span><i id="edited" title="Changed since it was loaded" hidden></i></strong></button>
@@ -1715,7 +1718,10 @@ function openMenu() {
     item('Workbench', 'This screen', TICK, () => {}),
     item('Classic', "HX Edit's own screen. Back here: its Unbound menu > Workbench.", '', () => ask('menu', 'classic')),
     item('Classic+', 'Classic, with the new look', '', null),
-    item('Rig on stage', 'Your rig as gear on a stage', '', null));
+    item('Rig on stage', 'Your rig as gear on a stage', '', null),
+    // (HX Edit's own menu row is away while the Workbench is shown, where this build can keep its commands working
+    // without it: options.menuRow. Its menus are one switch away: Preferences, Command Center, Global EQ, Help.)
+    ...(options.menuRow ? [el('hr'), item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar))] : []));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
 }
 function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }

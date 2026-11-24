@@ -1438,9 +1438,9 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar'})
 
-    def test_the_menu_is_the_logo_and_holds_the_layout(self):
+    def test_the_menu_is_the_logo_and_holds_the_layout_and_hx_edits_menu_bar(self):
         # Batch 1 (Nick, 2026-11-23): the app icon top left opens the menu, the "Unbound" button is gone, and the menu
         # no longer repeats the rail's tools or Focus Mode.
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
@@ -1451,12 +1451,17 @@ class WiringTests(unittest.TestCase):
         for words in ("el('h6', '', 'Layout')", "item('Workbench', 'This screen', TICK", "() => ask('menu', 'classic')",
                       "item('Classic+', 'Classic, with the new look', '', null)", "item('Rig on stage',"):
             self.assertIn(words, menu)
-        # (no switch for HX Edit's menu row: off the window, HX Edit ignores its own Save; window_frame.py)
-        for gone in ("'focus'", "'level'", "'look'", "'library'", "setView(", 'menuBar'):
+        # the switch for HX Edit's menu row: only where the row is taken off at all (menu_row.js in place)
+        self.assertIn("...(options.menuRow ? [el('hr'), item(\"Show HX Edit's menu bar\",", menu)
+        self.assertIn("() => ask('menuBar', !options.menuBar))] : []));", menu)
+        for gone in ("'focus'", "'level'", "'look'", "'library'", "setView("):
             self.assertNotIn(gone, menu)
         self.assertIn("$('toFocus').onclick = () => ask('menu', 'focus');", page)      # Focus Mode: the Editor | Focus switch
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        for piece in ('frame.apply(focus_on[0] or workbench_on[0])', "frame.set_window(payload.get('window'))", 'frame.restore()'):
+        for piece in ("if name == 'menuBar':", 'nam_catalog.save_setting(MENU_BAR, value)', 'workbench.show_options(menu_options())',
+                      "return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': nam_catalog.load_settings().get(MENU_BAR) is True}",
+                      "frame.apply(focus_on[0] or workbench_on[0], nam_catalog.load_settings().get(MENU_BAR) is True)",
+                      "frame.set_window(payload.get('window'))", 'frame.restore()'):
             self.assertIn(piece, launcher)
         show = launcher[launcher.index('            def workbench_show():'):launcher.index('            def workbench_mode(')]
         self.assertIn('frame_show()', show)                                            # either pane on or off: the frame follows

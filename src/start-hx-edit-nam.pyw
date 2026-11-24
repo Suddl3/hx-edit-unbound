@@ -234,7 +234,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
                 ('library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
-                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js',
+                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js', 'menu_row.js',
                  'focus_view.js')) + '\n'
             config = dict(request=uuid4().hex, repeat=True, automatic=True, requireHostMonitor=True)
             # Validate original native bytes before namView attaches to shared
@@ -244,7 +244,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                           # The DSP meter is optional: a failed byte guard leaves the editor as it was.
                           "try { installDspMeter(); } catch (error) { send({type: 'dspMeter', event: 'unavailable', error: String(error.message)}); }\n"
                           # A reconnect leaves the window as the user has it (maximized stays maximized).
-                          "try { installWindowKeeper(); } catch (error) { send({type: 'windowKeeper', event: 'unavailable', error: String(error.message)}); }\n")
+                          "try { installWindowKeeper(); } catch (error) { send({type: 'windowKeeper', event: 'unavailable', error: String(error.message)}); }\n"
+                          # HX Edit's menu row may be taken off its window only while this stands in for it (window_frame.py).
+                          "try { installMenuRow(); } catch (error) { send({type: 'menuRow', event: 'unavailable', error: String(error.message)}); }\n")
             after = (f'\nconnectNativeExportLibrary({json.dumps(config)}, namView);'
                      '\nnamView.setLibraryOpener(window => toneView.openBrowser(window, {library:true, dockPanel:navigationBanner.dockPanel()}));'
                      '\ninstallNamSidebar(namView);'
@@ -319,14 +321,20 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # it is on and Focus Mode is not: Focus Mode's "Editor" button comes back to it, and the two panes never
             # stand over each other. HX Edit's own toolbar items (the meter, the Unbound button) step aside for either.
             workbench_on = [False]
-            # HX Edit's window frame while either pane covers its screen (window_frame.py): a dark title bar. Its menu
-            # row stays (off the window, HX Edit ignores its own Save: window_frame.py). A failure there never stops
-            # a pane from showing.
-            from window_frame import WindowFrame
-            frame = WindowFrame(trace=trace)
+            # HX Edit's window frame while either pane covers its screen (window_frame.py): a dark title bar, and its
+            # menu row away unless settings.json "workbenchMenuBar" is true (the Workbench's menu has the switch).
+            # The row goes only once menu_row.js said it stands in for it ("menuRow" ready, below): without that HX
+            # Edit ignores its own Save. A failure there never stops a pane from showing.
+            from window_frame import MENU_BAR, WindowFrame
+            def frame_kept(handle):
+                if not detached.is_set():
+                    script.post({'type': 'menuRow', 'payload': {'kept': handle}})
+            frame = WindowFrame(trace=trace, on_kept=frame_kept)
+            def menu_options():
+                return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': nam_catalog.load_settings().get(MENU_BAR) is True}
             def frame_show():
                 try:
-                    frame.apply(focus_on[0] or workbench_on[0])
+                    frame.apply(focus_on[0] or workbench_on[0], nam_catalog.load_settings().get(MENU_BAR) is True)
                 except Exception as error:
                     trace({'type': 'windowFrame', 'event': 'failed', 'error': str(error)})
             def workbench_show():
@@ -635,6 +643,13 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     if place is not None and preview is not None and preview.bounds_override is not None:
                         preview.place_over(place)
                     return
+                if name == 'menuBar':
+                    # The menu's "Show HX Edit's menu bar": kept in settings.json, the frame follows at once.
+                    if isinstance(value, bool):
+                        nam_catalog.save_setting(MENU_BAR, value)
+                        frame_show()
+                        workbench.show_options(menu_options())
+                    return
                 if name == 'menu':
                     # The page's Editor | Focus switch and its Unbound menu. The tools are panels of HX Edit's own
                     # screen, which the pane would cover: the Workbench steps aside for them.
@@ -660,7 +675,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 focus.on_action = focus_action
             if workbench is not None:
                 workbench.on_action = workbench_action
-                workbench.show_options({'level': bool(preview.level)})
+                workbench.show_options(menu_options())
                 from workbench import (LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_library, import_files,
                                        library_view, pinned, pins_after, prefs, prefs_after)
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
@@ -712,6 +727,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 workbench.receive(payload)
                 if payload.get('reason') == 'focus-view' and payload.get('stage') == 'unavailable':
                     focus_missing[0] = True
+            if frame is not None and payload.get('type') == 'menuRow' and payload.get('event') in ('ready', 'unavailable'):
+                # menu_row.js is in place (or its byte guard failed): only then may HX Edit's menu row be taken off
+                frame.allow_menu(payload.get('event') == 'ready')
+                frame_show()
+                if workbench is not None:
+                    workbench.show_options(menu_options())
             if frame is not None and payload.get('type') == 'focusBounds':
                 # (HX Edit's window, as its script reports it with the pane's place: the frame follows what is shown)
                 frame.set_window(payload.get('window'))
@@ -724,7 +745,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 ready.set()
             if payload.get('type') in {'toneTrace', 'navigationBanner', 'automaticSlotStatus', 'floorInventoryPresentation',
                                        'focusBounds',
-                                       'dspMeterLayout', 'windowKeeper', 'presetUsage', 'pickerSide', 'favoritesRemoved',
+                                       'dspMeterLayout', 'windowKeeper', 'menuRow', 'presetUsage', 'pickerSide', 'favoritesRemoved',
                                        'libraryConnectionGuard', 'librarySlotEvidenceResult'}:
                 trace(payload)
             if payload.get('type') == 'irExportObservation' and payload.get('stage') in {'invalidated', 'discarded', 'slot-changed'}:
@@ -810,7 +831,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 if workbench:
                     workbench.close()
                 if frame is not None:
-                    frame.restore()                      # (HX Edit still open: its title bar as it made it)
+                    frame.restore()                      # (HX Edit still open: its title bar and menu row as it made them)
             finally:
                 if preview:
                     preview.close_diagnostics()
