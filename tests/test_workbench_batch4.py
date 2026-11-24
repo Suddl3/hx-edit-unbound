@@ -394,6 +394,30 @@ class StageTests(unittest.TestCase):
         self.assertIn("(panelTab === 'controls' ? '' : ' tabbed')", text)
         self.assertIn('.lay-stage > .vw {', css)                                                            # the full views
 
+    def test_a_long_name_stays_in_its_own_column(self):
+        # Live check 2026-11-24 14:20: an EVH capture's long name ran over its neighbour's label on the stage. A name is
+        # cut with an ellipsis at its place's width (the picked one too), the whole name in the title.
+        text = page()
+        css = between(text, '/* ---- Rig on stage', '</style>')
+        label = between(css, '.lay-stage .tile.gear .strip {', '}')
+        for rule in ('max-width: var(--col, 120px);', 'white-space: nowrap;', 'overflow: hidden;', 'text-overflow: ellipsis;', 'display: block;'):
+            self.assertIn(rule, label)
+        self.assertNotIn('max-width: 150%', css)
+        self.assertNotIn('max-width', between(css, '.lay-stage .tile.gear.on .strip {', '}'))   # the picked one: the same width
+        self.assertIn("grid.style.setProperty('--col', Math.max(60, Math.floor(g.step) - 8) + 'px');", text)
+        self.assertIn("button.title = title(block) + (capture(block) ?", text)                    # the gear's title: the whole name
+        # the dock's title, Classic+'s block name and capture line: one line, cut, the whole name in the title
+        self.assertIn('.lay-stage > .insp .card h4 { font-size: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }', css)
+        self.assertIn('.lay-stage > .insp .card { grid-template-columns: minmax(0, 1fr); }', css)
+        self.assertIn("head.append(el('h4', '', title(block))); head.firstChild.title = title(block);", text)
+        self.assertIn('.params .capline b { color: var(--ink); font-weight: 600; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }', text)
+        self.assertIn('name.title = title(block);', text)
+        self.assertIn('line.title = taken.name;', text)
+        # already cut: Classic+'s chain names (the Workbench's strip), its list rows, the drawers' rows
+        for rule in ('.tile .strip { width: calc(100% + 10px);', '.mrow span { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }',
+                     '.caprow b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }'):
+            self.assertIn(rule, text)
+
     @unittest.skipUnless(NODE, 'node is not installed')
     def test_floor_look_and_levels_open_full_on_the_stage(self):
         steps = js('(() => { let v = {drawer: "", half: "", full: ""}; const out = [];'

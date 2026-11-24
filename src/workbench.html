@@ -851,7 +851,7 @@
   .params > h3 .acts2 { display: flex; gap: 6px; flex: none; }
   .params > h3 .acts2 .btn { height: 28px; padding: 0 8px; }
   .params .capline { margin: 0 18px 8px; padding: 7px 10px; border-radius: 8px; background: rgb(176 112 224 / .08); border: 1px solid rgb(176 112 224 / .3); color: var(--dim); font-size: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .params .capline b { color: var(--ink); font-weight: 600; }
+  .params .capline b { color: var(--ink); font-weight: 600; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .params .capline button { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
   .params .capline .sp { flex: 1; }
   .sliders { overflow-y: auto; min-height: 0; padding: 0 18px 10px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
@@ -912,9 +912,12 @@
   .lay-stage button.tile.gear:hover .pic { filter: brightness(1.12) drop-shadow(0 12px 10px rgb(0 0 0 / .65)); }
   .lay-stage .tile.gear.off .pic { filter: grayscale(.85) brightness(.5) drop-shadow(0 12px 10px rgb(0 0 0 / .6)); }
   .lay-stage .tile.gear .led { display: none; }
-  .lay-stage .tile.gear .strip { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: max-content; max-width: 150%; margin: 0; padding: 3px 9px 3px 8px; border: 0;
-                                 border-radius: 6px; background: rgb(10 11 14 / .74); backdrop-filter: blur(6px); display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
-  .lay-stage .tile.gear .strip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; flex: none; background: rgb(var(--c)); box-shadow: 0 0 6px rgb(var(--c) / .8); }
+  /* (a name stays inside its own place's column, --col: a long one, a capture's name, is cut short; the whole name is
+     the gear's title. Live check 2026-11-24 14:20: an EVH capture's name ran over its neighbour's.) */
+  .lay-stage .tile.gear .strip { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: max-content; max-width: var(--col, 120px); margin: 0; padding: 3px 9px 3px 8px; border: 0;
+                                 border-radius: 6px; background: rgb(10 11 14 / .74); backdrop-filter: blur(6px); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                                 font-size: 12px; font-weight: 600; line-height: 16px; }
+  .lay-stage .tile.gear .strip::before { content: ''; display: inline-block; vertical-align: 1px; margin-right: 7px; width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--c)); box-shadow: 0 0 6px rgb(var(--c) / .8); }
   .lay-stage .tile.gear.off .strip { color: var(--dim); } .lay-stage .tile.gear.off .strip::before { background: #3a3e48; box-shadow: none; }
   .lay-stage .tile.gear .strip small { display: none; }
   .lay-stage .tile.gear.on .strip { background: #050507; box-shadow: 0 0 0 1px rgb(255 255 255 / .55); color: #fff; }
@@ -937,8 +940,9 @@
   .lay-stage > .insp.pick { grid-template-columns: 250px 348px minmax(0, 1fr); }
   .lay-stage > .insp .card { background: none; border-right: 1px solid rgb(255 255 255 / .08); padding: 18px 20px; align-content: center; overflow-y: auto; }
   .lay-stage > .insp .card > .pic { display: none; }
-  .lay-stage > .insp .card > div:not(.btnrow) { display: flex; flex-direction: column-reverse; gap: 2px; }
-  .lay-stage > .insp .card h4 { font-size: 30px; }
+  .lay-stage > .insp .card { grid-template-columns: minmax(0, 1fr); }
+  .lay-stage > .insp .card > div:not(.btnrow) { display: flex; flex-direction: column-reverse; gap: 2px; min-width: 0; }
+  .lay-stage > .insp .card h4 { font-size: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lay-stage > .insp .card p { margin: 0; font-size: 12.5px; }
   .lay-stage > .insp .btn { background: rgb(255 255 255 / .06); border-color: rgb(255 255 255 / .14); }
   .lay-stage > .insp .ctl { padding: 6px 18px 0; }
@@ -1266,6 +1270,7 @@ function drawPath(p, g, now) {
   grid.style.height = (two ? YB : YA) + TILE_H - TILE_TOP + 'px';
   grid.dataset.two = two ? '1' : '';
   grid.dataset.step = g.step;                                  // (for the dotted branch a drag shows: laneBranch)
+  grid.style.setProperty('--col', Math.max(60, Math.floor(g.step) - 8) + 'px');   // (a place's column: the stage's names stay in it)
   grid.innerHTML = `<svg>${wires.join('')}</svg>`;
   grid.append(...out);
   row.append(tag, grid);
@@ -1489,7 +1494,7 @@ function card(block, picker) {
   else if (block.id === 'split' || block.id === 'join') { const pic = el('div', 'pic io'); pic.innerHTML = block.id === 'split' ? ICON.split : ICON.mix; box.append(pic); }
   else box.append(image(pictures(block), 'pic'));
   const head = el('div'), line = el('p');
-  head.append(el('h4', '', title(block)));
+  head.append(el('h4', '', title(block))); head.firstChild.title = title(block);
   line.append(el('span', 'led' + (block.enabled ? '' : ' off')), el('span', '', [taken ? m.name : kindOf(block), m.bypass ? (block.enabled ? 'on' : 'bypassed') : ''].filter(Boolean).join(' · ')));
   head.append(line);
   box.append(head);
@@ -2125,6 +2130,7 @@ function editParams(block, list) {
   const m = model(block), taken = capture(block);
   if (isChain(block)) name.append(image(pictures(block), '', true));
   name.append(el('span', '', title(block)), el('small', '', [taken ? m.name : kindOf(block), m.bypass ? (block.enabled ? 'on' : 'bypassed') : ''].filter(Boolean).join(' · ')));
+  name.title = title(block);
   if (isChain(block) && m.bypass) {
     const power = el('button', 'btn power'); power.innerHTML = ICON.power;
     power.setAttribute('aria-pressed', block.enabled); power.title = block.enabled ? 'On: click to bypass' : 'Bypassed: click to turn on';
@@ -2143,6 +2149,7 @@ function editParams(block, list) {
   if (taken) {
     line = el('div', 'capline');
     const cost = Number(costs[block.model]), view = dsp && dsp[block.dsp], budget = view && view.budget ? view.budget : 75;
+    line.title = taken.name;
     line.append('Capture', el('b', '', taken.name), ('gear' in taken ? namKind(taken) : 'Not in the NAM library') + ' · IR slot ' + block.slot +
       (Number.isFinite(cost) && cost > 0 ? ' · this block ' + Math.round(100 * cost / budget) + '% of DSP ' + (block.dsp + 1) : ''), el('span', 'sp'));
     const open = el('button', '', 'NAM library'); open.title = 'Its light version, its level and A/B compare: the NAM library';
