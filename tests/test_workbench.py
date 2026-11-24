@@ -491,9 +491,10 @@ class PresetTests(unittest.TestCase):
         self.assertIn("if (answer === 'drop') ask('preset', target);", guard)
         # Save, then the preset: HX Edit's own Save (the top bar's), then the load a moment later (HX Edit gives no
         # sign that a Save is done; 1.5 s was enough live); never when another preset was loaded meanwhile
-        self.assertLess(guard.index('savePreset();'), guard.index("setTimeout(() => { if (presetWord() === from) ask('preset', target); }, SAVE_WAIT_MS);"))
+        # (a preview playing is ended first: the load follows the Save, inside savePreset's `then`; Batch 3, 13:09)
+        self.assertLess(guard.index('savePreset(() => {'), guard.index("setTimeout(() => { if (presetWord() === from) ask('preset', target); }, SAVE_WAIT_MS);"))
         self.assertIn('const SAVE_WAIT_MS = 2000;', page)
-        self.assertEqual(page.count("ask('save')"), 1)                                    # only savePreset asks it
+        self.assertEqual(page.count("ask('save')"), 1)                                    # only saveNow asks it (savePreset's gate)
         self.assertIn("$('save').onclick = savePreset;", page)
         self.assertIn("$('edited').hidden = !changedHere();", page)                     # (Batch 3: or a pending name)
 
@@ -695,7 +696,9 @@ class LevelsTests(unittest.TestCase):
         self.assertNotIn("'level'", page[page.index('const OLD_PAGES'):page.index('const OLD_PAGES') + 60])
         asked = set(__import__('re').findall(r"ask\('levels', \{do: '([a-zA-Z]+)'", page))
         self.assertEqual(asked, {'open', 'close', 'levelScan', 'levelApply', 'levelUndo', 'levelGuitar', 'levelGuitarRemove', 'levelCancel', 'replace',
-                                 'listenStop', 'optimizeCancel', 'lightCancel', 'optimize', 'light'})
+                                 'listenStop', 'optimizeCancel', 'lightCancel', 'optimize', 'light',
+                                 'end'})    # (a Save while the library's preview plays ends it first: Batch 3, 13:09)
+
         # the NAM library's Floor actions go through the same session (stage 5 part 2)
         floor = set(__import__('re').findall(r"do: (?:verified \? 'use' : 'load'|trial \? \{do: 'end'\} : \{do: '([a-z]+)')", page))
         self.assertIn("ask('levels', {do: verified ? 'use' : 'load', arg: row.id});", page)

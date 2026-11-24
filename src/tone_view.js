@@ -4696,6 +4696,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   listen();
   return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook,
            previewEnded: () => previewEnd,
+           // A preview is on a block now (or on its way there): the Workbench's Save waits until it has ended (live
+           // check 2026-11-24 13:09: a Save then would store the block on 128, which the clean-up empties after).
+           previewing: () => !!active && !!(active.transfer || active.pendingTransfer),
+
 
            // Focus Mode: the block the editor's cursor is on, as {editor, dsp, block}. With no cursor yet,
            // the edit buffer alone ({editor, dsp: -1, block: ''}), or null before HX Edit has shown any block.

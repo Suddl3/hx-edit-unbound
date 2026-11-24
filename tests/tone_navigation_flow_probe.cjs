@@ -749,5 +749,18 @@ function fixture(options = {}) {
   const next=f.command('audition',{file:'next.wav'});
   assert.equal(f.reply(next).slot,128);
 }
-console.log('39 navigation flow scenarios passed');
+// The Workbench's Save asks whether a preview is on a block (live check 2026-11-24 13:09): from the upload on, until
+// the block is back; a 128 kept after the block is back is no preview on a block.
+{
+  const f = fixture(); f.select(f.a); f.open();
+  assert.equal(f.view.previewing(), false);
+  f.setImportReady(false); const id = f.command('audition', {file:'slow.wav'});
+  assert.equal(f.reply(id), undefined); assert.equal(f.view.previewing(), true, 'an upload on its way to the block');
+  f.finishUpload(); assert.equal(f.reply(id).slot, 128); assert.equal(f.view.previewing(), true);
+  f.setClearAllowed(false);
+  const end = f.command('end'); f.tick(); f.tick();
+  assert.equal(f.reply(end).ended, true); assert.equal(f.a.slot, 9); assert.equal(f.view.previewing(), false);
+}
+console.log('40 navigation flow scenarios passed');
+
 

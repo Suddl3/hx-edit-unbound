@@ -327,6 +327,31 @@ function workbenchPreviewMark(mark, key, undoAt, ended, now) {
   return {...mark, at: undoAt};
 }
 
+// ---- a Save while a preview plays ----------------------------------------------------------------------------------
+// HX Edit's Save stores the edit buffer as it is: with a preview on, the NAM block on slot 128, which the preview's
+// clean-up then empties (live check 2026-11-24 13:09, "Save, then load" offered during a preview). So the Workbench's
+// Save first ends the preview and saves only once it has ended. Which preview plays, as the page sees it: 'library'
+// (the library's own session: its End preview), 'tray' (a TONE3000 tone in the tray: its Stop preview), 'session'
+// (HX Edit's script says one plays, neither of those shows it: nothing the page can end), or ''.
+function workbenchPreviewOn(state, floor, tray) {
+  const set = value => value !== null && value !== undefined;
+  if (floor && set(floor.trial)) return 'library';
+  if (tray && set(tray.trial) && Array.isArray(tray.tray) && tray.tray.some(item => item && item.state === 'ready' && item.trial === tray.trial)) return 'tray';
+  if (state && state.previewing === true) return 'session';
+  return '';
+}
+// Waiting for it to end (held: {since, until, offAt}): 'wait', 'save' or 'give-up' (not ended by `until`: no Save).
+// Ended: saved once HX Edit's undo record has the step back (tone_view previewEnded.to, so the unsaved mark counts
+// from there), or WORKBENCH_PREVIEW_STEP_MS after the preview went off without one (a capture the block moved on to).
+const WORKBENCH_PREVIEW_END_WAIT_MS = 10000, WORKBENCH_PREVIEW_STEP_MS = 1500;
+function workbenchSaveHold(held, now, on, undoAt, ended) {
+  if (on) return {next: now > held.until ? 'give-up' : 'wait', offAt: 0};
+  const offAt = held.offAt || now;
+  const fresh = !!ended && typeof ended.at === 'number' && ended.at >= held.since && typeof ended.to === 'number';
+  if (!fresh || undoAt === ended.to || now - offAt >= WORKBENCH_PREVIEW_STEP_MS) return {next: 'save', offAt};
+  return {next: 'wait', offAt};
+}
+
 // ---- a name box of our own: a preset's name, a snapshot's ---------------------------------------------------------
 // The Floor keeps 16 characters for a preset's name and 10 for a snapshot's, in its own font: the printable ASCII
 // characters (space to "~"). What it would refuse is left out as it is typed, quietly; anything past the limit too.
@@ -415,7 +440,8 @@ function workbenchSlotUsers(usage, slot, loaded) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
-                     workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, WORKBENCH_BACK_MS,
+                     workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, workbenchPreviewOn, WORKBENCH_PREVIEW_END_WAIT_MS, WORKBENCH_PREVIEW_STEP_MS, workbenchSaveHold, WORKBENCH_BACK_MS,
+
  WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

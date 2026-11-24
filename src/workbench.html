@@ -1941,7 +1941,48 @@ let savedMark = {key: '', at: null}, leaving = false;
 const presetWord = () => state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
 const unsaved = () => !!state && workbenchUnsaved(state.undoAt, presetWord(), savedMark);
 const changedHere = () => unsaved() || !!pendingHere();          // (a pending name is an unsaved change too)
-function savePreset() {
+// (a Save while a preview plays: the preview is ended first, the Save waits until it has (workbenchPreviewOn,
+// workbenchSaveHold); not ended in time: no Save, said so. `then`: what follows the Save ("Save, then load"), only
+// once it has been asked for.)
+let saveHeld = null;
+const previewOn = () => workbenchPreviewOn(state, floorStatus, toneTray);
+function savePreset(then) {
+  then = typeof then === 'function' ? then : null;            // (a button's onclick passes its event)
+  if (saveHeld || !state || !state.preset) return;
+  const on = previewOn();
+  if (!on) { saveNow(); if (then) then(); return; }
+  if (on === 'session') {
+    stickyNote('Not saved. A preview is playing from slot 128 on the Floor; saving now would keep the preview in the preset. End the preview (NAM library or the TONE3000 tray), then Save.');
+    return;
+  }
+  saveHeld = {since: Date.now(), until: Date.now() + WORKBENCH_PREVIEW_END_WAIT_MS, offAt: 0, then, key: presetWord(), on};
+  if (on === 'library') ask('levels', {do: 'end'}); else ask('tray', {do: 'end', trial: toneTray.trial});
+  toast('Ending the preview first (the block gets its own capture back), then saving\u2026');
+}
+function holdSave() {
+  if (!saveHeld) return;
+  const held = saveHeld;
+  if (presetWord() !== held.key) {
+    saveHeld = null;
+    stickyNote('Not saved. Another preset was loaded while the preview was ending.');
+    return;
+  }
+  const step = workbenchSaveHold(held, Date.now(), !!previewOn(), state && state.undoAt, state && state.previewEnded);
+  held.offAt = step.offAt;
+  if (step.next === 'wait') return;
+  saveHeld = null;
+  if (step.next === 'give-up') {
+
+    const why = String((held.on === 'library' ? floorStatus && floorStatus.text : toneTray && toneTray.text) || '').trim();
+    stickyNote('Not saved. The preview could not be ended, so the preset would have kept the preview in slot 128.' + (why ? ' ' + why : ''));
+    drawBar();
+    return;
+  }
+  saveNow();
+  if (held.then) held.then();
+}
+setInterval(holdSave, 250);
+function saveNow() {
   if (state && state.preset && typeof state.undoAt === 'number') savedMark = {key: presetWord(), at: state.undoAt};
   ask('save');
   // A pending name: HX Edit's Save first, then the stored copy renamed (asked before anything a "Save, then load" asks
@@ -1975,11 +2016,16 @@ function loadPreset(target) {
     shade.remove(); removeEventListener('keydown', keys, true); leaving = false;
     if (answer === 'drop') ask('preset', target);
     if (answer === 'save') {
-      // HX Edit's own Save, then the preset a moment later (HX Edit gives no sign that the Save is done)
-      savePreset();
+      // HX Edit's own Save, then the preset a moment later (HX Edit gives no sign that the Save is done). A preview
+      // playing is ended first (savePreset); no Save, no load. (the look at another setlist is held meanwhile)
       const from = presetWord();
-      toast('Saving, then loading ' + there + '\u2026');
-      setTimeout(() => { if (presetWord() === from) ask('preset', target); }, SAVE_WAIT_MS);   // (another preset meanwhile: nothing more to load)
+      if (other) holdLookUntil = Date.now() + WORKBENCH_PREVIEW_END_WAIT_MS + SAVE_WAIT_MS + HOLD_LOOK_MS;
+      savePreset(() => {
+        if (other) holdLookUntil = Date.now() + SAVE_WAIT_MS + HOLD_LOOK_MS;
+        toast('Saving, then loading ' + there + '\u2026');
+        setTimeout(() => { if (presetWord() === from) ask('preset', target); }, SAVE_WAIT_MS);   // (another preset meanwhile: nothing more to load)
+      });
+
     }
   };
   const stay = el('button', 'btn', 'Stay here'), drop = el('button', 'btn', 'Don\u2019t save');

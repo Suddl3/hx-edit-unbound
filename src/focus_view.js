@@ -802,6 +802,9 @@ function installFocusView(options, parts) {
       // (the last preview that ended with its block back on its own capture: the undo positions before it and after
       // its step back, so the Workbench's unsaved mark does not count the preview's own two steps; tone_view)
       try { state.previewEnded = toneView.previewEnded ? toneView.previewEnded() : null; } catch (_) { state.previewEnded = null; }
+      // (a preview on a block now: the Workbench's Save ends it first; tone_view previewing)
+      try { state.previewing = toneView.previewing ? toneView.previewing() : null; } catch (_) { state.previewing = null; }
+
 
       // Something to redo, as HX Edit's Edit menu asks it (target_binding canRedo); null when it cannot be read
       try { state.redo = targetBinding.canRedo(editor); } catch (_) { state.redo = null; }

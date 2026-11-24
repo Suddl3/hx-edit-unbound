@@ -144,7 +144,8 @@ class PresetRenameTests(unittest.TestCase):
 
     def test_save_runs_first_then_the_stored_copy_is_renamed_and_read_back(self):
         source = page()
-        save = source[source.index('function savePreset() {'):source.index('const SAVE_WAIT_MS = 2000;')]
+        save = source[source.index('function saveNow() {'):source.index('const SAVE_WAIT_MS = 2000;')]
+
         self.assertLess(save.index("ask('save');"), save.index("ask('rename', {what: 'preset', setlist: ask_.setlist, number: ask_.number, name: ask_.name})"))
         self.assertIn('if (presetWord() === ask_.key && renameAsked === ask_)', save)
         self.assertIn('}, SAVE_WAIT_MS);', save)
@@ -641,6 +642,119 @@ class PreviewEndTests(unittest.TestCase):
         self.assertIn("previewEnd = {from: origin.undo, to: active.undoAfter + 1, at: Date.now()};", tone)
         self.assertIn('if (!active.origin.structural && undoBefore !== (active.previewChain ?? active.origin.undo)) active.previewTainted = true;', tone)
         self.assertIn('previewEnded: () => previewEnd,', tone)
+
+
+class SaveDuringPreviewTests(unittest.TestCase):
+    """Live check 2026-11-24 13:09 (trial 20261124-130606-2341be22): on 032 with a library preview playing, the unsaved
+    prompt offered "Save, then load it". HX Edit's Save would have stored the NAM block on slot 128, which the preview's
+    clean-up then empties."""
+
+    def test_which_preview_plays(self):
+        on = lambda *a: run_js(['workbench_layout.js'], 'workbenchPreviewOn(%s)' % ', '.join(json.dumps(x) for x in a))
+        self.assertEqual(on({'previewing': True}, {'trial': 3}, None), 'library')
+        tray = {'trial': 7, 'tray': [{'state': 'ready', 'trial': 7}]}
+        self.assertEqual(on({'previewing': True}, {'trial': None}, tray), 'tray')
+        self.assertEqual(on({'previewing': True}, None, {'trial': 7, 'tray': [{'state': 'ready', 'trial': None}]}), 'session')
+        self.assertEqual(on({'previewing': False}, {'trial': None}, None), '')
+        self.assertEqual(on({'previewing': None}, None, None), '')            # (an older script: nothing known, nothing held)
+
+    def test_the_save_waits_for_the_step_back(self):
+        hold = lambda *a: run_js(['workbench_layout.js'], 'workbenchSaveHold(%s)' % ', '.join(json.dumps(x) for x in a))
+        held = {'since': 1000, 'until': 11000, 'offAt': 0}
+        self.assertEqual(hold(held, 2000, True, 2, None), {'next': 'wait', 'offAt': 0})
+        self.assertEqual(hold(held, 11500, True, 2, None)['next'], 'give-up')        # never ended: no Save
+        ended = {'from': 1, 'to': 3, 'at': 2500}
+        self.assertEqual(hold(held, 3000, False, 2, ended), {'next': 'wait', 'offAt': 3000})   # off, the step back not yet
+        self.assertEqual(hold({**held, 'offAt': 3000}, 3200, False, 3, ended)['next'], 'save')
+        self.assertEqual(hold({**held, 'offAt': 3000}, 4600, False, 2, ended)['next'], 'save')  # 1.5 s after: saved anyway
+        self.assertEqual(hold(held, 3000, False, 2, {**ended, 'at': 500})['next'], 'save')     # an older preview's record
+        self.assertEqual(run_js(['workbench_layout.js'], '[WORKBENCH_PREVIEW_END_WAIT_MS, WORKBENCH_PREVIEW_STEP_MS]'), [10000, 1500])
+
+    def piece(self):
+        source = page()
+        return source[source.index('let saveHeld = null;'):source.index('const SAVE_WAIT_MS = 2000;')]
+
+    def run_page(self, steps):
+        # The page's own savePreset / holdSave / saveNow, with the rest of the page stubbed.
+        layout = (ROOT / 'workbench_layout.js').read_text(encoding='utf-8')
+        stubs = '''
+          let now = 1000; const Date = {now: () => now};
+          const asked = [], notes = [], toasts = [], timers = [];
+          const ask = (name, value) => asked.push([name, value === undefined ? null : value]);
+          const stickyNote = words => notes.push(words), toast = words => toasts.push(words), drawBar = () => {};
+          const setInterval = () => 0, setTimeout = (f, ms) => timers.push(f);
+          let state = {preset: {setlist: 3, number: 32, name: 'x'}, undoAt: 1, previewing: true, previewEnded: null};
+          let floorStatus = {trial: 4, text: ''}, toneTray = null, savedMark = {key: '', at: null}, renameAsked = null;
+          const presetWord = () => state.preset.setlist + ':' + state.preset.number, pendingHere = () => null;
+          const SAVE_WAIT_MS = 2000; let followed = 0;
+        '''
+        return run_js_source(layout + stubs + self.piece() + steps, '{asked, notes, toasts, savedMark, followed}')
+
+    def test_a_save_ends_the_library_preview_first_then_saves(self):
+        result = self.run_page('''
+          savePreset(() => followed++);
+          const first = asked.length;
+          now = 2000; holdSave();                                     // still playing
+          floorStatus = {trial: null}; state.previewing = false;
+          state.previewEnded = {from: 1, to: 3, at: 2500}; state.undoAt = 2;
+          now = 3000; holdSave();                                     // ended, the step back not in the record yet
+          state.undoAt = 3; now = 3250; holdSave();                   // now
+          holdSave();
+        ''')
+        self.assertEqual(result['asked'], [['levels', {'do': 'end'}], ['save', None]])
+        self.assertEqual(result['followed'], 1)                       # "Save, then load": the load only after the Save
+        self.assertEqual(result['savedMark'], {'key': '3:32', 'at': 3})
+        self.assertEqual(result['notes'], [])
+        self.assertIn('Ending the preview first', result['toasts'][0])
+
+    def test_a_preview_that_does_not_end_means_no_save_and_says_why(self):
+        result = self.run_page('''
+          floorStatus = {trial: 4, text: 'The previous block rejected restoration. Preview remains in User IR 128.'};
+          savePreset(() => followed++);
+          now = 12000; holdSave();
+        ''')
+        self.assertEqual(result['asked'], [['levels', {'do': 'end'}]])
+        self.assertEqual(result['followed'], 0)                       # no Save, no load
+        self.assertIn('Not saved. The preview could not be ended', result['notes'][0])
+        self.assertIn('rejected restoration', result['notes'][0])
+
+    def test_the_tray_preview_is_stopped_the_trays_way(self):
+        result = self.run_page('''
+          floorStatus = null; toneTray = {trial: 9, text: '', tray: [{state: 'ready', trial: 9}]};
+          savePreset();
+          toneTray = {trial: 9, tray: [{state: 'ready', trial: null}]}; state.previewing = false; now = 1500; holdSave();
+        ''')
+        self.assertEqual(result['asked'], [['tray', {'do': 'end', 'trial': 9}], ['save', None]])
+
+    def test_no_preview_saves_at_once_and_an_unknown_one_is_not_saved(self):
+        result = self.run_page('''
+          floorStatus = null; state.previewing = false; savePreset(() => followed++);
+        ''')
+        self.assertEqual(result['asked'], [['save', None]])
+        self.assertEqual(result['followed'], 1)
+        result = self.run_page('''
+          floorStatus = null; savePreset(() => followed++);
+        ''')
+        self.assertEqual(result['asked'], [])
+        self.assertEqual(result['followed'], 0)
+        self.assertIn('Not saved. A preview is playing from slot 128', result['notes'][0])
+
+    def test_every_save_of_the_page_goes_through_the_gate(self):
+        source = page()
+        self.assertEqual(source.count("ask('save')"), 1)              # only saveNow asks HX Edit's Save
+        self.assertIn("$('save').onclick = savePreset;", source)
+        self.assertIn("e.preventDefault(); savePreset(); return; }", source)          # Ctrl+S in the pane
+        self.assertIn('save.onclick = savePreset;', source)
+        guard = source[source.index('function loadPreset(target) {'):source.index('function openMenu() {')]
+        self.assertIn('savePreset(() => {', guard)                    # "Save, then load": the load follows the Save
+        self.assertNotIn('savePreset();', guard)
+        # (a pending preset rename rides on saveNow: asked after HX Edit's Save)
+        self.assertIn("ask('rename', {what: 'preset'", source[source.index('function saveNow() {'):source.index('const SAVE_WAIT_MS = 2000;')])
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn('state.previewing = toneView.previewing ? toneView.previewing() : null;', script)
+        tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        self.assertIn('previewing: () => !!active && !!(active.transfer || active.pendingTransfer),', tone)
+
 
 
 
