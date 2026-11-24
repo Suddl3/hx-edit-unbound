@@ -874,10 +874,91 @@
   .srow .lever.up::after { left: 23px; }
   .insp.off .srow output { color: var(--dim); }
   .ecols .empty { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+
+  /* ---- Rig on stage: the gear on the preset's scene (batch4-rig-on-stage.png, -drawer.png) ---- */
+  .app.lay-stage { position: relative; grid-template: 58px minmax(0, 1fr) auto / minmax(0, 1fr); }
+  .app > .scene { position: absolute; inset: 0; z-index: 0; background: #07070a center / cover no-repeat; }
+  .app > .scene::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(0 0 0 / .3), transparent 22%, transparent 58%, rgb(0 0 0 / .62)); }
+  .lay-stage > .top { background: linear-gradient(180deg, rgb(8 9 12 / .82), rgb(8 9 12 / .35)); border-bottom-color: rgb(255 255 255 / .08); }
+  .lay-stage > .top .icon, .lay-stage > .top .tempo, .lay-stage > .top .snaps, .lay-stage > .top .view { background: rgb(12 13 17 / .6); border-color: rgb(255 255 255 / .14); backdrop-filter: blur(10px); }
+  .lay-stage .rail { grid-column: 1; grid-row: 2; align-self: start; justify-self: start; position: relative; z-index: 4; margin: 14px 0 0 14px; width: 86px; padding: 6px; gap: 2px;
+                     border: 1px solid rgb(255 255 255 / .12); border-radius: 14px; background: rgb(10 11 14 / .66); backdrop-filter: blur(14px); }
+  .lay-stage .rail button { height: 50px; padding: 0; align-content: center; gap: 3px; border-radius: 9px; color: #c4c8d2; font-size: 11px; }
+  .lay-stage .rail button svg { width: 18px; height: 18px; }
+  .lay-stage .rail button.un { color: #c99cf0; }
+  .lay-stage .rail button.on { background: rgb(255 255 255 / .12); color: #fff; }
+  .lay-stage .rail .sep { background: rgb(255 255 255 / .12); margin: 4px 8px; }
+  .lay-stage .drawer { grid-column: 1; grid-row: 2; justify-self: start; position: relative; z-index: 4; width: 286px; margin: 14px 0 14px 110px; padding-top: 12px; border: 1px solid rgb(255 255 255 / .14);
+                       border-radius: 14px; background: rgb(10 11 14 / .8); backdrop-filter: blur(18px); overflow: hidden; }
+  .lay-stage .drawer .find { background: rgb(255 255 255 / .07); border: 1px solid rgb(255 255 255 / .12); }
+  .lay-stage .drawer .caprow:hover, .lay-stage .drawer .prow:hover { background: rgb(255 255 255 / .07); }
+  .lay-stage .drawer .dfoot { border-top-color: rgb(255 255 255 / .1); }
+  .lay-stage > .board { grid-column: 1; grid-row: 2; position: relative; z-index: 1; background: none; border: 0; padding: 6px 30px 0 118px; gap: 18px; overflow: hidden auto; min-height: 0; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .lay-stage.with-drawer > .board { padding-left: 408px; }
+  .stagehead { display: flex; justify-content: flex-end; align-items: center; gap: 10px; height: 40px; padding-top: 6px; }
+  .glassbtn { height: 34px; padding: 0 14px; border-radius: 9px; display: inline-flex; align-items: center; gap: 9px; background: rgb(12 13 17 / .62); border: 1px solid rgb(255 255 255 / .16);
+              backdrop-filter: blur(10px); font-weight: 600; white-space: nowrap; }
+  .glassbtn:hover { border-color: rgb(255 255 255 / .4); }
+  .glassbtn svg { width: 16px; height: 16px; }
+  .lay-stage .path .tag { align-self: flex-start; height: auto; width: 92px; margin: calc(var(--gh, 120px) - 46px) 12px 0 0; padding: 9px 10px; border-radius: 10px; background: rgb(10 11 14 / .62);
+                          border: 1px solid rgb(255 255 255 / .14); backdrop-filter: blur(10px); }
+  .lay-stage .path .tag small { color: #c4c8d2; }
+  .lay-stage .grid8 > svg path { stroke: rgb(255 255 255 / .2); stroke-width: 1.5; }
+  .lay-stage .grid8 > svg path.b { stroke: rgb(255 255 255 / .28); }
+  .lay-stage .tile.gear, .lay-stage .tile.gear.on { background: none; border: 0; padding: 0; overflow: visible; display: block; box-shadow: none; }
+  .lay-stage .tile.gear .pic { position: absolute; left: 50%; bottom: 30px; width: 136%; height: var(--gh, 120px); transform: translateX(-50%); object-fit: contain; object-position: 50% 100%;
+                               filter: drop-shadow(0 12px 10px rgb(0 0 0 / .65)); transition: filter .15s; }
+  .lay-stage .tile.gear.small .pic { height: calc(var(--gh, 120px) * .64); width: 110%; }
+  .lay-stage button.tile.gear:hover .pic { filter: brightness(1.12) drop-shadow(0 12px 10px rgb(0 0 0 / .65)); }
+  .lay-stage .tile.gear.off .pic { filter: grayscale(.85) brightness(.5) drop-shadow(0 12px 10px rgb(0 0 0 / .6)); }
+  .lay-stage .tile.gear .led { display: none; }
+  .lay-stage .tile.gear .strip { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: max-content; max-width: 150%; margin: 0; padding: 3px 9px 3px 8px; border: 0;
+                                 border-radius: 6px; background: rgb(10 11 14 / .74); backdrop-filter: blur(6px); display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; }
+  .lay-stage .tile.gear .strip::before { content: ''; width: 6px; height: 6px; border-radius: 50%; flex: none; background: rgb(var(--c)); box-shadow: 0 0 6px rgb(var(--c) / .8); }
+  .lay-stage .tile.gear.off .strip { color: var(--dim); } .lay-stage .tile.gear.off .strip::before { background: #3a3e48; box-shadow: none; }
+  .lay-stage .tile.gear .strip small { display: none; }
+  .lay-stage .tile.gear.on .strip { background: #050507; box-shadow: 0 0 0 1px rgb(255 255 255 / .55); color: #fff; }
+  .lay-stage .tile.gear.on::before { content: ''; position: absolute; left: 50%; bottom: 20px; width: 118%; height: 22px; transform: translateX(-50%); border-radius: 50%;
+                                     border: 1.5px solid rgb(255 255 255 / .55); background: rgb(255 255 255 / .06); box-shadow: 0 0 22px rgb(var(--c) / .55); }
+  .lay-stage .tile.io { background: rgb(10 11 14 / .55); border-color: rgb(255 255 255 / .25); backdrop-filter: blur(6px); }
+  .lay-stage .tile.io .strip { color: #c4c8d2; }
+  .lay-stage .slot { background: rgb(10 11 14 / .55); border-color: rgb(255 255 255 / .3); color: rgb(255 255 255 / .75); }
+  .lay-stage .node { background: rgb(14 15 20 / .8); border-color: rgb(255 255 255 / .55); }
+  .lay-stage .note b, .lay-stage .note small { text-shadow: 0 1px 3px #000, 0 0 8px #000; } .lay-stage .note small { color: #c4c8d2; }
+  .lay-stage .board.dragging .tile.gear.over { box-shadow: none; } .lay-stage .board.dragging .tile.gear.over .pic { filter: drop-shadow(0 0 10px #f0c94a); }
+  .lay-stage .board.dragging.capture-drag .tile.gear.nam-drop, .lay-stage .board.dragging.ir-drag .tile.gear.ir-drop { box-shadow: none; }
+  .lay-stage .board.dragging.capture-drag .tile.gear.nam-drop .strip { box-shadow: 0 0 0 1px #b070e0; }
+  .lay-stage .board.dragging.ir-drag .tile.gear.ir-drop .strip { box-shadow: 0 0 0 1px #f23091; }
+  /* the dock: the selected block, its three tabs and its controls (the Workbench's own panel, docked) */
+  .lay-stage > .insp { grid-column: 1; grid-row: 3; position: relative; z-index: 2; margin: 0 14px 14px; height: clamp(168px, 26vh, 236px); overflow: hidden; border-radius: 14px;
+                       background: rgb(10 11 14 / .74); border: 1px solid rgb(255 255 255 / .12); backdrop-filter: blur(16px); grid-template-columns: 290px minmax(0, 1fr); }
+  .lay-stage > .insp.nam { grid-template-columns: 290px minmax(0, 1fr) 300px; }
+  .lay-stage > .insp.pick, .lay-stage > .insp.tabbed { height: min(58vh, 540px); }
+  .lay-stage > .insp.pick { grid-template-columns: 250px 348px minmax(0, 1fr); }
+  .lay-stage > .insp .card { background: none; border-right: 1px solid rgb(255 255 255 / .08); padding: 18px 20px; align-content: center; overflow-y: auto; }
+  .lay-stage > .insp .card > .pic { display: none; }
+  .lay-stage > .insp .card > div:not(.btnrow) { display: flex; flex-direction: column-reverse; gap: 2px; }
+  .lay-stage > .insp .card h4 { font-size: 30px; }
+  .lay-stage > .insp .card p { margin: 0; font-size: 12.5px; }
+  .lay-stage > .insp .btn { background: rgb(255 255 255 / .06); border-color: rgb(255 255 255 / .14); }
+  .lay-stage > .insp .ctl { padding: 6px 18px 0; }
+  .lay-stage > .insp .tabs { border-bottom-color: rgb(255 255 255 / .1); }
+  .lay-stage > .insp .knobs { justify-content: flex-start; align-content: safe center; padding: 10px 0; gap: 14px 2px; }
+  .lay-stage > .insp .knobs .knob, .lay-stage > .insp .knobs .sw { width: 80px; }
+  .lay-stage > .insp .knobs .knob .dial { width: 64px; height: 64px; }
+  .lay-stage > .insp .knobs .knob .val, .lay-stage > .insp .knobs .sw .val { font-size: 14px; }
+  .lay-stage > .insp .knobs .sw .lever { margin: 18px 0; }
+  .lay-stage > .insp .capt { background: none; border-left-color: rgb(255 255 255 / .08); }
+  .lay-stage > .insp .empty { grid-column: 1 / -1; }
+  .lay-stage > .vw { grid-column: 1; grid-row: 2 / 4; position: relative; z-index: 3; margin-left: 110px; border-left: 1px solid var(--line); }
+  .lay-stage > .tool { display: none !important; }
+  @media (max-height: 800px) { .lay-stage > .insp .card { padding: 10px 18px; gap: 8px; } .lay-stage > .insp .card h4 { font-size: 24px; }
+                               .lay-stage .rail button { height: 40px; font-size: 10.5px; } .lay-stage .rail button svg { width: 16px; height: 16px; } .lay-stage .rail .sep { margin: 2px 8px; } }
 </style>
 </head>
 <body>
 <div class="app lay-workbench" id="app">
+  <div class="scene" id="stageScene" aria-hidden="true" hidden></div>
   <header class="top" id="top">
     <div class="logo"><button id="menuButton" title="HX Edit Unbound: the layout, and HX Edit's menu bar" aria-label="HX Edit Unbound menu" aria-expanded="false"><svg class="app" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="ubx" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#9b84f6"/><stop offset=".5" stop-color="#5fa8f2"/><stop offset="1" stop-color="#3fd3c8"/></linearGradient><radialGradient id="ubt" cx=".5" cy=".45" r=".7"><stop stop-color="#231f31"/><stop offset="1" stop-color="#14121c"/></radialGradient></defs><rect x=".5" y=".5" width="31" height="31" rx="7" fill="url(#ubt)" stroke="rgb(255 255 255 / .09)"/><path d="M7.5 8l6.3 8-6.3 8M24.5 8l-6.3 8 6.3 8" stroke="url(#ubx)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="caret" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 2.5l3 3 3-3"/></svg></button></div>
     <div class="now">
@@ -1034,21 +1115,21 @@ function image(urls, cls, small, lazy) {
 }
 
 // ---- the chain --------------------------------------------------------------------------------------------------
-let YA = 52, YB = 166, TILE_H = 104, TILE_TOP = 52;
+let YA = 52, YB = 166, TILE_H = 104, TILE_TOP = 52, TILE_W = 105;
 const X0 = 74, R = 14;
 // The chain's sizes in each layout (Batch 4): the same paths, places, drags and asks, drawn smaller in Classic+ (as HX
 // Edit's own signal flow) and as gear on the stage (stageSizes). YA / YB: each lane's line; TILE_H: a block's height,
 // TILE_TOP: from its top to the line; TAG: the width of the path's label beside it.
-const CHAIN_SIZES = {workbench: {YA: 52, YB: 166, TILE_H: 104, TILE_TOP: 52, TAG: 88}, classicplus: {YA: 36, YB: 136, TILE_H: 84, TILE_TOP: 34, TAG: 0}};
-function chainSizes() {
-  const s = layout === 'stage' ? stageSizes() : CHAIN_SIZES[layout] || CHAIN_SIZES.workbench;
-  YA = s.YA; YB = s.YB; TILE_H = s.TILE_H; TILE_TOP = s.TILE_TOP;
+const CHAIN_SIZES = {workbench: {YA: 52, YB: 166, TILE_H: 104, TILE_TOP: 52, TILE_W: 105, TAG: 88}, classicplus: {YA: 36, YB: 136, TILE_H: 84, TILE_TOP: 34, TILE_W: 105, TAG: 0}};
+function chainSizes(paths) {
+  const s = layout === 'stage' ? stageSizes(paths) : CHAIN_SIZES[layout] || CHAIN_SIZES.workbench;
+  YA = s.YA; YB = s.YB; TILE_H = s.TILE_H; TILE_TOP = s.TILE_TOP; TILE_W = s.TILE_W;
   return s;
 }
 let shownChain = '';
 function geometry(width) {
   // Eight places between the input (left) and the output (right); a gap is where the split or the mixer sits.
-  const end = Math.max(X0 + 8 * 90, width - 74), step = (end - X0) / 8, tile = Math.min(105, step - 18);
+  const end = Math.max(X0 + 8 * 90, width - 74), step = (end - X0) / 8, tile = Math.min(TILE_W, step - 18);
   return {width, end, step, tile, px: k => X0 + step * k + (step - tile) / 2, gap: k => X0 + step * k};
 }
 // A change to the chain asked for here, shown until HX Edit's reading has it (workbenchPending).
@@ -1073,7 +1154,7 @@ function shownBlocks() {
 const same = (a, b) => !!a && !!b && a.dsp === b.dsp && a.id === b.id;
 function drawChain(force) {
   const board = $('board'), paths = workbenchPaths(shownBlocks(), catalog, state.topology), sizes = chainSizes(paths);
-  const width = Math.max(800, board.clientWidth - 28 - sizes.TAG);
+  const style = getComputedStyle(board), width = Math.max(800, board.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - sizes.TAG);
   const now = current();
   const key = JSON.stringify([width, layout, sizes, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
                               now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), (state.irs || []).map(i => [i.slot, i.name]), dsp,
@@ -1085,7 +1166,8 @@ function drawChain(force) {
   try {
     // (Classic+: "Signal flow" with both DSP meters over the paths, as HX Edit's own header has them; the stage: its
     // scene and the button to Floor look over them)
-    const head = layout === 'classicplus' ? [flowHead()] : layout === 'stage' ? stageHead() : [];
+    const head = layout === 'classicplus' ? [flowHead()] : layout === 'stage' ? [stageHead()] : [];
+    board.style.setProperty('--gh', TILE_TOP + 'px');
     board.replaceChildren(...head, ...paths.map(p => drawPath(p, geometry(width), now)));
   } finally { reusable = null; }
 }
@@ -1114,8 +1196,8 @@ function drawPath(p, g, now) {
     button.dataset.id = block.id; if (isNam(block)) button.classList.add('nam-drop'); if (isIr(block)) button.classList.add('ir-drop');   // (from a drawer)
     const led = el('span', 'led' + (block.enabled ? '' : ' off'));
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
-    // (the stage: the large render, as Focus Mode shows the gear, loaded once it is needed; elsewhere the small one)
-    button.append(led, layout === 'stage' ? image(lookPictures(block), 'pic', false, true) : image(pictures(block), 'pic', true), strip);
+    // (the stage: the gear as Floor look and Focus Mode show it, sized for what is shown; elsewhere the small picture)
+    button.append(led, layout === 'stage' ? image(stagePictures(block), 'pic', false, true) : image(pictures(block), 'pic', true), strip);
     button.title = title(block) + (capture(block) ? ' (' + model(block).name + ')' : '') + (block.enabled ? '' : ', bypassed');
     button.onclick = () => { if (!dragDone) pickBlock(block); };
     button.onpointerdown = event => liftBlock(event, block, button);
@@ -1532,7 +1614,7 @@ function drawPanel() {
   if (key !== shownPanel) {
     if (!shownPanel.startsWith('["block",' + block.dsp + ',"' + block.id + '","' + block.model + '"')) held.clear();
     shownPanel = key;
-    panel.className = 'insp' + (nam ? ' nam' : '') + (block.enabled ? '' : ' off');
+    panel.className = 'insp' + (nam ? ' nam' : '') + (block.enabled ? '' : ' off') + (panelTab === 'controls' ? '' : ' tabbed');
     const ctl = el('div', 'ctl'), tabs = el('div', 'tabs'), knobs = el('div', 'knobs' + (list.length > 9 ? ' s' : ''));
     // (the tabs: the knobs, or what HX Edit keeps about them: read-only for now, stage 3 step 1)
     for (const [name, label] of [['controls', 'Controls'], ['bypass', 'Bypass and controllers'], ['snaps', 'Snapshot values']]) {
@@ -2480,6 +2562,63 @@ function setLayout(name, mine) {
   shownRail = ''; shownDrawer = ''; shownFrame = ''; shownChain = ''; shownPanel = ''; $('drawer').replaceChildren();
   commitView(workbenchSwitch(view, layout), true);
 }
+// ---- Rig on stage (Batch 4): the chain's gear standing on the preset's scene --------------------------------------
+// The chain is the Workbench's own (workbenchPaths, drawPath: both paths, lane B, the split and the mixer, the inputs
+// and outputs, the "+" places, every drag and drop and its asks), drawn as gear on a common floor line: its sizes
+// follow the room the stage has (stageSizes, worked out when the chain is drawn, never per frame), the pictures are
+// the large renders Focus Mode shows (the Floor look picture where one was given), loaded once the stage shows.
+// The scene is the one Floor look gives the loaded preset: its own, else the selected block's kind's default (Focus
+// Mode's own rule), the high-resolution plate where this PC has it. "Scene: X" opens Floor look.
+const STAGE_BIG = new Set(['amp', 'preamp', 'cab']), STAGE_BIG_GEAR = new Set(['amp', 'preamp', 'amp-cab', 'amp-pedal-cab', 'cab']);
+function gearClass(block) {
+  // (amps and cabs stand full height, pedals and the rest smaller: the gear's own sizes, roughly)
+  const taken = capture(block), big = taken ? STAGE_BIG_GEAR.has(taken.gear) : STAGE_BIG.has(model(block).key);
+  return ['gear', big ? 'big' : 'small'];
+}
+function stageSizes(paths) {
+  // Each lane: the gear (H high) on its line, its name under it. H from the board's height and the lanes to show.
+  // (a wide window lets the gear grow a little more: up to 1.5 times on a 4K window)
+  const board = $('board'), lanes = (paths || []).reduce((n, p) => n + (p.b ? 2 : 1), 0) || 2;
+  const room = Math.max(220, board.clientHeight - 64 - 18 * Math.max(0, (paths || []).length - 1));
+  const most = 170 * Math.max(1, Math.min(1.5, board.clientWidth / 1500));
+  const H = Math.round(Math.max(52, Math.min(most, room / lanes - 44)));
+  return {YA: H + 8, YB: 2 * H + 52, TILE_H: H + 30, TILE_TOP: H, TILE_W: Math.round(Math.max(76, H * 1.15)), TAG: 104};
+}
+// The gear's pictures, best first for the size shown: the large render (or the large picture Floor look gave it) once
+// the gear stands taller than the small picture's own 256 px on this screen, else the small one, the other behind it
+function stagePictures(block) {
+  const given = givenPicture(block), own = pictures(block), urls = given ? catalog.pictures[given].urls : [];
+  const big = TILE_TOP * (window.devicePixelRatio || 1) > 240;
+  return big ? urls.concat(own) : urls.slice().reverse().concat(own.slice().reverse());
+}
+function stageScene() {
+  const now = current(), mine = look && presetLook(), whole = mine && usableScene(mine.scene);
+  if (whole) return whole;
+  if (look) return defaultSceneOf(now && isChain(now) ? kindKeyOf(now) : 'default');
+  return (now && usableScene(model(now).scene)) || Object.keys((catalog && catalog.scenes) || {})[0] || null;
+}
+const stageKey = () => [stageScene(), !!look];
+let shownScene = '';
+function syncStage() {
+  const box = $('stageScene'), on = layout === 'stage' && !!catalog;
+  box.hidden = !on;
+  if (!on) return;
+  const name = state ? stageScene() : null, sc = name && catalog.scenes[name];
+  const picture = sc ? sc.pictures[0] : '', key = picture + '|' + (sc && sc.focus || '');
+  if (key === shownScene) return;
+  shownScene = key;
+  box.style.backgroundImage = picture ? `url("${picture}")` : '';
+  // (where the gear stands in the scene, as Focus Mode places it)
+  box.style.backgroundPosition = sc && Array.isArray(sc.focus) ? `${(100 * sc.focus[0]).toFixed(1)}% ${(100 * sc.focus[1]).toFixed(1)}%` : '';
+}
+function stageHead() {
+  const head = el('div', 'stagehead'), name = state ? stageScene() : null, button = el('button', 'glassbtn');
+  button.innerHTML = RAIL_ICON.floor; button.append('Scene: ' + (name ? sceneName(name) : 'none'));
+  button.title = 'The scene behind the gear: Floor look (this preset’s own, else its kind’s default)';
+  button.onclick = () => setView('open', 'look');
+  head.append(button);
+  return head;
+}
 // The chooser's small pictures (the mock-up's own, research/modern-ui/batch4/mock.js)
 function layoutThumb(kind) {
   const r = (x, y, w, h, f, o = 1) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.5" fill="${f}" opacity="${o}"/>`;
@@ -2603,6 +2742,8 @@ function commitView(next, relaid) {
   drawFrames(); drawRail(); drawDrawer();
   // (the chain has less, or more, room; a tool's window follows its frame: reading where it is lays the page out)
   if (catalog && state && !view.full) { drawChain(true); shownPanel = ''; drawPanel(); }   // (the panel too: a load made meanwhile, live check 10:45)
+  if (catalog && state && !view.full && layout === 'stage') drawChain(true);   // (the stage's chain: sized to the room its dock left)
+  syncStage();
   syncTool(); syncLevels();
   letLookGo();                                                    // (the Presets drawer or view left: HX Edit's list goes back)
 }
@@ -2614,8 +2755,9 @@ function pickBlock(block) {
 }
 let shownFrame = '';
 function drawFrames() {
-  const app = $('app'), full = view.full, half = !full && view.half;
+  const app = $('app'), places = workbenchPlaces(layout, view), full = places.full, half = places.half;
   app.classList.toggle('full', !!full); app.classList.toggle('half', !!half);
+  app.classList.toggle('with-drawer', !!places.drawer);           // (the stage makes room for a glass drawer)
   $('vw').hidden = !full; $('tool').hidden = !half;
   $('tool').classList.toggle('look', half === 'look');   // (Floor look's own card: the picked block on its scene)
   const key = JSON.stringify([full, half]);
@@ -4302,7 +4444,9 @@ function render() {
   drawBar();
   drawRail();
   drawDrawer();
-  if (!view.full) { drawChain(); drawPanel(); } else { drawMini(); if (view.full === 'presets') drawPresetGrid(); }
+  syncStage();
+  // (the stage's chain is sized to the room its dock leaves: the dock first)
+  if (!view.full) { if (layout === 'stage') { drawPanel(); drawChain(); } else { drawChain(); drawPanel(); } } else { drawMini(); if (view.full === 'presets') drawPresetGrid(); }
   drawLook(); drawLevels(); drawLibrary(); drawTray();
   // (Batch 3: nothing shows another setlist any more, the list under the name, the drawer and the view all closed or
   // back: HX Edit's list goes back to the loaded preset's setlist)
@@ -4419,6 +4563,15 @@ addEventListener('keydown', e => {
 });
 drawRail(); drawDrawer();
 let resizing = 0;
+if (window.ResizeObserver) {
+  let boardHeight = 0;
+  new ResizeObserver(entries => {
+    const h = Math.round(entries[0].contentRect.height);
+    if (layout !== 'stage' || h === boardHeight) { boardHeight = h; return; }
+    boardHeight = h;
+    cancelAnimationFrame(resizing); resizing = requestAnimationFrame(() => { if (catalog && state && !view.full) drawChain(); });
+  }).observe($('board'));
+}
 addEventListener('resize', () => { cancelAnimationFrame(resizing); resizing = requestAnimationFrame(() => { if (catalog && state && !view.full) drawChain(); syncTool(); }); });
 </script>
 </body>

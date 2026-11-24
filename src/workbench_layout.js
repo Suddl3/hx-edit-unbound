@@ -197,7 +197,7 @@ const WORKBENCH_SIZES = Object.freeze({
 //   stage: the gear standing on the preset's scene, a glass rail and glass drawers over it, the block's dock below;
 //     a tool that has a lower-half size elsewhere opens as its full view there (no lower half under a stage).
 // built: offered in the chooser (a layout not built yet says "later" and cannot be picked).
-const WORKBENCH_LAYOUTS = Object.freeze({workbench: {built: true}, classicplus: {built: true}, stage: {built: false}});
+const WORKBENCH_LAYOUTS = Object.freeze({workbench: {built: true}, classicplus: {built: true}, stage: {built: true}});
 function workbenchLayoutOf(name) {
   // The layout a setting names, when it is one that is built; anything else is the Workbench.
   return typeof name === 'string' && Object.prototype.hasOwnProperty.call(WORKBENCH_LAYOUTS, name) && WORKBENCH_LAYOUTS[name].built ? name : 'workbench';

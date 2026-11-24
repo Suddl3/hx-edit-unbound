@@ -88,7 +88,7 @@ class ChooserTests(unittest.TestCase):
 
     def test_a_switch_is_instant_and_keeps_the_pages_own_state(self):
         text = page()
-        switch = between(text, 'function setLayout(name, mine) {', '// The chooser')
+        switch = between(text, 'function setLayout(name, mine) {', '// ---- Rig on stage')
         self.assertIn('const next = workbenchLayoutOf(name);', switch)
         self.assertIn("ask('layout', next)", switch)
         self.assertIn('commitView(workbenchSwitch(view, layout), true);', switch)
@@ -302,7 +302,7 @@ class ClassicPlusTests(unittest.TestCase):
 
     def test_the_chain_is_the_workbenchs_own_drawn_smaller_with_the_dsp_meters_over_it(self):
         text = page()
-        self.assertIn("classicplus: {YA: 36, YB: 136, TILE_H: 84, TILE_TOP: 34, TAG: 0}", text)
+        self.assertIn("classicplus: {YA: 36, YB: 136, TILE_H: 84, TILE_TOP: 34, TILE_W: 105, TAG: 0}", text)
         chain = between(text, 'function drawChain(force) {', 'function dspShare(k) {')
         self.assertIn("const head = layout === 'classicplus' ? [flowHead()]", chain)
         self.assertIn('paths.map(p => drawPath(p, geometry(width), now))', chain)       # the same paths, drags and asks
@@ -315,6 +315,91 @@ class ClassicPlusTests(unittest.TestCase):
         self.assertNotIn('uppercase', css)
         script = page()[page().index('// ---- the layouts (Batch 4)'):]
         self.assertFalse(re.search(r"'[A-Z]{4,}[ ']", between(page(), '// The picker\'s choices for a block, shared', '// ---- the top bar')))
+
+
+class StageTests(unittest.TestCase):
+    """Stage 3: Rig on stage, the chain's gear on the preset's scene, a glass rail and drawers, the block's dock."""
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_rig_on_stage_is_built_and_offered(self):
+        self.assertTrue(js('WORKBENCH_LAYOUTS.stage.built'))
+        self.assertEqual(js('workbenchLayoutOf("stage")'), 'stage')
+
+    def test_the_stage_is_the_workbenchs_own_chain_drawn_as_gear(self):
+        text = page()
+        chain = between(text, 'function drawChain(force) {', 'function dspShare(k) {')
+        # the same paths, places, drags and asks; only the sizes and the look are the stage's
+        self.assertIn('paths.map(p => drawPath(p, geometry(width), now))', chain)
+        self.assertIn("const s = layout === 'stage' ? stageSizes(paths) : CHAIN_SIZES[layout] || CHAIN_SIZES.workbench;", text)
+        self.assertIn("layout === 'stage' ? [stageHead()]", chain)
+        path = between(text, 'function drawPath(p, g, now) {', '// ---- moving a block')
+        self.assertIn("if (layout === 'stage') button.classList.add(...gearClass(block));", path)
+        self.assertIn("layout === 'stage' ? image(stagePictures(block), 'pic', false, true) : image(pictures(block), 'pic', true)", path)
+        for kept in ('button.onclick = () => { if (!dragDone) pickBlock(block); };', 'button.onpointerdown = event => liftBlock(event, block, button);',
+                     'plus.onclick = () => openPlacePicker(p.dsp, lane, place);', "node.onpointerdown = event => liftNode(event, p, 'split', node, g);",
+                     "node.onpointerdown = event => liftNode(event, p, 'join', node, g);", 'out.push(io(p.inputB, YB, false));', 'out.push(io(p.outputB, YB, true));'):
+            self.assertIn(kept, path)
+        self.assertEqual(text.count('function drawPath('), 1)
+        self.assertEqual(text.count('function liftBlock('), 1)
+        self.assertEqual(text.count('function liftLibrary('), 1)
+        # the gear stands on a common line: its picture's height is the stage's, a pedal smaller than an amp
+        self.assertIn("board.style.setProperty('--gh', TILE_TOP + 'px');", chain)
+        self.assertIn("const STAGE_BIG = new Set(['amp', 'preamp', 'cab'])", text)
+
+    def test_the_stage_fits_the_room_it_has_and_never_lays_out_per_frame(self):
+        text = page()
+        sizes = between(text, 'function stageSizes(paths) {', 'function stageScene() {')
+        self.assertIn('lanes = (paths || []).reduce((n, p) => n + (p.b ? 2 : 1), 0) || 2;', sizes)   # both paths, lane B
+        self.assertIn('const H = Math.round(Math.max(52, Math.min(most, room / lanes - 44)));', sizes)
+        self.assertIn('return {YA: H + 8, YB: 2 * H + 52, TILE_H: H + 30, TILE_TOP: H, TILE_W: Math.round(Math.max(76, H * 1.15)), TAG: 104};', sizes)
+        # pictures sized for what is shown: the large render only when the gear is shown larger than the small picture
+        self.assertIn('const big = TILE_TOP * (window.devicePixelRatio || 1) > 240;', sizes)
+        # drawn again only when its room changes (a ResizeObserver, once a change), its dock first in a render
+        self.assertIn("if (layout !== 'stage' || h === boardHeight) { boardHeight = h; return; }", text)
+        self.assertIn("if (layout === 'stage') { drawPanel(); drawChain(); } else { drawChain(); drawPanel(); }", text)
+        stage = between(text, '// ---- Rig on stage (Batch 4)', '// The chooser')
+        self.assertNotIn('setInterval', stage)
+        self.assertNotIn('requestAnimationFrame', stage)
+        # what does not fit scrolls (nothing is hidden), the dock keeps its height and scrolls inside
+        css = between(text, '/* ---- Rig on stage', '</style>')
+        self.assertIn('overflow: hidden auto;', css)
+        self.assertIn('height: clamp(168px, 26vh, 236px)', css)
+
+    def test_the_scene_is_floor_looks_for_the_preset_and_opens_floor_look(self):
+        text = page()
+        scene = between(text, 'function stageScene() {', 'const stageKey')
+        self.assertIn('const now = current(), mine = look && presetLook(), whole = mine && usableScene(mine.scene);', scene)
+        self.assertIn('if (whole) return whole;', scene)                                                    # the preset's own
+        self.assertIn("if (look) return defaultSceneOf(now && isChain(now) ? kindKeyOf(now) : 'default');", scene)   # its kind's default
+        sync = between(text, 'function syncStage() {', 'function stageHead() {')
+        self.assertIn("const box = $('stageScene'), on = layout === 'stage' && !!catalog;", sync)               # loaded only on the stage
+        self.assertIn('const picture = sc ? sc.pictures[0] : \'\'', sync)                                        # the high-resolution plate first
+        head = between(text, 'function stageHead() {', '// The chooser')
+        self.assertIn("button.append('Scene: ' + (name ? sceneName(name) : 'none'));", head)
+        self.assertIn("button.onclick = () => setView('open', 'look');", head)
+        self.assertIn('<div class="scene" id="stageScene" aria-hidden="true" hidden></div>', text)
+
+    def test_the_tools_and_the_dock_are_the_workbenchs_own(self):
+        text = page()
+        css = between(text, '/* ---- Rig on stage', '</style>')
+        # the seven tools in a glass rail, the drawers glass panels over the scene (the stage makes room)
+        self.assertIn('.lay-stage .rail {', css)
+        self.assertIn('.lay-stage .drawer {', css)
+        self.assertIn('.lay-stage.with-drawer > .board { padding-left: 408px; }', css)
+        self.assertIn("app.classList.toggle('with-drawer', !!places.drawer);", text)
+        # the dock is the block panel (its three tabs, the knobs, the capture), no lower half under a stage
+        self.assertIn('.lay-stage > .insp {', css)
+        self.assertIn('.lay-stage > .tool { display: none !important; }', css)
+        self.assertNotIn("layout === 'stage' && drawPanel", text)
+        self.assertIn("(panelTab === 'controls' ? '' : ' tabbed')", text)
+        self.assertIn('.lay-stage > .vw {', css)                                                            # the full views
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_floor_look_and_levels_open_full_on_the_stage(self):
+        steps = js('(() => { let v = {drawer: "", half: "", full: ""}; const out = [];'
+                   ' for (const [a, n] of [["open", "look"], ["back", ""], ["rail", "level"], ["escape", ""], ["rail", "presets"], ["expand", "presets"]])'
+                   ' { v = workbenchView(v, a, n, "stage"); out.push([v.drawer, v.half, v.full]); } return out; })()')
+        self.assertEqual(steps, [['', '', 'look'], ['', '', ''], ['', '', 'level'], ['', '', ''], ['presets', '', ''], ['presets', '', 'presets']])
 
 
 if __name__ == '__main__':
