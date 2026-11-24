@@ -1514,8 +1514,10 @@ class WiringTests(unittest.TestCase):
         self.assertIn("$('toFocus').onclick = () => ask('menu', 'focus');", page)      # Focus Mode: the Editor | Focus switch
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         for piece in ("if name == 'menuBar':", 'nam_catalog.save_setting(MENU_BAR, value)', 'workbench.show_options(menu_options())',
-                      "return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': nam_catalog.load_settings().get(MENU_BAR) is True}",
-                      "frame.apply(focus_on[0] or workbench_on[0], nam_catalog.load_settings().get(MENU_BAR) is True)",
+                      "return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept()}",
+                      "frame.apply(focus_on[0] or workbench_on[0], menu_bar_kept())",
+                      # the row stays unless it was switched off: away, HX Edit's window grows from launch to launch
+                      "return nam_catalog.load_settings().get(MENU_BAR) is not False",
                       "frame.set_window(payload.get('window'))", 'frame.restore()'):
             self.assertIn(piece, launcher)
         show = launcher[launcher.index('            def workbench_show():'):launcher.index('            def workbench_mode(')]

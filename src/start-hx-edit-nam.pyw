@@ -321,20 +321,23 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # it is on and Focus Mode is not: Focus Mode's "Editor" button comes back to it, and the two panes never
             # stand over each other. HX Edit's own toolbar items (the meter, the Unbound button) step aside for either.
             workbench_on = [False]
-            # HX Edit's window frame while either pane covers its screen (window_frame.py): a dark title bar, and its
-            # menu row away unless settings.json "workbenchMenuBar" is true (the Workbench's menu has the switch).
+            # HX Edit's window frame while either pane covers its screen (window_frame.py): a dark title bar. Its menu
+            # row stays unless settings.json "workbenchMenuBar" is false (the Workbench's menu has the switch): with
+            # the row away HX Edit's window grows by the row's height from one launch to the next (window_frame.py).
             # The row goes only once menu_row.js said it stands in for it ("menuRow" ready, below): without that HX
             # Edit ignores its own Save. A failure there never stops a pane from showing.
             from window_frame import MENU_BAR, WindowFrame
+            def menu_bar_kept():
+                return nam_catalog.load_settings().get(MENU_BAR) is not False
             def frame_kept(handle):
                 if not detached.is_set():
                     script.post({'type': 'menuRow', 'payload': {'kept': handle}})
             frame = WindowFrame(trace=trace, on_kept=frame_kept)
             def menu_options():
-                return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': nam_catalog.load_settings().get(MENU_BAR) is True}
+                return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept()}
             def frame_show():
                 try:
-                    frame.apply(focus_on[0] or workbench_on[0], nam_catalog.load_settings().get(MENU_BAR) is True)
+                    frame.apply(focus_on[0] or workbench_on[0], menu_bar_kept())
                 except Exception as error:
                     trace({'type': 'windowFrame', 'event': 'failed', 'error': str(error)})
             def workbench_show():

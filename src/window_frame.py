@@ -16,11 +16,17 @@ menu command only when it finds it in its window's menu, so with the row simply 
 lookup; ``on_kept`` tells it which menu that is, before the row goes and after it is back.
 The Workbench's menu has a switch ("Show HX Edit's menu bar", settings.json "workbenchMenuBar") for the menus
 themselves (Preferences, Command Center, Global EQ, Help). Nothing here talks to the device.
+
+The row stays by default (the launcher asks for it away only when that setting is false). Seen live 2026-11-23:
+HX Edit keeps its window's size as the height of what is inside the frame ("UIHeight" in its own HX Edit.prefs) and
+makes the window that much plus a menu row at its next launch. With the row away the inside is one row (20 px)
+taller, HX Edit saved that, and the next launch's window was 20 px taller than the screen's work area. It would grow
+again at every launch after a save with the row away. Not solved here.
 """
 import ctypes
 from threading import Lock
 
-MENU_BAR = 'workbenchMenuBar'          # settings.json: True keeps HX Edit's menu row while a pane is shown
+MENU_BAR = 'workbenchMenuBar'          # settings.json: False takes HX Edit's menu row away while a pane is shown
 
 # The panes' own colours (workbench.html --panel, the title's ink, --line), as Windows wants them: 0x00BBGGRR
 CAPTION, TEXT, BORDER = 0x001B1614, 0x00D6CDC9, 0x00382E2A
