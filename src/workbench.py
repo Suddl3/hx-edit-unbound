@@ -402,6 +402,10 @@ class WorkbenchView(focus_view.FocusView):
             if self.page_ready:
                 self._write('P', {'type': kind, kind: value})
             return
+        if kind == 'deviceLost':
+            self.costs.lost(self.clock())
+            self.trace({'type': 'workbench', 'event': 'dsp-device-lost'})
+            return
         if kind == 'options':
             self.options = value
             if self.page_ready:
@@ -425,11 +429,20 @@ class WorkbenchView(focus_view.FocusView):
                 self.trace({'type': 'workbench', 'event': 'dsp-seen', 'paths': seen})
             self._idle()
 
+    def receive(self, value):
+        # (every script message reaches the pane: one saying the Floor is not answering stops the measuring, on the
+        # pane's own thread; dsp_costs.device_lost. Live check 2026-11-24 17:53.)
+        if dsp_costs.device_lost(value):
+            self.queue.put(('deviceLost', None))
+        return super().receive(value)
+
     def _idle(self):
         # Each block's real DSP cost, from the path's meter as blocks come and go (dsp_costs).
         found = self.costs.observe(self.state, self.dsp, self.clock())
         for model, cost in found:
             self.trace({'type': 'workbench', 'event': 'dsp-cost', 'model': model, 'cost': cost})
+        for model, cost in self.costs.held:
+            self.trace({'type': 'workbench', 'event': 'dsp-cost-held', 'model': model, 'cost': cost, 'kept': self.costs.costs.get(model)})
         if found:
             self._show_costs()
 
