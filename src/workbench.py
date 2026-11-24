@@ -243,6 +243,29 @@ def import_files(library, paths, limit=2000):
     return stats
 
 
+def usage_view(presets):
+    """The presets this editor has seen use each IR slot (floor_memory presets(): only presets opened here), for the
+    Floor slots view: [{setlist, preset, name, slots}] with the slots known; the others (not read) are left out."""
+    rows = []
+    for entry in presets if isinstance(presets, list) else []:
+        if not (isinstance(entry, (list, tuple)) and len(entry) == 4 and isinstance(entry[3], list)):
+            continue
+        setlist, preset, name, slots = entry
+        if all(isinstance(n, int) and not isinstance(n, bool) for n in (setlist, preset)) and isinstance(name, str):
+            rows.append({'setlist': setlist, 'preset': preset, 'name': name[:48],
+                         'slots': [s for s in slots if isinstance(s, int) and not isinstance(s, bool) and 1 <= s <= 128]})
+    return rows
+
+
+def previews_view(previews, leftover=None):
+    """The previews this editor put in User IR 128 (floor_memory previews(): {slot name: day}), for the page:
+    [{name, when, onBlock}]. onBlock: the one floor_memory's leftover record says a block still plays (HX Edit closed
+    during that preview; the next launch puts the block back): clearing it first would leave that block silent."""
+    playing = leftover.get('name') if isinstance(leftover, dict) else None
+    return [{'name': name, 'when': when, 'onBlock': name == playing} for name, when in (previews or {}).items()
+            if isinstance(name, str) and name and isinstance(when, str)][-64:]
+
+
 def setting_on(settings):
     """Whether the Workbench is shown at launch: only once it has been switched on (settings.json "workbench": true)."""
     return isinstance(settings, dict) and settings.get(SETTING) is True
@@ -257,6 +280,8 @@ class WorkbenchView(focus_view.FocusView):
     def __init__(self, resources, *, costs_file=dsp_costs.FILE, clock=time.monotonic, **options):
         self.options = {}
         self.pins = []
+        self.usage = []                # usage_view: the presets seen using each slot (Batch 3, Floor slots)
+        self.previews = []             # previews_view: the previews of ours in User IR 128
         self.prefs = prefs({})
         self.library = None
         self.costs = dsp_costs.DspCosts(costs_file)
@@ -290,6 +315,32 @@ class WorkbenchView(focus_view.FocusView):
     def show_prefs(self, kept):
         """The Workbench's kept choices (prefs) for the page."""
         self.queue.put(('prefs', kept if isinstance(kept, dict) else prefs({})))
+
+    def show_usage(self, rows):
+        """Which presets this editor has seen use each slot (usage_view), for the Floor slots view."""
+        self.queue.put(('usage', rows if isinstance(rows, list) else []))
+
+    def show_previews(self, rows):
+        """The previews this editor put in User IR 128 (previews_view), for the Floor slots view's slot 128."""
+        self.queue.put(('previews', rows if isinstance(rows, list) else []))
+
+    def checked_clear(self, value):
+        """The Floor slots view's Clear ({slots: [...]}), asked of the player there, as the command for focus_view.js,
+        or None: only slots the page was shown in use (a capture, a plain IR, or what User IR 128 holds), none of them
+        one the loaded preset's blocks use (HX Edit's own Clear refuses those too; focus_view.js checks again)."""
+        state = self.state if isinstance(self.state, dict) else {}
+        slots = value.get('slots') if isinstance(value, dict) else None
+        if not isinstance(slots, list) or not 1 <= len(slots) <= 128 or len(set(map(repr, slots))) != len(slots):
+            return None
+        if any(isinstance(s, bool) or not isinstance(s, int) or not 1 <= s <= 128 for s in slots):
+            return None
+        used = {c.get('slot') for key in ('captures', 'irs') for c in state.get(key) or [] if isinstance(c, dict)}
+        if state.get('slot128'):
+            used.add(128)
+        here = {b.get('slot') for b in state.get('blocks') or [] if isinstance(b, dict) and isinstance(b.get('slot'), int)}
+        if not set(slots) <= used or set(slots) & here:
+            return None
+        return {'action': 'clear', 'slots': sorted(slots)}
 
     def show_session(self, kind, data):
         """What the Workbench's own session shows (TonePreview.WorkbenchSession): "status" with the Level view, or
@@ -328,6 +379,11 @@ class WorkbenchView(focus_view.FocusView):
             if self.page_ready:
                 self._write('P', {'type': 'pins', 'pins': value})
             return
+        if kind in ('usage', 'previews'):
+            setattr(self, kind, value)
+            if self.page_ready:
+                self._write('P', {'type': kind, kind: value})
+            return
         if kind == 'options':
             self.options = value
             if self.page_ready:
@@ -338,6 +394,8 @@ class WorkbenchView(focus_view.FocusView):
             self._write('P', {'type': 'options', 'options': self.options})
             self._write('P', {'type': 'pins', 'pins': self.pins})
             self._write('P', {'type': 'prefs', 'prefs': self.prefs})
+            self._write('P', {'type': 'usage', 'usage': self.usage})
+            self._write('P', {'type': 'previews', 'previews': self.previews})
             if self.library is not None:
                 self._write('P', {'type': 'library', 'library': self.library})
             self._show_costs()

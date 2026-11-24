@@ -899,7 +899,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
         self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
-        self.assertIn('if (full) { onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs); }', script)   # the captures are listed whatever the preset holds
+        self.assertIn('onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs);', script)   # the captures are listed whatever the preset holds
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]
         self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain

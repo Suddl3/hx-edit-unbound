@@ -536,6 +536,65 @@
   .ghost.aimed { opacity: .38; }
   .ghost img { width: 60px; height: 60px; object-fit: contain; }
   .btn.danger:hover:not(:disabled) { border-color: #e2483c; color: #ff8a80; }
+  /* the Floor's slots (Batch 3): a second tab of the NAM library, with Clear */
+  .btn.danger { border-color: rgb(240 96 96 / .5); color: #ff9c9c; }
+  .btn.danger.fill { background: #c2413f; border-color: #c2413f; color: #fff; }
+  .btn.danger svg { width: 14px; height: 14px; }
+  .libtabs { display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #0e1014; border: 1px solid var(--line); flex: none; }
+  .libtabs button { height: 28px; padding: 0 14px; border-radius: 6px; color: var(--dim); font-size: 13px; }
+  .libtabs button.on { background: var(--raise2); color: var(--ink); font-weight: 600; }
+  .fs { display: grid; grid-template-columns: 196px minmax(0, 1fr) 372px; height: 100%; min-height: 0; }
+  .fs .main { padding: 14px 20px 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; min-width: 0; min-height: 0; }
+  .fs .head { display: flex; gap: 10px; align-items: center; }
+  .fs .head .sp { flex: 1; }
+  .fs .head .search { width: 250px; height: 34px; }
+  .fs .pv128 { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
+  .fs .pv128 .n { width: 44px; height: 44px; border-radius: 9px; background: #0e1014; border: 1px dashed #4a5060; display: grid; place-items: center; font-weight: 600; color: var(--dim); }
+  .fs .pv128 b { font-weight: 600; } .fs .pv128 small { display: block; color: var(--dim); font-size: 12.5px; margin-top: 2px; line-height: 1.4; }
+  .fs .pv128.left { border-color: rgb(240 201 74 / .4); background: rgb(240 201 74 / .06); }
+  .fs .rows { display: grid; align-content: start; overflow-y: auto; min-height: 0; padding-bottom: 16px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .fs .r { display: grid; grid-template-columns: 22px 34px 40px minmax(0, 1.4fr) 96px minmax(0, 1fr) 74px; gap: 12px; align-items: center; height: 46px; padding: 0 10px; border-radius: 8px; text-align: left; cursor: default; }
+  .fs .r:hover { background: var(--raise); }
+  .fs .r.on { background: rgb(176 112 224 / .16); box-shadow: inset 2px 0 0 #b070e0; }
+  .fs .r.h { height: 26px; color: var(--faint); font-size: 11.5px; } .fs .r.h:hover { background: none; }
+  .fs .r img { width: 38px; height: 38px; object-fit: contain; }
+  .fs .r .irpic { width: 38px; height: 38px; border-radius: 8px; background: rgb(242 48 145 / .12); border: 1px solid rgb(242 48 145 / .35); display: grid; place-items: center; color: #f23091; font-size: 10.5px; font-weight: 600; }
+  .fs .r b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fs .r span { color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fs .r .no { color: var(--ink); font-variant-numeric: tabular-nums; font-size: 13px; }
+  .fs .r .kind i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  .fs .r .use.now { color: #e9d9a0; }
+  .fs .r .btn { height: 26px; padding: 0 10px; font-size: 12px; justify-self: end; }
+  .fs .chk { width: 16px; height: 16px; border-radius: 4px; border: 1px solid #4a5060; display: grid; place-items: center; cursor: pointer; }
+  .fs .chk.on { background: #b070e0; border-color: #b070e0; }
+  .fs .chk.off { opacity: .3; cursor: default; }
+  .fs .chk svg { width: 10px; height: 10px; color: #14161b; }
+  .fs .free { height: 34px; margin: 4px 0; border-radius: 8px; border: 1px dashed #262a33; color: var(--faint); font-size: 12.5px; display: flex; align-items: center; padding: 0 12px; gap: 8px; }
+  .fs .free span:last-child { margin-left: auto; }
+  .fs .side { border-left: 1px solid var(--line); display: grid; grid-template-rows: 172px minmax(0, 1fr) auto; min-height: 0; }
+  .fs .side .hero { position: relative; background: #000 center 62% / cover no-repeat; display: grid; place-items: center; border-bottom: 1px solid var(--line); }
+  .fs .side .hero::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(12 13 16 / .35), rgb(12 13 16 / .75)); }
+  .fs .side .hero img { position: relative; height: 128px; max-width: 80%; object-fit: contain; filter: drop-shadow(0 14px 10px rgb(0 0 0 / .7)); }
+  .fs .side .hero .irpic { position: relative; width: 96px; height: 96px; border-radius: 16px; background: rgb(242 48 145 / .12); border: 1px solid rgb(242 48 145 / .35); display: grid; place-items: center; color: #f23091; font-size: 22px; font-weight: 600; }
+  .fs .side .body { padding: 14px 18px; display: grid; align-content: start; gap: 14px; overflow-y: auto; }
+  .fs .side h3 { margin: 0; font-size: 21px; font-weight: 600; font-stretch: 86%; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .fs .side h3 span { color: var(--faint); font-size: 12px; font-weight: 400; font-stretch: 100%; white-space: nowrap; }
+  .fs .facts { display: grid; grid-template-columns: 104px 1fr; gap: 8px 12px; font-size: 13px; }
+  .fs .facts span { color: var(--faint); } .fs .facts b { font-weight: 500; }
+  .fs .facts ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+  .fs .saywhat { padding: 10px 12px; border-radius: 9px; background: var(--panel); border: 1px solid var(--line); color: var(--dim); font-size: 12.5px; line-height: 1.5; }
+  .fs .saywhat b { color: var(--ink); font-weight: 600; }
+  .fs .side .foot { border-top: 1px solid var(--line); padding: 12px 18px; display: flex; gap: 8px; }
+  .fs .side .foot .sp { flex: 1; }
+  .modal .ask3 { width: min(500px, calc(100% - 40px)); gap: 12px; }
+  .modal .ask3 h4 { margin: 0; font-size: 17px; font-weight: 600; font-stretch: 90%; }
+  .modal .ask3 p { color: var(--dim); }
+  .modal .ask3 p b { color: var(--ink); font-weight: 600; }
+  .modal .ask3 ul { margin: 0; padding: 10px 12px; list-style: none; display: grid; gap: 6px; border-radius: 9px; background: #0e1014; border: 1px solid var(--line); font-size: 13px; max-height: 180px; overflow-y: auto; }
+  .modal .ask3 li { display: flex; gap: 9px; align-items: baseline; color: var(--dim); }
+  .modal .ask3 li b { color: var(--ink); font-weight: 500; }
+  .modal .ask3 li i { width: 6px; height: 6px; border-radius: 50%; flex: none; transform: translateY(-1px); background: #f0c94a; }
+  .modal .ask3 .btnrow { margin-top: 6px; gap: 8px; } .modal .ask3 .btnrow .sp { flex: 1; }
   .pcats button.remove { color: var(--faint); }
   .pcats button.remove:hover { color: #ff8a80; }
   .card .pic.place { display: grid; place-items: center; font-size: 64px; color: var(--faint); border: 2px dashed #3a3f4b; border-radius: 18px; width: 110px; height: 110px; }
@@ -3036,6 +3095,24 @@ function picturePicker(row) {
 // selected in HX Edit (the session is bound to it). Load: into the lowest empty slot, then on that block. Use: the
 // capture already on the Floor, on that block. Preview: in User IR 128 on that block until it ends (End preview, or
 // leaving the library, puts the block back). Replace: when every slot is taken, which one to use instead.
+// Slot 128 holds something that is not a preview of ours (the preview's answer: replace [[128, name]]): the mock-up's
+// question; only "Replace it and preview" replaces it (the session's own "replace" of slot 128).
+let asked128 = '';
+function ask128(name) {
+  if (document.querySelector('.modal .ask3')) return;
+  const shade = el('div', 'modal'), box = el('div', 'ask3'), what = el('p'), row = el('div', 'btnrow');
+  const done = go => { shade.remove(); removeEventListener('keydown', keys, true); if (go) ask('levels', {do: 'replace', arg: 128}); };
+  const keys = e => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
+  what.append('Previews always play from slot 128. Right now it holds ', el('b', '', name), ', which HX Edit Unbound did not put there.');
+  const no = el('button', 'btn', 'Don’t preview'), go = el('button', 'btn danger fill', 'Replace it and preview');
+  no.onclick = () => done(false); go.onclick = () => done(true);
+  row.append(no, el('span', 'sp'), go);
+  box.append(el('h4', '', 'Slot 128 is in use. Replace it to preview?'), what,
+    el('p', '', 'Replacing it takes it off the Floor for good. This is asked once for each thing found there, never for a preview of our own.'), row);
+  shade.append(box); shade.onclick = e => { if (e.target === shade) done(false); };
+  addEventListener('keydown', keys, true);
+  document.body.append(shade); no.focus();
+}
 function libFloorActions(row) {
   const box = el('div'), fs = floorStatus || {}, busy = !!fs.busy, trial = fs.trial !== null && fs.trial !== undefined;
   box.style.cssText = 'display:grid;gap:8px';
@@ -3056,7 +3133,15 @@ function libFloorActions(row) {
   box.append(line);
   // every slot taken: choose one to replace (the presets this editor has seen use it are named)
   const taken = Array.isArray(fs.replace) ? fs.replace : [];
-  if (taken.length) {
+  if (taken.length === 1 && taken[0][0] === 128) {
+    // (Batch 3) slot 128 holds something that is not a preview of ours: the preview waits for the player's answer,
+    // asked once (the question opens by itself the first time), and it is never replaced unasked
+    const name = String(taken[0][1] || 'something'), again = el('button', 'btn danger', 'Replace it and preview');
+    again.disabled = busy; again.onclick = () => ask128(name);
+    box.append(el('span', 'note2', 'Slot 128 holds ' + name + ', which HX Edit Unbound did not put there.'), again);
+    const word = name + '|' + (fs.text || '');
+    if (asked128 !== word) { asked128 = word; setTimeout(() => ask128(name), 0); }
+  } else if (taken.length) {
     const pick = el('select', 'lvpick'), go = el('button', 'btn danger', 'Replace');
     for (const [slot, name, users] of taken) pick.append(new Option('Slot ' + slot + ' · ' + name + (users && users.length ? ' · used by ' + users.length + (users.length === 1 ? ' preset' : ' presets') : ''), slot));
     pick.value = taken[taken.length - 1][0];
@@ -3243,9 +3328,201 @@ function libSide(row) {
   side.append(hero, body, foot);
   return side;
 }
+// ---- the Floor's slots (Batch 3): the library's second tab ---------------------------------------------------------
+// Every used slot of the Floor's 128 (captures and plain IRs share them: state.captures, state.irs; 128, the preview
+// slot, has a strip of its own: state.slot128), which presets use it (usage: floor_memory's record, only presets opened
+// in this editor, said so), the free slots folded into lines. Clear always asks first, with what is taken off, that a
+// capture stays in the library on this PC, which known presets use the slot, and that Undo does not bring it back;
+// then "clear" {slots} (workbench.checked_clear -> nam_view clearSlotsChecked: HX Edit's own Clear, never a slot the
+// loaded preset uses). previews: the previews this editor put in 128 (a leftover of ours is replaced without asking).
+let libTab = 'captures', slotFilter = 'all', slotQuery = '', slotSelected = null, shownSlots = '';
+let usage = [], previews = [];
+const slotChecked = new Set();
+const TICK = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.5l2.6 2.6L10 3.4"/></svg>';
+function libTabs() {
+  const tabs = el('div', 'libtabs');
+  for (const [key, words] of [['captures', 'Captures'], ['slots', 'Floor slots']]) {
+    const b = el('button', libTab === key ? 'on' : '', words);
+    b.onclick = () => { if (libTab === key) return; libTab = key; shownLib = ''; shownSlots = ''; drawLibrary(); };
+    tabs.append(b);
+  }
+  return tabs;
+}
+const presetWords = u => number3(u.preset) + ' ' + u.name + (u.setlist !== setlistOf() ? ' (' + setlistName(u.setlist) + ')' : '');
+function slotFacts() {
+  // what the view lists: the used slots with their kind, who uses them, and the library's capture for each
+  const rows = workbenchSlotRows(state.captures, state.irs), here = new Map();
+  for (const b of state.blocks || []) if (Number.isInteger(b.slot)) here.set(b.slot, 'Path ' + (b.dsp + 1));
+  const loaded = state.preset ? {setlist: setlistOf(), number: state.preset.number} : null;
+  for (const row of rows) {
+    row.users = workbenchSlotUsers(usage, row.slot, loaded);
+    row.here = here.has(row.slot);
+    row.libRow = row.kind === 'capture' ? ((lib && lib.rows) || []).find(r => (r.irSlots || []).includes(row.slot)) || null : null;
+  }
+  return {rows, here};
+}
+function slotUseWords(row) {
+  if (row.here) return ['This preset' + (row.users.length ? ' + ' + row.users.length + ' more' : ''), 'now'];
+  return [row.users.length ? row.users.length + ' preset' + (row.users.length === 1 ? '' : 's') : 'None found', ''];
+}
+function askClear(rows) {
+  // the question before a Clear (the mock-up's words); its answer is the only way to "clear"
+  const one = rows.length === 1, users = [...new Map(rows.flatMap(r => r.users).map(u => [u.setlist + ':' + u.preset, u])).values()];
+  const shade = el('div', 'modal'), box = el('div', 'ask3'), what = el('p');
+  const done = go => { shade.remove(); removeEventListener('keydown', keys, true); if (go) { ask('clear', {slots: rows.map(r => r.slot)}); rows.forEach(r => slotChecked.delete(r.slot)); shownSlots = ''; drawLibrary(); } };
+  const keys = e => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
+  box.append(el('h4', '', one ? 'Clear slot ' + rows[0].slot + ' on the Floor?' : 'Clear ' + rows.length + ' slots on the Floor?'));
+  const named = rows.map(r => r.name || 'Slot ' + r.slot), inLib = rows.filter(r => r.libRow).length;
+  what.append(...named.slice(0, 6).flatMap((n, i) => [i ? ', ' : '', el('b', '', n)]), named.length > 6 ? ' and ' + (named.length - 6) + ' more' : '',
+    (one ? ' is' : ' are') + ' taken off the Floor. ' + (inLib === rows.length ? (one ? 'It stays' : 'They stay') + ' in your library on this PC.' :
+      inLib ? 'The captures stay in your library on this PC; HX Edit Unbound keeps no copy of the plain IRs.' : 'HX Edit Unbound keeps no copy of ' + (one ? 'it' : 'them') + ' on this PC.'));
+  box.append(what);
+  if (users.length) {
+    const list = el('ul');
+    for (const u of users.slice(0, 40)) { const li = el('li'); li.append(el('i'), el('b', '', presetWords(u)), el('span', '', 'uses ' + (one ? 'this slot' : 'one of them'))); list.append(li); }
+    box.append(list, el('p', '', (users.length === 1 ? 'That preset plays' : 'Those ' + users.length + ' presets play') + ' nothing through that block until ' + (one ? 'slot ' + rows[0].slot + ' is' : 'the slots are') +
+      ' filled again. Undo does not bring a cleared slot back: you would put ' + (inLib ? 'the capture on the Floor again from the library' : 'it on the Floor again') + '. Only presets opened in this editor are known.'));
+  } else box.append(el('p', '', 'No preset opened in this editor uses ' + (one ? 'it' : 'them') + '; presets not opened here are not known. Undo does not bring a cleared slot back.'));
+  const row = el('div', 'btnrow'), keep = el('button', 'btn', 'Keep ' + (one ? 'it' : 'them')), go = el('button', 'btn danger fill', one ? 'Clear slot ' + rows[0].slot : 'Clear ' + rows.length + ' slots');
+  keep.onclick = () => done(false); go.onclick = () => done(true);
+  row.append(keep, el('span', 'sp'), go);
+  box.append(row); shade.append(box); shade.onclick = e => { if (e.target === shade) done(false); };
+  addEventListener('keydown', keys, true);
+  document.body.append(shade); keep.focus();
+}
+function preview128() {
+  // the preview slot's strip: empty, a preview of ours left behind (replaced without asking), or something else
+  const name = state.slot128 && state.slot128.name, ours = name ? previews.find(p => p.name === name) : null;
+  const playing = (state.blocks || []).some(b => b.slot === 128), strip = el('div', 'pv128' + (name && !playing ? ' left' : '')), text = el('div');
+  strip.append(el('div', 'n num', '128'));
+  if (!name) text.append(el('b', '', 'Preview slot · empty'), el('small', '', 'Previews play from this slot.'));
+  else if (playing) text.append(el('b', '', 'Preview slot · a preview is playing'), el('small', '', '“' + name + '” is on a block of the loaded preset right now.'));
+  else if (ours) text.append(el('b', '', 'Preview slot · holds a preview that was left behind'),
+    el('small', '', '“' + name + '”, from a preview on ' + libDate(ours.when) + ' that never ended. It is one of ours, so the next preview replaces it without asking.'));
+  else text.append(el('b', '', 'Preview slot · holds something that is not a preview'),
+    el('small', '', '“' + name + '” was put in slot 128 outside HX Edit Unbound. Previews play from this slot, so the next one asks before it replaces it.'));
+  strip.append(text);
+  if (name && !playing) {
+    // (a preview of ours goes without a question, unless a block still plays it: HX Edit closed during that preview,
+    // and the next time that block is shown it is put back; cleared first, that block would play nothing)
+    const clear = el('button', 'btn sm', ours && !ours.onBlock ? 'Clear it now' : 'Clear it…');
+    const row = {slot: 128, name, kind: ours ? 'preview' : 'other', users: workbenchSlotUsers(usage, 128, state.preset ? {setlist: setlistOf(), number: state.preset.number} : null), here: false, libRow: null};
+    clear.disabled = (state.clearing || []).includes(128);
+    clear.onclick = () => { if (ours && !ours.onBlock) ask('clear', {slots: [128]}); else askClear([row]); };
+    strip.append(clear);
+  } else strip.append(el('span'));
+  return strip;
+}
+function drawFloorSlots() {
+  const body = $('vbody'), {rows} = slotFacts(), clearing = new Set(state.clearing || []);
+  const key = JSON.stringify([rows.map(r => [r.slot, r.name, r.kind, r.icon, r.here, r.users, !!r.libRow]), state.slot128, previews, slotFilter, slotQuery, slotSelected, [...slotChecked], [...clearing], state.preset && [state.preset.setlist, state.preset.number]]);
+  if (key === shownSlots && body.querySelector('.fs')) return;
+  shownSlots = key;
+  if (!body.querySelector('.fs')) {
+    const box = el('div', 'fs'), main = el('div', 'main'), head = el('div', 'head');
+    const find = el('label', 'search'); find.innerHTML = ICON.search;
+    const input = el('input'); input.type = 'search'; input.placeholder = 'Search the slots'; input.spellcheck = false; input.value = slotQuery;
+    input.oninput = () => { slotQuery = input.value.trim().toLowerCase(); drawLibrary(); };
+    find.append(input);
+    head.append(libTabs(), find, el('span', 'sp'), el('span', 'many'));
+    main.append(head, el('div', 'pv128'), el('div', 'rows'));
+    box.append(el('aside', 'lf'), main, el('aside', 'side'));
+    body.replaceChildren(box);
+  }
+  for (const s of [...slotChecked]) if (!rows.some(r => r.slot === s && !r.here)) slotChecked.delete(s);
+  // filters, with counts
+  const free = 127 - rows.length, filters = el('aside', 'lf');
+  const fr = (words, n, on, pick) => { const b = el('button', 'fr' + (on ? ' on' : '')); b.append(el('span', '', words), el('em', 'num', String(n))); b.onclick = () => { slotFilter = pick; drawLibrary(); }; return b; };
+  const shows = {all: () => true, captures: r => r.kind === 'capture', irs: r => r.kind === 'ir', free: () => false, here: r => r.here, none: r => !r.here && !r.users.length};
+  filters.append(el('h5', '', 'Floor slots'), fr('In use', rows.length + (state.slot128 ? 1 : 0), slotFilter === 'all', 'all'),
+    fr('Captures', rows.filter(shows.captures).length, slotFilter === 'captures', 'captures'), fr('IRs', rows.filter(shows.irs).length, slotFilter === 'irs', 'irs'),
+    fr('Free', free, slotFilter === 'free', 'free'), el('h5', '', 'Used by'), fr('This preset', rows.filter(shows.here).length, slotFilter === 'here', 'here'),
+    fr('None found', rows.filter(shows.none).length, slotFilter === 'none', 'none'));
+  const caps = rows.filter(shows.captures).length + (state.slot128 ? 1 : 0), irs = rows.filter(shows.irs).length, meter = el('div', 'slots'), bar = el('u'), ci = el('i'), ii = el('s');
+  ci.style.width = (100 * caps / 128) + '%'; ii.style.width = (100 * irs / 128) + '%'; bar.append(ci, ii);
+  const keys = el('span'), k1 = el('i', 'key'), k2 = el('i', 'key'); k1.style.background = '#b070e0'; k2.style.background = '#f23091';
+  keys.append(k1, caps + ' captures  ', k2, irs + ' IRs');
+  meter.append(el('b', '', (rows.length + (state.slot128 ? 1 : 0)) + ' of 128 slots used'), bar, keys, el('span', '', 'Captures and IRs share the Floor’s 128 IR slots. Who uses a slot is known only for presets opened in this editor.'));
+  filters.append(el('span', 'grow'), meter);
+  body.querySelector('.fs .lf').replaceWith(filters);
+  // the head's "Clear N selected…"
+  const picked = rows.filter(r => slotChecked.has(r.slot)), many = el('span', 'many');
+  if (picked.length) { const b = el('button', 'btn danger'); b.innerHTML = ICON.trash; b.append('Clear ' + picked.length + ' selected…'); b.disabled = clearing.size > 0; b.onclick = () => askClear(picked); many.append(b); }
+  body.querySelector('.fs .head .many').replaceWith(many);
+  body.querySelector('.fs .pv128').replaceWith(preview128());
+  // the rows: every used slot, the free ones folded into a line between them
+  const list = el('div', 'rows'), q = slotQuery, header = el('div', 'r h');
+  for (const w of ['', 'Slot', '', 'Name', 'Kind', 'Used by', '']) header.append(el('span', '', w));
+  list.append(header);
+  const match = r => (!q || r.name.toLowerCase().includes(q) || String(r.slot) === q) && shows[slotFilter === 'free' ? 'all' : slotFilter](r);
+  const gap = (from, to) => {
+    if (q || !['all', 'free'].includes(slotFilter)) return;
+    const line = el('div', 'free');
+    line.append(el('span', '', from === to ? 'Slot ' + from + ' is free' : 'Slots ' + from + ' to ' + to + ' are free'), el('span', '', (to - from + 1) + ' slot' + (to === from ? '' : 's')));
+    list.append(line);
+  };
+  const ranges = workbenchFreeRanges(rows.map(r => r.slot));
+  const starts = new Map(ranges.map(([from, to]) => [from, to]));
+  let shown = 0;
+  for (let slot = 1; slot <= 127; slot++) {
+    if (starts.has(slot)) { gap(slot, starts.get(slot)); slot = starts.get(slot); continue; }
+    const row = rows.find(r => r.slot === slot);
+    if (!row || slotFilter === 'free' || !match(row)) continue;
+    shown++;
+    const line = el('div', 'r' + (row.slot === slotSelected ? ' on' : '')), [words, cls] = slotUseWords(row);
+    const chk = el('span', 'chk' + (slotChecked.has(row.slot) ? ' on' : '') + (row.here ? ' off' : '')); chk.innerHTML = slotChecked.has(row.slot) ? TICK : '';
+    chk.title = row.here ? 'The loaded preset uses this slot' : 'Select it to clear it with others';
+    chk.onclick = e => { e.stopPropagation(); if (row.here) return; if (slotChecked.has(row.slot)) slotChecked.delete(row.slot); else slotChecked.add(row.slot); drawLibrary(); };
+    const pic = row.kind === 'ir' ? el('span', 'irpic', 'IR') : image(captureUrls(row), '', true, true);
+    const kind = el('span', 'kind'), dot = el('i'); dot.style.background = row.kind === 'ir' ? '#f23091' : '#b070e0'; kind.append(dot, row.kind === 'ir' ? 'IR' : 'Capture');
+    const clear = el('button', 'btn sm', clearing.has(row.slot) ? 'Clearing…' : 'Clear…');
+    clear.disabled = row.here || clearing.size > 0;
+    clear.title = row.here ? 'The loaded preset uses this slot: load another preset to clear it (as HX Edit’s own Clear)' : 'Take it off the Floor (asks first)';
+    clear.onclick = e => { e.stopPropagation(); askClear([row]); };
+    const use = el('span', 'use ' + cls, words); use.title = [row.here ? 'The loaded preset' : '', ...row.users.map(presetWords)].filter(Boolean).join('\n');
+    line.append(chk, el('span', 'no', String(row.slot)), pic, el('b', '', row.name), kind, use, clear);
+    line.onclick = () => { slotSelected = row.slot; drawLibrary(); };
+    list.append(line);
+  }
+  if (!shown && slotFilter !== 'free' && slotFilter !== 'all') list.append(el('p', 'note2', 'No slot matches.'));
+  const old = body.querySelector('.fs .rows'), scroll = old.scrollTop;
+  old.replaceWith(list); list.scrollTop = scroll;
+  // the side: the picked slot
+  if (!rows.some(r => r.slot === slotSelected)) slotSelected = rows.length ? rows[0].slot : null;
+  const sel = rows.find(r => r.slot === slotSelected), side = el('aside', 'side');
+  if (sel) {
+    const hero = el('div', 'hero');
+    hero.style.backgroundImage = catalog.scenes && catalog.scenes.studio ? `url("${sceneThumb('studio')}")` : '';
+    hero.append(sel.kind === 'ir' ? el('span', 'irpic', 'IR') : image(captureUrls(sel), '', false, false));
+    const inner = el('div', 'body'), h = el('h3', '', sel.name), facts = el('div', 'facts'), users = el('ul');
+    h.append(el('span', '', 'slot ' + sel.slot));
+    if (sel.here) users.append(el('li', '', 'The loaded preset'));
+    for (const u of sel.users) users.append(el('li', '', presetWords(u)));
+    if (!users.childElementCount) users.append(el('li', '', 'None found'));
+    const gear = sel.libRow ? sel.libRow.gearLabel : sel.gear;
+    facts.append(el('span', '', 'Kind'), el('b', '', sel.kind === 'ir' ? 'Impulse response (IR)' : 'NAM capture' + (gear ? ' · ' + String(gear).toLowerCase() : '')),
+      el('span', '', 'In your library'), el('b', '', sel.kind === 'ir' ? 'No (a plain IR)' : sel.libRow ? 'Yes, on this PC' : 'Not found on this PC'),
+      el('span', '', 'Used by'), users, el('span', '', 'Last checked'), el('b', '', 'each preset when it was last opened here'));
+    const say = el('div', 'saywhat');
+    say.append(el('b', '', 'Clear'), ' empties the slot on the Floor. ' + (sel.libRow ? 'The capture stays in your library on this PC, so you can put it back. ' : sel.kind === 'ir' ? 'HX Edit Unbound keeps no copy of a plain IR. ' : '') +
+      'Presets that use slot ' + sel.slot + ' play nothing through that block until the slot is filled again.');
+    inner.append(h, facts, say);
+    const foot = el('div', 'foot'), show = el('button', 'btn', 'Show in the library'), clear = el('button', 'btn danger');
+    show.disabled = !sel.libRow; show.title = sel.libRow ? 'The capture in the NAM library' : 'Not a capture of the library on this PC';
+    show.onclick = () => { libTab = 'captures'; libSelected = sel.libRow.id; libWhere = 'all'; libGear = null; libInstrument = ''; libQuery = ''; shownLib = ''; drawLibrary(); };
+    clear.innerHTML = ICON.trash; clear.append('Clear slot ' + sel.slot + '…');
+    clear.disabled = sel.here || clearing.size > 0; clear.title = sel.here ? 'The loaded preset uses this slot: load another preset to clear it' : '';
+    clear.onclick = () => askClear([sel]);
+    foot.append(show, el('span', 'sp'), clear);
+    side.append(hero, inner, foot);
+  } else side.append(el('div'), el('div', 'body', 'Nothing on the Floor yet.'));
+  body.querySelector('.fs .side').replaceWith(side);
+  $('vhead').querySelector('.sub').textContent = 'What is in each of the Floor’s 128 slots';
+}
 function drawLibrary() {
   if (view.full !== 'library' || !catalog || !state) return;
   const body = $('vbody');
+  if (libTab === 'slots') { drawFloorSlots(); return; }
   if (!lib) { if (!body.querySelector('.waiting')) body.replaceChildren(el('div', 'waiting', 'Reading the library…')); return; }
   const rows = libRows(), all = lib.rows || [];
   if (!rows.some(r => r.id === libSelected)) libSelected = rows.length ? rows[0].id : '';   // (the side shows one of those listed)
@@ -3276,7 +3553,7 @@ function drawLibrary() {
       }
       head.append(menu);
     };
-    head.append(find, sort, layout, el('span', 'sp'), t3k, imp);
+    head.append(libTabs(), find, sort, layout, el('span', 'sp'), t3k, imp);   // (Batch 3: "Captures | Floor slots")
     main.append(head, el('div', 'cg5'));
     box.append(el('aside', 'lf'), main, el('aside', 'cd'));
     body.replaceChildren(box);
@@ -3512,6 +3789,8 @@ function receive(message) {
     return;
   }
   else if (message.type === 'look') { look = message.look && typeof message.look === 'object' ? message.look : null; shownLook = ''; }
+  else if (message.type === 'usage') { usage = Array.isArray(message.usage) ? message.usage : []; shownSlots = ''; }
+  else if (message.type === 'previews') { previews = Array.isArray(message.previews) ? message.previews : []; shownSlots = ''; }
   else if (message.type === 'pins') { pins = Array.isArray(message.pins) ? message.pins.filter(k => typeof k === 'string') : []; shownGrid = ''; shownDrawer = ''; shownPresets = ''; if (!$('presetList').hidden) fillPresets(); }
   else return;
   render();

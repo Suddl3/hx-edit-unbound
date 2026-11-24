@@ -156,7 +156,7 @@ function fixture(options = {}) {
   };
   vm.runInContext(source, context, {timeout: 2000, filename: 'tone_view.js'});
   context.binding = binding;
-  context.toneProfile = {navigation: true, strictPreview: true, leftoverPreview: options.leftover || null};
+  context.toneProfile = {navigation: true, strictPreview: true, leftoverPreview: options.leftover || null, ownPreviews: options.ownPreviews || []};
   const view = vm.runInContext("installToneView([{label:'TONE3000',block:'NAM A2 Lite',modes:['original']}], toneProfile, binding)", context);
   function select(state) {
     selected = state; state.visible = undefined;   // a newly shown parameter view reads the edit buffer
@@ -299,15 +299,33 @@ function fixture(options = {}) {
 }
 
 // User IR 128 is the preview slot and nothing else (owner decision after the
-// Candidate61 session): whatever an earlier preview or session left in it is
-// replaced by the next preview. The block it previews on is restored as usual.
+// Candidate61 session). Batch 3 (2026-11-24): what is in it is replaced by the
+// next preview without asking only when it is a preview of ours (a name this
+// editor gave one); anything else is asked about (the reply names slot 128 to
+// replace) and replaced only once the player said so. The block it previews on
+// is restored as usual.
 {
   const f = fixture(); f.select(f.a); f.retainForeignPreview(); f.open();
   assert.equal(f.target().bound, true); assert.equal(f.target().quarantined, false);
-  const id = f.command('audition', {file:'replaces.wav'}); f.tick();
+  const asked = f.command('audition', {file:'replaces.wav'}); f.tick();
+  assert.match(f.reply(asked).error, /^Slot 128 is in use\. Replace it to preview\?/);
+  assert.equal(JSON.stringify(f.reply(asked).replace), JSON.stringify([[128, 'foreign-ir']]));
+  assert.deepEqual(f.slotClears, []); assert.equal(f.imports.length, 0); assert.equal(f.a.slot, 9);
+  const id = f.command('audition', {file:'replaces.wav', replace:128}); f.tick();
   assert.equal(f.reply(id).slot, 128); assert.deepEqual(f.slotClears, [128]);
   assert.equal(f.imports.length, 1); assert.equal(f.a.slot, 128);
   const end = f.command('end'); assert.equal(f.reply(end).ended, true); assert.equal(f.a.slot, 9);
+}
+{
+  // a leftover preview of ours from an earlier launch: replaced without asking
+  const f = fixture({ownPreviews: ['Plexi a3f9c1']}); f.select(f.a); f.retainForeignPreview('Plexi a3f9c1'); f.open();
+  const id = f.command('audition', {file:'ours.wav'}); f.tick();
+  assert.equal(f.reply(id).slot, 128); assert.deepEqual(f.slotClears, [128]); assert.equal(f.imports.length, 1);
+}
+{
+  // a preview made in this session is remembered as ours (for the next launch too)
+  const f = fixture(); f.select(f.a); f.open(); f.command('audition', {file:'first.wav'});
+  assert.ok(f.messages.some(value => value.type === 'previewOwned' && value.name === 'owned-preview'));
 }
 
 // While a preview is on a block the supervisor is told which block, what it
@@ -384,7 +402,10 @@ function fixture(options = {}) {
   assert.match(f.reply(refused).error, /still on the preview slot/); assert.equal(f.imports.length, 0);
   const use = f.command('use', {identity:'a'.repeat(64)}); f.tick();
   assert.equal(f.reply(use).usedSlot, 12); assert.equal(f.a.slot, 12);
-  const id = f.command('audition', {file:'now.wav'}); f.tick();
+  // (what is in 128 is not a preview of ours: asked first, replaced once the player said so)
+  const asked = f.command('audition', {file:'now.wav'}); f.tick();
+  assert.equal(JSON.stringify(f.reply(asked).replace), JSON.stringify([[128, 'unknown-preview']])); assert.deepEqual(f.slotClears, []);
+  const id = f.command('audition', {file:'now.wav', replace:128}); f.tick();
   assert.equal(f.reply(id).slot, 128); assert.deepEqual(f.slotClears, [128]);
 }
 

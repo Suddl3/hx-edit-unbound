@@ -11,6 +11,9 @@ Two things, both small and both checked again against the device before they are
 * which IR slots each preset used when it was last opened or saved in this editor, so clearing
   a slot can name the presets that use it. Only presets opened here are known.
 * the side (All / Guitar / Bass) last picked in each block picker category's dropdown.
+* the names this editor gave its own previews in User IR 128 (each carries a random tag), with the
+  day each was made: a leftover of ours found in 128 is replaced without asking, anything else is
+  asked about first (Batch 3, 2026-11-24).
 
 Nothing here is trusted on its own: the native side applies a record only while the device still
 shows the same slot name, and a slot that reports a change is forgotten and read again.
@@ -28,6 +31,7 @@ BLOCK = re.compile(r'block\d{1,2}')
 CONTENT = re.compile(r'[0-9a-f]{64}')
 NAME_LIMIT = 255
 ICON = re.compile(r'[a-z0-9_]{0,40}')   # capture_icons id ('' when none)
+PREVIEWS = 32                            # the previews of ours remembered (the newest)
 
 
 def _name(value):
@@ -89,6 +93,7 @@ class FloorMemory:
         self._sides = {}     # block picker category -> subcategory id last picked there
         self._favorites = {}  # HX Edit favorite name -> the capture slot it plays (saved from a NAM block here)
         self._looks = {}      # favorite name -> {slot, group, icon}: its picture before the slot check
+        self._previews = {}   # a preview of ours: its slot name -> the day it was made (ISO), oldest first
         self._load()
 
     def _load(self):
@@ -117,6 +122,11 @@ class FloorMemory:
         looks = data.get('favoriteLooks')
         if isinstance(looks, dict):
             self._looks = {name: look for name, look in looks.items() if name in self._favorites and _look(look)}
+        previews = data.get('previewNames')
+        if isinstance(previews, dict):
+            for name, when in list(previews.items())[-PREVIEWS:]:
+                if _name(name) and len(name) <= 64 and isinstance(when, str) and len(when) <= 10:
+                    self._previews[name] = when
         presets = data.get('presets')
         if isinstance(presets, dict):
             for entry in presets.values():
@@ -154,6 +164,20 @@ class FloorMemory:
         """{favorite name: {slot, group, icon}} for the native side's starting memory."""
         with self.lock:
             return {name: dict(look) for name, look in self._looks.items()}
+
+    def previews(self):
+        """{slot name: day made} of the previews this editor put in User IR 128 (the newest PREVIEWS)."""
+        with self.lock:
+            return dict(self._previews)
+
+    def _own_preview(self, name):
+        # Callers hold self.lock. True when it was not known yet.
+        if not _name(name) or len(name) > 64 or name in self._previews:
+            return False
+        self._previews[name] = date.today().isoformat()
+        while len(self._previews) > PREVIEWS:
+            self._previews.pop(next(iter(self._previews)))
+        return True
 
     def presets(self):
         """[[setlist, preset, name, slots or None], …] for the native side's starting memory."""
@@ -201,10 +225,16 @@ class FloorMemory:
                     self._presets[f"{record['setlist']}:{record['preset']}"] = record
                     self._save()
             return True
+        if kind == 'previewOwned':
+            with self.lock:
+                if self._own_preview(payload.get('name')):
+                    self._save()
+            return True
         if kind == 'tonePreviewState':
             record = preview_record(payload.get('state'))
             with self.lock:
-                if record == self._preview:
+                owned = bool(record) and self._own_preview(record['name'])
+                if record == self._preview and not owned:
                     return True
                 self._preview = record
                 self._save()
@@ -233,7 +263,8 @@ class FloorMemory:
                 'presets': dict(sorted(self._presets.items())),
                 'pickerSides': dict(sorted(self._sides.items())),
                 'favoriteSlots': dict(sorted(self._favorites.items())),
-                'favoriteLooks': dict(sorted(self._looks.items()))}
+                'favoriteLooks': dict(sorted(self._looks.items())),
+                'previewNames': dict(self._previews)}
         temporary = self.path.with_name(f'floor-memory.{os.getpid()}.tmp')
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)

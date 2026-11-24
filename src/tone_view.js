@@ -4,6 +4,9 @@
 // tiles: one TONE3000 entry per NAM block a profile can go to ({label, block, modes}, nam_modes.tiles):
 // each is a copy of its block's row, so HX Edit greys it exactly when that block does not fit.
 function floorPreviewPlan(state) {
+  // state: atTarget, deviceSaved, hasTransfer, playing, ownsPreview, previewSlot, origin, sameModel, modelSlot,
+  // empty128, and (Batch 3) name128 / ours128 / allowed128: what User IR 128 holds, whether it is a preview of ours,
+  // whether the player said to replace it.
   if (!state.atTarget || state.deviceSaved) throw new Error('Select the original NAM block before auditioning.');
   if (state.hasTransfer) {
     if (!state.playing || !state.ownsPreview || state.previewSlot !== 128 ||
@@ -19,8 +22,16 @@ function floorPreviewPlan(state) {
   if (!state.sameModel || !Number.isInteger(state.modelSlot) || state.modelSlot < 1 || state.modelSlot > 127) {
     throw new Error('Select an existing compatible NAM block using a permanent slot (1–127).');
   }
-  // User IR 128 is the preview slot and nothing else (owner decision, November 13): a new
-  // preview always replaces whatever an earlier preview or session left in it.
+  // User IR 128 is the preview slot and nothing else (owner decision, November 13). What is in it
+  // is replaced without asking only when it is a preview of ours (ours128: a name this editor gave
+  // one of its previews, kept from one launch to the next) or when the player said to replace it
+  // (allowed128: "Replace it and preview"). Anything else is asked about once and never replaced
+  // unasked (Batch 3, 2026-11-24): the reply carries it as the slot to replace.
+  if (!state.empty128 && !state.ours128 && !state.allowed128) {
+    const error = new Error('Slot 128 is in use. Replace it to preview?' + (state.name128 ? ` It holds ${state.name128}, which HX Edit Unbound did not put there.` : ''));
+    error.replace = [[128, String(state.name128 || '')]];
+    throw error;
+  }
   return { kind: 'first', slot: 128, replace: !state.empty128 };
 }
 
@@ -202,6 +213,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
   let leftover = profile.navigation ? leftoverRecord(profile.leftoverPreview) : null;
   let leftoverCheckAt = 0;
+  // The names this editor gave its own previews in User IR 128 (each carries a random tag: nam_convert
+  // stage_tone_import), kept by the launcher (floor_memory previews) from one launch to the next: a
+  // leftover of ours found in 128 is replaced without asking (floorPreviewPlan).
+  const ownPreviews = new Set((Array.isArray(profile.ownPreviews) ? profile.ownPreviews : [])
+    .filter(name => typeof name === 'string' && name.length > 0 && name.length <= 64));
+  function ownPreview(name) {
+    if (typeof name !== 'string' || !name || name.length > 64 || ownPreviews.has(name)) return;
+    ownPreviews.add(name);
+    send({type: 'previewOwned', name});
+  }
 
   function rememberPreview() {
     if (!active?.navigation || !active.transfer || !active.origin || active.origin.structural) return;
@@ -209,6 +230,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       originalSlot: active.origin.slot, name: namView.previewName(active.transfer)});
     if (!record) return;
     leftover = record;
+    ownPreview(record.name);
     send({type: 'tonePreviewState', state: record});
   }
 
@@ -4195,12 +4217,14 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       awaitImport(request, transfer, () => applyProfile(request, transfer));
     };
     if (profile.strictPreview) {
-      const previous = active.transfer;
+      const previous = active.transfer, name128 = namView.slotName?.(AUDITION_SLOT) || '';
       const plan = floorPreviewPlan({ atTarget: atTarget(), deviceSaved: !!active.deviceSaved,
         hasTransfer: !!previous, playing: playing(previous),
         ownsPreview: !!previous && !!namView.previewName(previous), previewSlot: previous?.slot,
         origin: active.origin, sameModel: active.model === active.tile.block,
-        modelSlot: namView.modelSlot(), empty128: namView.slotEmpty(AUDITION_SLOT) });
+        modelSlot: namView.modelSlot(), empty128: namView.slotEmpty(AUDITION_SLOT),
+        name128, ours128: !!name128 && (ownPreviews.has(name128) || (!!leftover && leftover.name === name128)),
+        allowed128: request.replace === AUDITION_SLOT });
       if (plan.kind === 'first') {
         if (active.navigation) captureTarget();
         if (!plan.replace) return load(plan.slot);

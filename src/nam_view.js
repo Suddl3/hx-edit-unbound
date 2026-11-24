@@ -2250,6 +2250,28 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       }
       return true;
     },
+    clearSlotsChecked(slots) {
+      // The Workbench's Floor slots (Batch 3): Clear, as HX Edit's own Clear of its IR list does it (the librarian's
+      // clear 0x3da2b0 through submitClear, which also tells the slot check and removes the favorites on those slots),
+      // with the same protection as that Clear: never a slot the loaded preset uses, nor while that cannot be read.
+      // The Workbench has asked the player first. {cleared: slots} or {refused: 'bad' | 'not-ready' | 'unknown' | 'used'}.
+      if (!Array.isArray(slots) || !slots.length || slots.length > AUDITION_SLOT || new Set(slots).size !== slots.length ||
+          !slots.every(slot => Number.isInteger(slot) && slot >= 1 && slot <= AUDITION_SLOT)) return {refused: 'bad'};
+      const librarian = irController.isNull() ? NULL : irController.add(0x270).readPointer();
+      if (librarian.isNull() || irList().isNull()) return {refused: 'not-ready'};
+      const preset = readCurrentPreset();
+      if (!(preset?.slots instanceof Set)) return {refused: 'unknown', reason: String(preset?.reason || '')};
+      const used = slots.filter(slot => preset.slots.has(slot));
+      if (used.length) return {refused: 'used', slots: used};
+      const sorted = [...slots].sort((a, b) => a - b), index = Memory.alloc(4 * sorted.length);
+      sorted.forEach((slot, i) => index.add(4 * i).writeU32(slot - 1));
+      // (the same vector as clearSlot's, of these slots: {vt, grow, data, capacity, first, end})
+      const vector = Memory.alloc(24);
+      vector.writePointer(address(0x8bb0dc)); vector.add(4).writeU32(1); vector.add(8).writePointer(index);
+      vector.add(12).writeU32(sorted.length); vector.add(16).writeU32(0); vector.add(20).writeU32(sorted.length);
+      submitClear(librarian, vector, sorted);
+      return {cleared: sorted};
+    },
     previewSlotEmpty(transfer) {
       if (!transfer.controller.equals(irController)) return false;
       const list = irList();

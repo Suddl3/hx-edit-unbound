@@ -254,5 +254,120 @@ class SetlistTests(unittest.TestCase):
         self.assertIn("pin(number, !isPinned(number, shown), shown)", source)
 
 
+class FloorSlotTests(unittest.TestCase):
+    """Stage 3: the Floor's slots, with Clear; slot 128's new rule for previews."""
+
+    def setUp(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = Path(folder.name)
+        self.view = workbench.WorkbenchView(resources(folder.name), process_factory=lambda *a, **k: FakePane(a), exe='FocusView.exe', costs_file=None)
+        self.addCleanup(self.view.close)
+        self.view.state = {'preset': {'setlist': 2, 'number': 6, 'name': 'John Mayer Style'},
+                           'captures': [{'slot': 17, 'name': 'Klon'}, {'slot': 22, 'name': 'Brit Gold Crunch'}],
+                           'irs': [{'slot': 1, 'name': 'York 4x12'}], 'slot128': {'name': 'Room Mic'},
+                           'blocks': [{'dsp': 0, 'id': 'block0', 'model': 'HD2_AmpNAMLite', 'slot': 17}]}
+
+    def test_clear_is_only_for_slots_shown_in_use_and_never_one_the_loaded_preset_uses(self):
+        check = self.view.checked_clear
+        self.assertEqual(check({'slots': [22]}), {'action': 'clear', 'slots': [22]})
+        self.assertEqual(check({'slots': [128, 1, 22]}), {'action': 'clear', 'slots': [1, 22, 128]})
+        for refused in ({'slots': [17]},                 # the loaded preset uses it (as HX Edit's own Clear refuses)
+                        {'slots': [22, 17]}, {'slots': [5]}, {'slots': [22, 22]}, {'slots': []}, {'slots': [True]},
+                        {'slots': [0]}, {'slots': [129]}, {'slots': '22'}, {'slot': 22}, None):
+            self.assertIsNone(check(refused), refused)
+        self.view.state['slot128'] = None
+        self.assertIsNone(check({'slots': [128]}))                       # nothing in 128
+
+    def test_the_launcher_clears_through_the_check_and_shows_who_uses_each_slot(self):
+        source = launcher()
+        self.assertIn("command = workbench.checked_clear(value) if workbench_on[0] and not focus_on[0] else None", source)
+        self.assertIn("workbench.show_usage(usage_view(memory.presets()))", source)
+        self.assertIn("workbench.show_previews(previews_view(memory.previews(), memory.preview()))", source)
+        self.assertIn("ownPreviews=list(memory.previews())", source)
+        self.assertIn("if workbench is not None and payload.get('type') in ('previewOwned', 'tonePreviewState'):", source)
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn('const result = namView.clearSlotsChecked(command.slots);', script)
+        self.assertIn("try { slot128 = namView.slotName?.(128) || ''; } catch (_) { slot128 = ''; }", script)
+        self.assertIn('state.clearing = clearing ? clearing.slots : null;', script)
+        self.assertIn('send({type: \'dspNotice\', text: `HX Edit did not clear slot ${left.join(\', \')}.`});', script)
+        # HX Edit's own Clear, with its protection: never a slot the loaded preset uses, nor while that cannot be read
+        reader = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        body = reader[reader.index('    clearSlotsChecked(slots) {'):reader.index('    previewSlotEmpty(transfer) {')]
+        self.assertIn("if (!(preset?.slots instanceof Set)) return {refused: 'unknown'", body)
+        self.assertIn("if (used.length) return {refused: 'used', slots: used};", body)
+        self.assertIn('submitClear(librarian, vector, sorted);', body)
+        self.assertLess(body.index("return {refused: 'used'"), body.index('submitClear('))
+        self.assertNotIn('trustedClear', body)
+
+    def test_usage_and_our_previews_for_the_page(self):
+        self.assertEqual(workbench.usage_view([[2, 6, 'John Mayer Style', [17, 21]], [2, 7, 'Unread', None], [3, 1, 'X', [0, 129, 5, True]], 'bad']),
+                         [{'setlist': 2, 'preset': 6, 'name': 'John Mayer Style', 'slots': [17, 21]}, {'setlist': 3, 'preset': 1, 'name': 'X', 'slots': [5]}])
+        self.assertEqual(workbench.previews_view({'Plexi a3f9c1': '2026-11-22'}), [{'name': 'Plexi a3f9c1', 'when': '2026-11-22', 'onBlock': False}])
+        # the one a block still plays (floor_memory's leftover record) says so: clearing it would leave that block silent
+        self.assertEqual(workbench.previews_view({'A 000001': '2026-11-21', 'B 000002': '2026-11-22'}, {'name': 'B 000002', 'dsp': 0})[1]['onBlock'], True)
+        self.assertEqual(workbench.previews_view(None), [])
+
+    def test_our_previews_are_remembered_from_one_launch_to_the_next(self):
+        from floor_memory import PREVIEWS, FloorMemory
+        memory = FloorMemory(self.folder)
+        self.assertTrue(memory.receive({'type': 'previewOwned', 'name': 'Plexi a3f9c1'}))
+        memory.receive({'type': 'tonePreviewState', 'state': {'dsp': 0, 'block': 'block3', 'originalSlot': 17, 'name': 'Tweed 0b12aa'}})
+        memory.receive({'type': 'previewOwned', 'name': ''})
+        memory.receive({'type': 'previewOwned', 'name': 'x' * 65})
+        self.assertEqual(list(FloorMemory(self.folder).previews()), ['Plexi a3f9c1', 'Tweed 0b12aa'])
+        self.assertEqual(FloorMemory(self.folder).preview()['name'], 'Tweed 0b12aa')        # (the leftover record is unchanged)
+        for n in range(PREVIEWS + 5):
+            memory.receive({'type': 'previewOwned', 'name': f'p{n}'})
+        kept = FloorMemory(self.folder).previews()
+        self.assertEqual(len(kept), PREVIEWS)
+        self.assertNotIn('Plexi a3f9c1', kept)                                             # the oldest go first
+
+    def test_a_preview_of_ours_in_128_is_replaced_without_asking_and_anything_else_is_asked_once(self):
+        tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        self.assertIn("ours128: !!name128 && (ownPreviews.has(name128) || (!!leftover && leftover.name === name128)),", tone)
+        self.assertIn('allowed128: request.replace === AUDITION_SLOT', tone)
+        self.assertIn('ownPreview(record.name);', tone)
+        self.assertIn("send({type: 'previewOwned', name});", tone)
+        self.assertIn("error.replace = [[128, String(state.name128 || '')]];", tone)
+        # the session's answer to "Replace it and preview" is its own replace of slot 128 (checked as before)
+        self.assertEqual(workbench.checked_floor({'do': 'replace', 'arg': 128}, {}), 'replace:128')
+        source = page()
+        self.assertIn("if (taken.length === 1 && taken[0][0] === 128) {", source)
+        self.assertIn("go.onclick = () => done(true);", source)
+        self.assertIn("if (go) ask('levels', {do: 'replace', arg: 128});", source)
+        for words in ("'Slot 128 is in use. Replace it to preview?'", "'Don’t preview'", "'Replace it and preview'",
+                      "'Replacing it takes it off the Floor for good. This is asked once for each thing found there, never for a preview of our own.'"):
+            self.assertIn(words, source)
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_the_slots_list_folds_the_free_ones_and_names_who_uses_each(self):
+        rows = run_js(['workbench_layout.js'], 'workbenchSlotRows([{slot: 22, name: "Brit", icon: "amp"}, {slot: 128, name: "pv"}, {slot: 3, name: "dup"}], [{slot: 3, name: "IR"}, {slot: 1, name: "York"}])')
+        self.assertEqual([(r['slot'], r['kind']) for r in rows], [(1, 'ir'), (3, 'capture'), (22, 'capture')])   # 128 apart; a capture wins
+        self.assertEqual(run_js(['workbench_layout.js'], 'workbenchFreeRanges([1, 2, 3, 17, 21, 22, 127])'), [[4, 16], [18, 20], [23, 126]])
+        self.assertEqual(run_js(['workbench_layout.js'], 'workbenchFreeRanges([])'), [[1, 127]])
+        usage = [{'setlist': 2, 'preset': 6, 'name': 'Loaded', 'slots': [17]}, {'setlist': 2, 'preset': 12, 'name': 'Blues', 'slots': [17, 22]}]
+        users = run_js(['workbench_layout.js'], f'workbenchSlotUsers({json.dumps(usage)}, 17, {{setlist: 2, number: 6}})')
+        self.assertEqual(users, [{'setlist': 2, 'preset': 12, 'name': 'Blues'}])
+
+    def test_the_tab_and_its_question_are_the_mock_ups(self):
+        source = page()
+        self.assertIn("for (const [key, words] of [['captures', 'Captures'], ['slots', 'Floor slots']]) {", source)
+        self.assertIn("head.append(libTabs(), find, sort, layout, el('span', 'sp'), t3k, imp);", source)
+        for words in ("'Clear slot ' + rows[0].slot + ' on the Floor?'", "' taken off the Floor. '", "' in your library on this PC.'",
+                      "' filled again. Undo does not bring a cleared slot back: you would put '", "'. Only presets opened in this editor are known.'",
+                      "'Keep ' + (one ? 'it' : 'them')", "'Clear ' + picked.length + ' selected…'", "'Preview slot · holds a preview that was left behind'",
+                      "' that never ended. It is one of ours, so the next preview replaces it without asking.'", "'Show in the library'",
+                      "'Captures and IRs share the Floor’s 128 IR slots. Who uses a slot is known only for presets opened in this editor.'"):
+            self.assertIn(words, source)
+        # Clear asks first: the question's button is the only way to "clear" (and a preview of ours in 128 needs none)
+        self.assertEqual(source.count("ask('clear', {slots: "), 2)
+        self.assertIn("if (go) { ask('clear', {slots: rows.map(r => r.slot)});", source)
+        self.assertIn("clear.onclick = () => { if (ours && !ours.onBlock) ask('clear', {slots: [128]}); else askClear([row]); };", source)
+        # a slot the loaded preset uses cannot be cleared (HX Edit's own protection), and says why
+        self.assertIn('clear.disabled = row.here || clearing.size > 0;', source)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -331,9 +331,38 @@ function workbenchSetlistCount(names) {
   return used ? String(used) : 'empty';
 }
 
+// ---- the Floor's slots (Batch 3) -------------------------------------------------------------------------------------
+// Every used slot of 1..127 (captures and plain IRs share them; 128 is the preview slot, shown apart), in order:
+// {slot, name, kind: 'capture' | 'ir', icon, gear}. A slot listed twice keeps its capture.
+function workbenchSlotRows(captures, irs) {
+  const rows = new Map();
+  for (const c of Array.isArray(irs) ? irs : []) if (c && Number.isInteger(c.slot) && c.slot >= 1 && c.slot <= 127) rows.set(c.slot, {slot: c.slot, name: String(c.name || ''), kind: 'ir'});
+  for (const c of Array.isArray(captures) ? captures : []) {
+    if (c && Number.isInteger(c.slot) && c.slot >= 1 && c.slot <= 127) rows.set(c.slot, {slot: c.slot, name: String(c.name || ''), kind: 'capture', icon: c.icon || '', gear: c.gear || ''});
+  }
+  return [...rows.values()].sort((a, b) => a.slot - b.slot);
+}
+// The free slots of 1..last between the used ones, folded into ranges: [[from, to], ...].
+function workbenchFreeRanges(used, last = 127) {
+  const taken = new Set(used), ranges = [];
+  let from = null;
+  for (let slot = 1; slot <= last + 1; slot++) {
+    const free = slot <= last && !taken.has(slot);
+    if (free && from === null) from = slot;
+    if (!free && from !== null) { ranges.push([from, slot - 1]); from = null; }
+  }
+  return ranges;
+}
+// The presets this editor has seen use a slot (usage: [{setlist, preset, name, slots}], floor_memory: only presets
+// opened here), the loaded one left out (the page says "This preset" for it): [{setlist, preset, name}].
+function workbenchSlotUsers(usage, slot, loaded) {
+  return (Array.isArray(usage) ? usage : []).filter(u => u && Array.isArray(u.slots) && u.slots.includes(slot) &&
+    !(loaded && u.setlist === loaded.setlist && u.preset === loaded.number)).map(u => ({setlist: u.setlist, preset: u.preset, name: u.name}));
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
-                     workbenchSetlistName, workbenchSetlistCount,
+                     workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

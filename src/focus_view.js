@@ -363,6 +363,15 @@ function installFocusView(options, parts) {
   // The Workbench's look at another setlist (focusLookStep), and a preset of another setlist asked of HX Edit's list.
   let looking = null, loadingIn = null;
   const LOAD_IN_MS = 5000;
+  // The Workbench's Floor slots (Batch 3): what User IR 128 holds (its name, each full reading), and a Clear asked of
+  // HX Edit until the slots read empty (CLEAR_MS at most).
+  let slot128 = '', clearing = null;
+  const CLEAR_MS = 8000;
+  const CLEAR_REFUSED = {
+    used: slots => `Slot ${slots.join(', ')} ${slots.length === 1 ? 'is' : 'are'} used by the loaded preset, so nothing was cleared. Load a preset that does not use ${slots.length === 1 ? 'it' : 'them'}, then clear again.`,
+    unknown: () => 'The loaded preset could not be read just now, so nothing was cleared. Try again in a moment.',
+    'not-ready': () => 'HX Edit\'s IR list is not ready, so nothing was cleared.',
+    bad: () => 'Nothing was cleared.'};
   let namesWord = '';                                        // the last outcome of reading the preset list, for the trace
   // A preset that comes up with nothing selected gets its first block selected, a few tries per preset load and
   // never again once something has been selected in it (a cursor moved to an empty cell on purpose stays there).
@@ -656,6 +665,14 @@ function installFocusView(options, parts) {
           loadingIn = {setlist: command.setlist, number: command.number, until: Date.now() + LOAD_IN_MS};
           changed = true;
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset-in', setlist: command.setlist, number: command.number});
+        } else if (command.action === 'clear') {
+          // The Workbench's Floor slots: Clear, after the player said so there (nam_view clearSlotsChecked: HX Edit's
+          // own Clear, never a slot the loaded preset uses). Followed until the slots read empty.
+          const result = namView.clearSlotsChecked(command.slots);
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'clear', slots: command.slots, result});
+          if (result.refused) send({type: 'dspNotice', text: (CLEAR_REFUSED[result.refused] || CLEAR_REFUSED.bad)(result.slots || [])});
+          else clearing = {slots: result.cleared, until: Date.now() + CLEAR_MS};
+          changed = true;
         } else if (command.action === 'preset') {
           // Another preset: a drag left open is closed on this preset first, then the launcher asks the Floor
           // for it (a Program Change, as a footswitch; HX Edit follows on its own).
@@ -697,11 +714,26 @@ function installFocusView(options, parts) {
         catch (error) { downFollow = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'move-down-failed', error: String(error.message)}); send({type: 'dspNotice', text: 'HX Edit did not move the block down to the parallel lane.'}); }
       }
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
-      if (full) { onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs); }
+      if (full) {
+        onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs);
+        try { slot128 = namView.slotName?.(128) || ''; } catch (_) { slot128 = ''; }
+      }
       state.captures = onFloor;
       state.irs = plainIrs;
       state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots; state.tempo = header.tempo; state.topology = header.topology;
       state.setlists = header.setlists;
+      state.slot128 = slot128 ? {name: slot128} : null;
+      if (clearing) {
+        let left = clearing.slots;
+        try { left = clearing.slots.filter(slot => !namView.slotEmpty(slot)); } catch (_) { left = clearing.slots; }
+        if (!left.length) { send({type: 'toneTrace', reason: 'focus-view', stage: 'cleared', slots: clearing.slots}); clearing = null; changed = true; }
+        else if (Date.now() > clearing.until) {
+          send({type: 'dspNotice', text: `HX Edit did not clear slot ${left.join(', ')}.`});
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'clear-unseen', slots: left});
+          clearing = null;
+        }
+      }
+      state.clearing = clearing ? clearing.slots : null;
       if (looking && looking.state === 'reading') {
         let names = null;
         try { names = namView.presetNames?.(); } catch (_) { names = null; }
@@ -796,7 +828,7 @@ function installFocusView(options, parts) {
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null; downFollow = null;
     pickKey = null; pickTries = 0;
     header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null], setlists: null};
-    looking = null; loadingIn = null;
+    looking = null; loadingIn = null; slot128 = ''; clearing = null;
     if (on) { timer = setInterval(ask, POLL_MS); ask(); }
     send({type: 'toneTrace', reason: 'focus-view', stage: on ? 'on' : 'off'});
   }
@@ -857,6 +889,11 @@ function installFocusView(options, parts) {
       } else if (on && setlists && value.action === 'presetIn' && Number.isInteger(value.setlist) && value.setlist >= 0 && value.setlist <= 7 &&
                  Number.isInteger(value.number) && value.number >= 0 && value.number <= 127 && writes.length < 32) {
         writes.push({action: 'presetIn', setlist: value.setlist, number: value.number});
+        queued = false; ask();
+      } else if (on && value.action === 'clear' && Array.isArray(value.slots) && value.slots.length >= 1 && value.slots.length <= 128 &&
+                 value.slots.every(slot => Number.isInteger(slot) && slot >= 1 && slot <= 128) && new Set(value.slots).size === value.slots.length &&
+                 !clearing && writes.length < 32) {
+        writes.push({action: 'clear', slots: value.slots});
         queued = false; ask();
       } else if (on && value.action === 'preset' && Number.isInteger(value.number) && value.number >= 0 && value.number <= 127 && writes.length < 32) {
         writes.push({action: 'preset', number: value.number});

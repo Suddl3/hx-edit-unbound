@@ -184,7 +184,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # A preview left on a block by a closed editor, and the slots already read back.
             from floor_memory import FloorMemory
             memory = FloorMemory(library.folder)
-            options.update(leftoverPreview=memory.preview(), rememberedSlots=memory.slots(),
+            # (and the names this editor gave its own previews in User IR 128: a leftover of ours is replaced without
+            # asking, anything else is asked about first; Batch 3)
+            options.update(leftoverPreview=memory.preview(), rememberedSlots=memory.slots(), ownPreviews=list(memory.previews()),
                            presetUsage=memory.presets(), pickerSides=memory.sides(),
                            favoriteSlots=memory.favorites(), favoriteLooks=memory.looks())
             # The NAM block category exists in this copy's catalog (nam_catalog.patch_nam_category).
@@ -629,6 +631,14 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         nam_catalog.save_setting(PREFS, prefs)
                         workbench.show_prefs(prefs)
                     return
+                if name == 'clear':
+                    # The Workbench's Floor slots: Clear, asked of the player on the page first (what is taken off, that
+                    # Undo does not bring it back). workbench.checked_clear: only slots shown in use, none the loaded
+                    # preset uses; focus_view.js clears them as HX Edit's own Clear does, and checks that again.
+                    command = workbench.checked_clear(value) if workbench_on[0] and not focus_on[0] else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
+                    return
                 if name == 'pin':
                     # A preset pinned or unpinned on the Presets view: kept in settings.json, never in the page.
                     pins = pins_after(nam_catalog.load_settings(), value)
@@ -697,9 +707,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 workbench.on_action = workbench_action
                 workbench.show_options(menu_options())
                 from workbench import (LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_library, import_files,
-                                       library_view, pinned, pins_after, prefs, prefs_after)
+                                       library_view, pinned, pins_after, prefs, prefs_after, previews_view, usage_view)
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
                 workbench.show_prefs(prefs(nam_catalog.load_settings()))
+                if memory is not None:
+                    workbench.show_usage(usage_view(memory.presets()))
+                    workbench.show_previews(previews_view(memory.previews(), memory.preview()))
                 if preview is not None:
                     # the Workbench's own session (Levels): what it shows goes to the page; it says when it ends
                     preview.workbench_sink = workbench.show_session
@@ -737,6 +750,11 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             payload = event.get('payload', {})
             if memory:
                 memory.receive(payload)
+                # (the Workbench's Floor slots: which presets use each slot, and our own previews in 128, as they change)
+                if workbench is not None and payload.get('type') == 'presetUsage':
+                    workbench.show_usage(usage_view(memory.presets()))
+                if workbench is not None and payload.get('type') in ('previewOwned', 'tonePreviewState'):
+                    workbench.show_previews(previews_view(memory.previews(), memory.preview()))
             if sidebar:
                 sidebar.receive(payload)
             if meter:
