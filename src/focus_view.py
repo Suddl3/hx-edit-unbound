@@ -677,6 +677,24 @@ class FocusView:
             return None
         return {'action': 'snapshot', 'index': value}
 
+    NAME = re.compile(r'[\x20-\x7e]{1,10}')
+
+    def checked_rename(self, value):
+        """The Workbench's name box, as the command for focus_view.js, or None. Only a snapshot of the loaded preset,
+        renamed in the edit buffer ({what: 'snapshot', index, name}: the Floor's 10 printable characters, not the name
+        it has now). A preset's own name is not renamed this way: HX Edit renames a preset only on the Floor's stored
+        copy (its Librarian, "rename preset"), never in the edit buffer, so that waits for a decision (BACKLOG)."""
+        state = self.state if isinstance(self.state, dict) else {}
+        names = state.get('snapshots') or []
+        if not isinstance(value, dict) or value.get('what') != 'snapshot':
+            return None
+        index, name = value.get('index'), value.get('name')
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < min(len(names), 8):
+            return None
+        if not isinstance(name, str) or not self.NAME.fullmatch(name) or name != name.rstrip() or name == names[index]:
+            return None
+        return {'action': 'rename', 'what': 'snapshot', 'index': index, 'name': name}
+
     def checked_preset(self, value):
         """The page's request for another preset of the loaded setlist, as the command for focus_view.js, or None:
         'previous' or 'next' of the loaded one (around the ends, as the Floor's own footswitches), or a preset's

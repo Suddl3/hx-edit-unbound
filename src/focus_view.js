@@ -453,6 +453,10 @@ function installFocusView(options, parts) {
       if (!block || !FOCUS_IR_MODEL.test(block.model) || block.slot === command.slot) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
       targetBinding.setIndex(editor, block.dsp, block.id, command.slot);
       finish(editor, block.dsp, block.id, 'Index', command.slot);
+    } else if (command.action === 'rename') {
+      // The Workbench's name box in a snapshot's button: the snapshot's name in the edit buffer (target_binding
+      // renameSnapshot: one undo step; Save keeps it, as any other change). A preset's name is not renamed here.
+      targetBinding.renameSnapshot(editor, command.index, command.name);
     } else if (command.action === 'redo' || command.action === 'undo') {
       // HX Edit's own Undo / Redo (target_binding undo, redo: the Edit menu's entries), as the page's buttons ask
       if (command.action === 'undo') targetBinding.undo(editor); else targetBinding.redo(editor);
@@ -617,13 +621,13 @@ function installFocusView(options, parts) {
           changed = true;
           send({type: 'focusPreset', number: command.number});
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
-        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo'].includes(command.action)) change(command);
+        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) change(command);
         else if (command.action) swap(command); else write(command);
       }
       catch (error) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
-        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
@@ -818,6 +822,10 @@ function installFocusView(options, parts) {
       } else if (on && value.action === 'ir' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && chainBlock.test(value.id) &&
                  Number.isInteger(value.slot) && value.slot >= 1 && value.slot <= 127 && writes.length < 32) {
         writes.push({action: 'ir', dsp: value.dsp, id: value.id, slot: value.slot});
+        queued = false; ask();
+      } else if (on && value.action === 'rename' && value.what === 'snapshot' && Number.isInteger(value.index) && value.index >= 0 && value.index <= 7 &&
+                 typeof value.name === 'string' && /^[\x20-\x7e]{1,10}$/.test(value.name) && writes.length < 32) {
+        writes.push({action: 'rename', index: value.index, name: value.name});
         queued = false; ask();
       } else if (on && ['undo', 'redo'].includes(value.action) && writes.length < 32) {
         writes.push({action: value.action});

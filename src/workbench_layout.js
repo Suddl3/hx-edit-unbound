@@ -303,8 +303,22 @@ function workbenchUnsaved(undoAt, preset, mark) {
   return undoAt !== mark.at;
 }
 
+// ---- a name box of our own: a preset's name, a snapshot's ---------------------------------------------------------
+// The Floor keeps 16 characters for a preset's name and 10 for a snapshot's, in its own font: the printable ASCII
+// characters (space to "~"). What it would refuse is left out as it is typed, quietly; anything past the limit too.
+const WORKBENCH_NAME_LIMITS = Object.freeze({preset: 16, snapshot: 10});
+function workbenchNameTyped(text, limit) {
+  return String(text == null ? '' : text).replace(/[^\x20-\x7e]/g, '').slice(0, limit);
+}
+// The name to send when Enter is pressed, or null when there is nothing to do: nothing left once the spaces at its
+// end are gone, or the same name as now.
+function workbenchNameDone(text, before, limit) {
+  const name = workbenchNameTyped(text, limit).replace(/\s+$/, '');
+  return name && name !== String(before == null ? '' : before).replace(/\s+$/, '') ? name : null;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
-                     WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved,
+                     WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

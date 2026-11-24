@@ -343,6 +343,36 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  // The Workbench's name box in a snapshot's button: the snapshot's name in the edit buffer. HX Edit's own snapshot
+  // rename (its snapshot control's edit, 0x26f870; static study of HX Edit.exe 3.82, 2026-11-24) writes exactly this
+  // value: +0x80 (= +0x7c with flags 0) with dsp -1, "snapshot<n>", "@name", Variant(String). With flags 0 the write is
+  // not kept for undo (0x5178c0: only a write with the top bit set records an undo step), so here it is written as a
+  // knob is, with the single-change flag (one undo step, as a model's name is written by setModel), then once more with
+  // the refresh flag for HX Edit's own views (not kept for undo), and read back. The Floor's limit: 10 printable
+  // characters. Nothing is saved: the preset's Save keeps it, as any other change.
+  function renameSnapshot(editor, index, name) {
+    if (!editorReady(editor) || !Number.isInteger(index) || index < 0 || index > 7 || typeof name !== 'string' ||
+        !/^[\x20-\x7e]{1,10}$/.test(name)) fail('unsupported snapshot name');
+    const group = 'snapshot' + index;
+    const before = parameter({editor, dsp: -1, blockName: group}, '@name');
+    if (before.type !== 10) fail('unexpected snapshot name');
+    if (before.value === name) return true;
+    for (const flags of [WRITE_FLAGS.single, WRITE_FLAGS.refresh]) {
+      let groupName = null, keyName = null, variant = null;
+      try {
+        groupName = string(group); keyName = string('@name'); variant = string(name);
+        const result = writeValue(editor, -1, groupName, keyName, variant, flags);
+        if (result < 0) fail(`HX Edit refused the snapshot's name (${result})`);
+      } finally {
+        if (variant) destroyVariant(variant);
+        if (keyName) destroyVariant(keyName);
+        if (groupName) destroyVariant(groupName);
+      }
+    }
+    const after = parameter({editor, dsp: -1, blockName: group}, '@name');
+    if (after.type !== 10 || after.value !== name) fail('the snapshot kept its old name');
+    return true;
+  }
   // HX Edit's IR blocks (IR 1024, IR 2048...): their IR is a slot of the same IR store, the same Index as a NAM block's
   const IR_MODEL = /^HD2_ImpulseResponse\d{3,4}[A-Za-z]*$/;
   function setIndex(editor, dsp, blockName, slot, flags = 0x80000000) {
@@ -662,7 +692,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, setValue, setIndex, setModel, addModel, addCapture, undo, redo, canRedo,
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, renameSnapshot, setValue, setIndex, setModel, addModel, addCapture, undo, redo, canRedo,
            removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 
