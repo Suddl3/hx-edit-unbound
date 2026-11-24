@@ -72,6 +72,16 @@ function focusSnapshot(peek, cursor, parameters, namEngines) {
 // The selected block: the preset's own cursor (global "@cursor_dsp" / "@cursor_group", which HX Edit writes with every
 // click on its chain, on either of its tabs, and when the Floor selects), else the edit panel's (toneView.cursorBlock).
 // {dsp, block} or what the panel gave. Pure: tests run it.
+// The block an add made, once a full reading shows it at its place. follow: {dsp, lane, place, model}: the model
+// that was added (a capture: NAM's engine, found as any NAM engine; an IR: that IR block). Before, only a NAM engine
+// was looked for, so an IR block that HX Edit was slow to show never got the IR dragged onto the chain (review of
+// PR #7).
+function focusAddMade(blocks, follow, namEngines) {
+  const wanted = block => namEngines.includes(follow.model) ? namEngines.includes(block.model) : block.model === follow.model;
+  return (blocks || []).find(block => block.dsp === follow.dsp && /^block\d{1,2}$/.test(block.id) && block.position === follow.place &&
+                                      block.path === follow.lane && wanted(block)) || null;
+}
+
 function focusCursor(panel, dsp, group) {
   if ([0, 1].includes(dsp) && typeof group === 'string' && /^(block\d{1,2}|split|join|input[AB]|output[AB])$/.test(group)) {
     return {...(panel || {}), dsp, block: group};
@@ -417,7 +427,7 @@ function installFocusView(options, parts) {
         if (made) {
           finish(editor, command.dsp, made, 'Index', command.slot);
           send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-one-step', slot: command.slot});
-        } else addFollow = {dsp: command.dsp, lane: command.lane, place: command.place, slot: command.slot, until: Date.now() + ADD_FOLLOW_MS};
+        } else addFollow = {dsp: command.dsp, lane: command.lane, place: command.place, slot: command.slot, model: next, until: Date.now() + ADD_FOLLOW_MS};
       } else targetBinding.addModel(editor, command.dsp, command.lane, command.place, next);
     } else if (command.action === 'moveSplit') {
       // The split or the mixer to another gap of lane A (target_binding moveSplit: HX Edit's own move, one undo step).
@@ -516,8 +526,7 @@ function installFocusView(options, parts) {
     // The capture's slot on the block just added, once a full reading shows it at its place.
     if (!addFollow) return;
     if (Date.now() > addFollow.until) { send({type: 'toneTrace', reason: 'focus-view', stage: 'add-follow-lost'}); addFollow = null; return; }
-    const made = blocks.find(block => block.dsp === addFollow.dsp && chainBlock.test(block.id) && block.position === addFollow.place &&
-                                      block.path === addFollow.lane && namEngines.includes(block.model));
+    const made = focusAddMade(blocks, addFollow, namEngines);
     if (!made) return;
     const follow = addFollow; addFollow = null;
     targetBinding.setIndex(editor, made.dsp, made.id, follow.slot);
@@ -834,5 +843,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusMeasured, focusAssign, focusCursor, focusCaptures, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusQueue, focusRoom, focusMeasured, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
 }

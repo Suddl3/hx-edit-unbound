@@ -1543,5 +1543,50 @@ class WiringTests(unittest.TestCase):
         self.assertNotIn("'Remove…'", page)
 
 
+@unittest.skipUnless(NODE, 'node is not installed')
+class ReviewFindingTests(unittest.TestCase):
+    """The two findings of the automated review of PR #7 (2026-11-23), each as it would have gone wrong."""
+
+    def test_a_snapshots_value_is_the_controls_own_value_even_while_it_follows_the_tempo(self):
+        # A delay's Time (0.001..8 s) with tempo sync on in the snapshot that is on: the grid's slider stands at the
+        # time's own position; valueAt gave the note number there (13 of 18), which went to HX Edit as the time.
+        out = run_js(['pane_controls.js'], """(() => {
+          globalThis.catalog = {controls: {sync_note: {format: Array.from({length: 18}, (_, i) => 'note' + i)}}};
+          globalThis.state = {values: {TempoSync1: true, SyncSelect1: 5, Time: 1}};
+          const p = {id: 'Time', min: 0.001, max: 8, sync: {switch: 'TempoSync1', note: 'SyncSelect1', min: 0}};
+          const x = turn(p, 1), dial = valueAt(p, x), own = ownValueAt(p, x);
+          state.values.TempoSync1 = false;
+          return {dial, own, free: valueAt(p, x), steps: ownValueAt({id: 'Voices', min: 1, max: 5, kind: 'steps'}, 0.5),
+                  ends: [ownValueAt(p, -1), ownValueAt(p, 2)]};
+        })()""")
+        self.assertEqual(out['dial'], 13)                          # the dial itself turns notes while synced: unchanged
+        self.assertAlmostEqual(out['own'], 1.0, places=6)          # the snapshot's cell keeps the time
+        self.assertAlmostEqual(out['free'], 1.0, places=6)         # and without sync the two agree
+        self.assertEqual(out['steps'], 3)
+        self.assertAlmostEqual(out['ends'][0], 0.001, places=6)
+        self.assertAlmostEqual(out['ends'][1], 8.0, places=6)
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("slide.onchange = () => change(s, p.id, ownValueAt(p, Number(slide.value)));", page)
+        self.assertIn("slide.oninput = () => { label.textContent = shown(p, ownValueAt(p, Number(slide.value))); };", page)
+        self.assertIn("const at = (p, n) => shown(p, ownValueAt(p, n));", page)    # a controller's range end, the same
+
+    def test_an_ir_block_that_shows_late_still_gets_the_ir_that_was_dragged(self):
+        made = lambda blocks, follow: run_js(['focus_view.js'], 'focusAddMade(%s, %s, ["HD2_AmpNAM", "HD2_AmpNAMPedal"])' % (json.dumps(blocks), json.dumps(follow)))
+        chain = [{'dsp': 0, 'id': 'inputA', 'model': 'HD2_AppDSPFlow1Input'},
+                 {'dsp': 0, 'id': 'block2', 'model': 'HD2_ImpulseResponse1024', 'position': 3, 'path': 0},
+                 {'dsp': 0, 'id': 'block3', 'model': 'HD2_AmpNAMPedal', 'position': 4, 'path': 0},
+                 {'dsp': 1, 'id': 'block0', 'model': 'HD2_ImpulseResponse1024', 'position': 3, 'path': 0}]
+        ir = {'dsp': 0, 'lane': 0, 'place': 3, 'model': 'HD2_ImpulseResponse1024', 'slot': 9}
+        self.assertEqual(made(chain, ir)['id'], 'block2')                                   # the IR block: found now
+        self.assertEqual(made(chain, {**ir, 'place': 4, 'model': 'HD2_AmpNAM'})['id'], 'block3')   # a capture: any NAM engine, as before
+        self.assertIsNone(made(chain, {**ir, 'place': 4}))                                  # another model at that place
+        self.assertIsNone(made(chain, {**ir, 'lane': 1}))                                   # another lane
+        self.assertIsNone(made(chain, {**ir, 'model': 'HD2_ImpulseResponse2048'}))          # not the block that was added
+        self.assertIsNone(made([], ir))
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("slot: command.slot, model: next, until: Date.now() + ADD_FOLLOW_MS};", script)
+        self.assertIn('const made = focusAddMade(blocks, addFollow, namEngines);', script)
+
+
 if __name__ == '__main__':
     unittest.main()

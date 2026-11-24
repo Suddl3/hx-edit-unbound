@@ -74,10 +74,18 @@ function position(p) {
   if (typeof v !== 'number') return 0;
   return t.whole ? clamp((v - t.min) / Math.max(1, t.max - t.min)) : turn(p, v);
 }
-function valueAt(p, x) {
-  const t = turning(p); x = clamp(x);
-  if (t.whole) return t.min + Math.round(x * (t.max - t.min));
+// The control's own value at a position 0..1 of its travel, whatever its tempo switch says: the inverse of turn().
+// (A value kept for another snapshot, and a controller's range end, are the control's own value, never a note.)
+function ownValueAt(p, x) {
+  x = clamp(x);
+  if (p.kind === 'steps' || p.whole === true) return p.min + Math.round(x * (p.max - p.min));
   return wide(p) ? p.min * Math.pow(p.max / p.min, x) : p.min + x * (p.max - p.min);
+}
+// What the dial sets at a position: the note while it follows the tempo, else the control's own value
+function valueAt(p, x) {
+  if (!synced(p)) return ownValueAt(p, x);
+  const t = turning(p);
+  return t.min + Math.round(clamp(x) * (t.max - t.min));
 }
 function wireControl(el, p, block, redraw) {
   // A control of the page changes the block as HX Edit's sliders do: the '.lever' (a switch) flips with a click, the
