@@ -547,6 +547,36 @@ class FloorLookTests(unittest.TestCase):
         # said, not pretended: the Floor cannot read a preset's own look yet
         self.assertIn('The Floor shows the defaults until its firmware can read a look per preset', body)
 
+    def test_floor_look_works_as_focus_modes_change_look_does(self):
+        # Batch 2 (Nick, 2026-11-23: the grid of kinds read as confusing next to Focus Mode's Change look): the picked
+        # block on its scene, then This block | This preset | Defaults, Background | Picture, the scenes by name.
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        body = page[page.index('// ---- Floor look:'):page.index('// ---- a question before something is done')]
+        self.assertIn("for (const [scope, words] of [['block', 'This block'], ['preset', 'This preset'], ['defaults', 'Defaults']]) {", body)
+        self.assertIn("let look = null, lookScope = 'block', lookPart = 'scene',", body)
+        # each scope asks what Focus Mode's panel asks (focus_view.look_change)
+        for asked in ("const change = more => ask('look', {scope: 'block', preset: presetRef(), key: lookBlockKey(block), ...more});",
+                      "change({scene: name})", "change({scene: null})", "change({picture: id === ownPictureId(block) ? null : id})",
+                      "change({picture: null})",
+                      "ask('look', {scope: 'preset', preset: presetRef(), scene: name})",
+                      "ask('look', {scope: 'preset', preset: presetRef(), clear: true})",
+                      "ask('look', {scope: 'preset', preset: presetRef(), adopt: true})",
+                      "ask('look', {scope: 'default', category: lookKind, scene: name})",
+                      "ask('look', {scope: 'default', reset: true})"):
+            self.assertIn(asked, body)
+        # who the look is for, in Focus Mode's own words
+        self.assertIn("'. Only this block, only in this preset. Everything else keeps its look.'", body)
+        self.assertIn("'. Every block in this preset that has no look of its own.'", body)
+        # Save for the Floor belongs to the defaults: the only looks the Floor reads
+        defaults = body[body.index("if (lookScope === 'defaults') {"):body.index("} else if (!presetKey()) {")]
+        self.assertIn("save.onclick = () => ask('lookSave');", defaults)
+        self.assertEqual(body.count("ask('lookSave')"), 1)
+        # under the chain the frame's card is the block on its scene; the old grid of kinds and its strip are gone
+        self.assertIn("card.replaceChildren(head, lookStage(false),", body)
+        self.assertIn("$('tool').classList.toggle('look', half === 'look');", page)
+        for gone in ('kindCards', "'lkstrip'", "'lkinds'", ' .lkind', 'Preview and gallery', "from the Floor tool"):
+            self.assertNotIn(gone, page)
+
     def test_the_launcher_checks_and_keeps_a_look_as_focus_mode_does(self):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         action = launcher[launcher.index('            def workbench_action(name, value):'):launcher.index('            if focus is not None:\n                focus.on_action')]
