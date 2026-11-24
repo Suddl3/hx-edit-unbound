@@ -336,7 +336,7 @@ class SetlistTests(unittest.TestCase):
         let_go = source[source.index('function letLookGo() {'):source.index('// What a click on a preset of the setlist shown does')]
         self.assertIn("if (lookAt === null || !$('presetList').hidden || view.full === 'presets' || view.drawer === 'presets') return false;", let_go)
         self.assertIn('settleLook(true);', let_go)                                                             # at once
-        commit = source[source.index('function commitView(next) {'):source.index('function pickBlock(block) {')]
+        commit = source[source.index('function commitView(next, relaid) {'):source.index('function pickBlock(block) {')]
         self.assertIn('letLookGo();', commit)                                                                   # the drawer or view left
         self.assertIn('if (lookAt === null) settleLook(true);', source)                                         # "Back to X"
         self.assertIn("if (!(target && typeof target === 'object')) settleLook(true);", source)                 # a load of the loaded setlist
@@ -539,7 +539,7 @@ class LiveCheckFixTests(unittest.TestCase):
     def test_c_back_from_a_full_view_the_block_panel_is_drawn_again(self):
         # Cause: commitView drew the chain but not the panel; the panel waited for a state message.
         source = page()
-        commit = source[source.index('function commitView(next) {'):source.index('function pickBlock(block) {')]
+        commit = source[source.index('function commitView(next, relaid) {'):source.index('function pickBlock(block) {')]
         self.assertIn("if (catalog && state && !view.full) { drawChain(true); shownPanel = ''; drawPanel(); }", commit)
 
     def test_d_clear_reads_any_preset_and_its_refusal_stays_on_screen(self):

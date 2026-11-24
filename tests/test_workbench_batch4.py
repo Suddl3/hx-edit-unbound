@@ -164,5 +164,158 @@ class ChooserTests(unittest.TestCase):
         self.assertIn('workbenchRailOn(view, name, layout)', text)
 
 
+SLIDER = '''(() => {
+  const sent = [];
+  globalThis.catalog = {controls: {}}; globalThis.state = {values: {Drive: 0.5, Time: 0.5, TempoSync1: false, SyncSelect1: 6}};
+  globalThis.ask = (name, value) => sent.push([name, value.key, value.phase, Math.round(value.value * 100) / 100]);
+  globalThis.requestAnimationFrame = f => f();
+  const make = cls => {
+    const dial = {classList: {contains: c => c === cls}, getBoundingClientRect: () => ({left: 100, width: 200}), setPointerCapture() {}};
+    return {dial, el: {querySelector: s => s === '.dial, .track' ? dial : null, classList: {add() {}, remove() {}}}};
+  };
+  const block = {dsp: 0, id: 'block1'};
+  const out = {};
+  %s
+  return out;
+})()'''
+
+
+class ClassicPlusTests(unittest.TestCase):
+    """Stage 2: Classic+, HX Edit's own arrangement: the sidebar, the chain across the top, the Edit area with the model
+    list in place of the picker and the controls as sliders."""
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_classic_plus_is_built_and_offered(self):
+        self.assertTrue(js('WORKBENCH_LAYOUTS.classicplus.built'))
+        self.assertEqual(js('workbenchLayoutOf("classicplus")'), 'classicplus')
+
+    def test_the_lists_in_place_are_the_pickers_own_choices_and_asks(self):
+        text = page()
+        shared = between(text, 'function pickChoices(block) {', 'function drawPicker(block) {')
+        picker = between(text, 'function drawPicker(block) {', "// ---- Classic+'s Edit area")
+        edit = between(text, 'function drawEdit(block) {', 'function editTabs(enabled) {')
+        # one list of choices, one way to pick: the picker draws cards, Classic+ rows
+        for piece in ('pickChoices(', 'pickCategoryRows(', 'pickHead(', 'pickItems('):
+            self.assertIn(piece, picker)
+            self.assertIn(piece, edit)
+        self.assertIn("pickChoice(block, s, item, 'card')", picker)
+        self.assertIn("pickChoice(target, s, item, 'row')", edit)
+        # the asks: the same as the picker's always were (a model, a capture, an add at the "+" picked)
+        pick = between(text, 'function pickModel(block, symbol) {', '// The choices shown')
+        self.assertIn("chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol});", pick)
+        self.assertIn("ask('model', {dsp: block.dsp, id: block.id, symbol});", pick)
+        self.assertIn("chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot});", pick)
+        self.assertIn("ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});", pick)
+        self.assertIn('choice.onclick = () => item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);', shared)
+        # the same DSP room check: the room line, a choice that does not fit marked "full"
+        self.assertIn('space: room(block)', shared)
+        self.assertIn('full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;', shared)
+        self.assertEqual(text.count("ask('model',"), 1)
+        self.assertEqual(text.count("ask('capture',"), 2)                           # (and the Captures drawer's swap, as before)
+        # in Classic+ the panel is the Edit area; Change capture / model go to the lists, no dialog opens
+        self.assertIn("if (layout === 'classicplus') { drawEdit(block); return; }", text)
+        opener = between(text, 'function openPicker(tab) {', 'function closePicker() {')
+        self.assertIn("if (layout !== 'classicplus') picking = {block: true};", opener)
+        self.assertIn('if (picking && picking.block && layout === \'classicplus\') picking = false;', text)
+        # the lists follow the block picked (its own category), and Remove block is there as in the picker
+        self.assertIn('if (!target.isPlace) pickHome(target);', text)
+        self.assertIn("if (found.remove) rows.append(el('hr'), found.remove);", edit)
+        # the Edit area's tabs: Edit | Bypass and controllers | Snapshot values, the Workbench's own tabs' views
+        self.assertIn("[['controls', 'Edit'], ['bypass', 'Bypass and controllers'], ['snaps', 'Snapshot values']]", text)
+        self.assertIn("body = tab === 'bypass' ? bypassView(target, list) : snapshotView(target, list);", edit)
+        # an input, an output, the split and the mixer: their own card (routing, the split's type) beside the sliders
+        self.assertIn('} else body.append(card(target, false), editParams(target, list));', edit)
+
+    def test_every_control_of_the_knob_panel_is_a_slider_or_its_own_widget(self):
+        text = page()
+        row = between(text, 'function sliderRow(p) {', '\n}\n')
+        self.assertIn("if (isList(p)) {", row)                                          # a list: its drop-down, as the knob panel's
+        self.assertIn('choices(p).forEach(([value, name]) => pick.append(new Option(name, String(value))));', row)
+        self.assertIn("} else if (p.kind === 'switch') {", row)                         # a switch: a switch
+        self.assertIn("const track = el('div', 'track');", row)                         # the rest: a slider
+        self.assertIn("if (p.sync) { const sync = el('button', 'sync', 'Sync');", row)  # a time with its tempo sync
+        self.assertIn("if (c && c.controller === 19) { const mark = el('i', 'snapmark', 'S');", row)   # moved by snapshots
+        params = between(text, 'function editParams(block, list) {', 'function sliderRow(p) {')
+        # every control the knob panel has (controlsOf), wired the same way (wireControl, setValue for a list)
+        self.assertIn("if (isList(p)) { const pick = item.querySelector('select'); pick.onchange = () => { setValue(block, p.id, Number(pick.value), 'single'); pick.blur(); fill(item, p); }; }", params)
+        self.assertIn('else wireControl(item, p, block, () => fill(item, p));', params)
+        self.assertIn('list = target.isPlace ? [] : controlsOf(target)', text)
+        fill = between(text, 'function fill(item, p) {', 'function card(block, picker) {')
+        self.assertIn("const track = item.querySelector('.track');", fill)
+        self.assertIn("track.querySelector('i').style.width = at; track.querySelector('u').style.left = at;", fill)
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_a_slider_is_the_knob_laid_flat(self):
+        # a press on the track goes there (a drag of its own: begin, move, end = one undo step), a drag follows the
+        # pointer along it, and the wheel is left to the list
+        flat = run_js(['pane_controls.js'], SLIDER % '''
+          const {dial, el} = make('track'), p = {id: 'Drive', min: 0, max: 1, default: 0.5};
+          wireControl(el, p, block, () => {});
+          dial.onpointerdown({button: 0, clientX: 150, clientY: 0, pointerId: 1});
+          dial.onpointermove({clientX: 250, clientY: 0});
+          dial.onpointerup();
+          out.sent = sent.splice(0); out.wheel = typeof dial.onwheel;
+          dial.onkeydown({key: 'ArrowRight', shiftKey: false, preventDefault() {}});
+          out.key = sent.splice(0).map(s => s[2]);
+          dial.ondblclick(); out.back = sent.splice(0);''')
+        self.assertEqual(flat['sent'], [['set', 'Drive', 'begin', 0.5], ['set', 'Drive', 'move', 0.25], ['set', 'Drive', 'move', 0.75], ['set', 'Drive', 'end', 0.75]])
+        self.assertEqual(flat['wheel'], 'undefined')
+        self.assertEqual(flat['key'], ['begin', 'move'])
+        self.assertEqual(flat['back'], [['set', 'Drive', 'single', 0.5]])
+        # the dial as it was: a press alone changes nothing, a vertical drag turns it
+        dial = run_js(['pane_controls.js'], SLIDER % '''
+          const {dial, el} = make('dial'), p = {id: 'Drive', min: 0, max: 1};
+          wireControl(el, p, block, () => {});
+          dial.onpointerdown({button: 0, clientX: 150, clientY: 100, pointerId: 1});
+          out.press = sent.length;
+          dial.onpointermove({clientX: 150, clientY: 81});
+          dial.onpointerup();
+          out.sent = sent.splice(0); out.wheel = typeof dial.onwheel;''')
+        self.assertEqual(dial['press'], 0)
+        self.assertEqual(dial['sent'], [['set', 'Drive', 'begin', 0.5], ['set', 'Drive', 'move', 0.6], ['set', 'Drive', 'end', 0.6]])
+        self.assertEqual(dial['wheel'], 'function')
+        # a time that follows the tempo: the slider sets the note
+        synced = run_js(['pane_controls.js'], SLIDER % '''
+          state.values.TempoSync1 = true;
+          catalog.controls.sync_note = {format: ['1/1', '1/2', '1/4', '1/8']};
+          const {dial, el} = make('track'), p = {id: 'Time', min: 0, max: 1, sync: {switch: 'TempoSync1', note: 'SyncSelect1', min: 6}};
+          wireControl(el, p, block, () => {});
+          dial.onpointerdown({button: 0, clientX: 300, clientY: 0, pointerId: 1});
+          dial.onpointerup();
+          out.sent = sent.splice(0);''')
+        self.assertEqual(synced['sent'][-1], ['set', 'SyncSelect1', 'end', 9])
+
+    def test_the_sidebar_holds_the_drawers_and_the_tools_box(self):
+        text = page()
+        self.assertIn('<div class="side" id="side">', text)
+        side = between(text, '<div class="side" id="side">', '</div>\n')
+        for piece in ('id="rail"', 'id="drawer"', '<div class="toolbox" id="toolbox"'):
+            self.assertIn(piece, side.replace('\r\n', '\n'))
+        rail = between(text, 'function drawRail() {', 'function drawDrawer() {')
+        self.assertIn("$('toolbox').hidden = layout !== 'classicplus';", rail)
+        self.assertIn("button('presets', 'Presets', 'presets', '', 'The setlist’s presets'),", rail)
+        # the tools box: TONE3000, Floor look, Levels, Library, opening as they do in the Workbench (the same setView)
+        for tool in ("button('tone', 'TONE3000'", "button('look', 'Floor look'", "button('level', 'Levels'", "button('library', 'Library'"):
+            self.assertIn(tool, rail[:rail.index("$('rail').setAttribute('aria-label', 'Library');")])
+        self.assertEqual(rail.count("b.onclick = () => setView('rail', name);"), 1)
+        self.assertIn("const box = $('drawer'), drawer = workbenchPlaces(layout, view).drawer, kind = DRAWERS[drawer];", text)
+
+    def test_the_chain_is_the_workbenchs_own_drawn_smaller_with_the_dsp_meters_over_it(self):
+        text = page()
+        self.assertIn("classicplus: {YA: 36, YB: 136, TILE_H: 84, TILE_TOP: 34, TAG: 0}", text)
+        chain = between(text, 'function drawChain(force) {', 'function dspShare(k) {')
+        self.assertIn("const head = layout === 'classicplus' ? [flowHead()]", chain)
+        self.assertIn('paths.map(p => drawPath(p, geometry(width), now))', chain)       # the same paths, drags and asks
+        head = between(text, 'function flowHead() {', 'function drawPath(')
+        self.assertIn("head.append(el('span', '', 'Signal flow'), el('span', 'sp'));", head)
+        self.assertIn("item.append('DSP ' + (k + 1) + ' ',", head)
+
+    def test_no_new_text_in_capitals(self):
+        css = between(page(), '/* ================= Batch 4: the layouts', '</style>')
+        self.assertNotIn('uppercase', css)
+        script = page()[page().index('// ---- the layouts (Batch 4)'):]
+        self.assertFalse(re.search(r"'[A-Z]{4,}[ ']", between(page(), '// The picker\'s choices for a block, shared', '// ---- the top bar')))
+
+
 if __name__ == '__main__':
     unittest.main()

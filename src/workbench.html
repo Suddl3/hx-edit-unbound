@@ -764,6 +764,116 @@
   .mc.on > i { color: rgb(var(--c)); }
   .mc.full { opacity: .5; }
   .mc.full > i { color: #e2483c; }
+
+  /* ================= Batch 4: the layouts (workbench_layout.js WORKBENCH_LAYOUTS) ================= */
+  /* (the rail and the drawer are the page's grid items in the Workbench; Classic+'s sidebar holds them) */
+  .app > .side { display: contents; }
+  .app.full .drawer { display: none; }
+  .app.lay-classicplus.full .drawer:not([hidden]) { display: grid; }
+
+  /* ---- Classic+: HX Edit's own arrangement (batch4-classic-plus.png) ---- */
+  .app.lay-classicplus { grid-template: 58px auto minmax(0, 1fr) / 304px minmax(0, 1fr); }
+  .lay-classicplus > .side { display: grid; grid-column: 1; grid-row: 2 / 4; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 10px 0 10px 10px; min-height: 0; }
+  .lay-classicplus > .board, .lay-classicplus > .insp, .lay-classicplus > .tool { grid-column: 2; }
+  .lay-classicplus > .vw { grid-column: 2; margin: 10px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .lay-classicplus .rail { grid-column: auto; grid-row: auto; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); align-content: stretch; }
+  .lay-classicplus .rail button { height: 30px; padding: 0; display: grid; place-items: center; border-radius: 6px; font-size: 13px; }
+  .lay-classicplus .rail button svg { display: none; }
+  .lay-classicplus .rail button.on { background: var(--raise2); color: var(--ink); font-weight: 600; box-shadow: 0 1px 0 rgb(255 255 255 / .06) inset; }
+  .lay-classicplus .drawer { grid-column: auto; grid-row: auto; width: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding-top: 10px; overflow: hidden; }
+  .lay-classicplus .drawer h3 { font-size: 15px; }
+  .toolbox { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+  .toolbox h3 { grid-column: 1 / -1; margin: 0 0 2px; padding: 0 4px; font-size: 12px; font-weight: 500; color: var(--dim); }
+  .toolbox button { height: 32px; border-radius: 7px; background: var(--raise); border: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 10px; color: #c99cf0; font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+  .toolbox button svg { width: 15px; height: 15px; flex: none; }
+  .toolbox button:hover { border-color: #4a5060; }
+  .toolbox button.on { background: rgb(176 112 224 / .16); border-color: #b070e0; color: var(--ink); }
+  .toolbox button.plain { color: var(--ink); }
+  .lay-classicplus > .board { margin: 10px 10px 0; padding: 0 12px 8px; gap: 4px; border: 1px solid var(--line); border-radius: 10px; background: radial-gradient(120% 140% at 50% 0%, #171a21 0%, #101216 70%); }
+  .flowhead { display: flex; align-items: center; gap: 18px; height: 30px; margin: 0 -12px; padding: 0 14px; color: var(--dim); font-size: 12px; border-bottom: 1px solid rgb(255 255 255 / .04); }
+  .flowhead .sp { flex: 1; }
+  .flowhead .dspm { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .flowhead .dspm b { color: var(--ink); font-weight: 600; }
+  .flowhead .meter { width: 60px; }
+  .lay-classicplus .path .tag { display: none; }
+  .lay-classicplus .tile:not(.io) { background: none; border-color: transparent; padding-top: 4px; }
+  .lay-classicplus button.tile:not(.io):hover { border-color: rgb(var(--c) / .45); }
+  .lay-classicplus .tile:not(.io) .strip { background: none; border-top: 0; color: rgb(var(--c)); margin-top: 2px; padding-top: 0; }
+  .lay-classicplus .tile:not(.io) .strip small { display: none; }
+  .lay-classicplus .tile.off .strip { color: var(--faint); }
+  .lay-classicplus .tile.on { background: rgb(var(--c) / .08); border-color: rgb(var(--c)); box-shadow: 0 0 18px rgb(var(--c) / .25); }
+  .lay-classicplus .tile .led { display: none; }
+  .lay-classicplus > .insp, .lay-classicplus > .tool { margin: 0 10px 10px; }
+  /* the Edit area: the tabs, then the categories, the model list and the block's controls as sliders */
+  .insp.edit { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 44px minmax(0, 1fr); min-height: 0; }
+  .insp.edit > .tabs { padding: 0 6px; }
+  .insp.edit > .tabview { padding: 12px 0; }
+  .ecols { display: grid; grid-template-columns: 196px 232px minmax(0, 1fr); gap: 10px; padding: 10px 0 0; min-height: 0; }
+  .ecols.node { grid-template-columns: 250px minmax(0, 1fr); }
+  .ecols > .card { border: 1px solid var(--line); border-radius: 10px; overflow-y: auto; }
+  .ebox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-height: 0; min-width: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  .ebox > h3 { margin: 0; padding: 9px 12px 7px; font-size: 12px; font-weight: 500; color: var(--dim); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
+  .ebox .erows { overflow-y: auto; min-height: 0; padding: 0 0 8px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .kindtabs { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; margin: 8px 8px 4px; padding: 3px; border-radius: 8px; background: #0e1014; border: 1px solid var(--line); }
+  .kindtabs button { height: 24px; border-radius: 5px; color: var(--dim); font-size: 12px; }
+  .kindtabs button.on { background: var(--raise2); color: var(--ink); }
+  .erow { display: flex; width: calc(100% - 8px); align-items: center; gap: 10px; height: 22px; padding: 0 12px; margin: 0 4px; border-radius: 6px; color: rgb(var(--c)); text-align: left; white-space: nowrap; }
+  .erow > span:not(.led) { overflow: hidden; text-overflow: ellipsis; }
+  .erow:hover { background: var(--raise); }
+  .erow.on { background: var(--raise2); color: var(--ink); box-shadow: inset 2px 0 0 rgb(var(--c)); }
+  .erow .led { width: 6px; height: 6px; box-shadow: none; }
+  .erow b { margin-left: auto; font-weight: 400; color: var(--faint); font-size: 11.5px; }
+  .erow.remove { color: var(--faint); } .erow.remove:hover { color: #ff8a80; }
+  .ebox hr { border: 0; border-top: 1px solid var(--line); margin: 5px 12px; }
+  .ebox .erows h6 { margin: 8px 12px 3px; font-size: 11px; font-weight: 500; color: var(--faint); }
+  .ebox .erows p { margin: 8px 12px; color: var(--dim); font-size: 12.5px; line-height: 1.45; }
+  .mrow { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; width: calc(100% - 8px); align-items: center; gap: 10px; height: 25px; padding: 0 10px; margin: 0 4px; border-radius: 6px; text-align: left; }
+  .mrow img { width: 22px; height: 22px; object-fit: contain; }
+  .mrow span { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mrow i { font-style: normal; font-size: 11px; color: var(--faint); }
+  .mrow:hover { background: var(--raise); }
+  .mrow.on { background: var(--raise2); box-shadow: inset 2px 0 0 rgb(var(--c)); }
+  .mrow.on i { color: rgb(var(--c)); }
+  .mrow.full { opacity: .5; } .mrow.full i { color: #e2483c; }
+  .ebox .ehead { display: grid; gap: 6px; padding: 8px 8px 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .ebox .ehead .seg2 { justify-self: start; max-width: 100%; }
+  .ebox .ehead .seg2 button { height: 22px; padding: 0 8px; font-size: 12px; }
+  .ebox .ehead .search { width: auto; height: 28px; }
+  .ebox .ehead .room { color: var(--faint); font-size: 11.5px; padding: 0 4px; }
+  .ebox .ehead .room b { color: var(--dim); font-weight: 600; margin-left: 4px; }
+  /* the block's controls as sliders */
+  .params { grid-template-rows: auto auto minmax(0, 1fr); }
+  .params > h3 { padding: 10px 16px 10px 18px; color: var(--ink); font-size: 15px; font-weight: 600; }
+  .params > h3 em { font-style: normal; display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .params > h3 em span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .params > h3 em small { color: rgb(var(--c)); font-size: 12px; font-weight: 400; white-space: nowrap; }
+  .params > h3 em img { width: 28px; height: 28px; object-fit: contain; flex: none; }
+  .params > h3 .acts2 { display: flex; gap: 6px; flex: none; }
+  .params > h3 .acts2 .btn { height: 28px; padding: 0 8px; }
+  .params .capline { margin: 0 18px 8px; padding: 7px 10px; border-radius: 8px; background: rgb(176 112 224 / .08); border: 1px solid rgb(176 112 224 / .3); color: var(--dim); font-size: 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .params .capline b { color: var(--ink); font-weight: 600; }
+  .params .capline button { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
+  .params .capline .sp { flex: 1; }
+  .sliders { overflow-y: auto; min-height: 0; padding: 0 18px 10px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .srow { display: grid; grid-template-columns: minmax(80px, 120px) minmax(0, 1fr) 76px; align-items: center; gap: 14px; min-height: 31px; }
+  .srow > label { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+  .srow > label .snapmark { font-style: normal; font-size: 10px; line-height: 14px; padding: 0 4px; border-radius: 4px; color: rgb(var(--c)); border: 1px solid rgb(var(--c) / .6); flex: none; }
+  .srow .track { position: relative; height: 22px; cursor: pointer; touch-action: none; border-radius: 4px; }
+  .srow .track::before { content: ''; position: absolute; left: 0; right: 0; top: 8px; height: 6px; border-radius: 3px; background: #252932; }
+  .srow .track i { position: absolute; left: 0; top: 8px; height: 6px; border-radius: 3px; background: rgb(var(--c) / .85); }
+  .srow .track u { position: absolute; top: 4px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: #f2f3f6; box-shadow: 0 1px 4px rgb(0 0 0 / .6); }
+  .srow.live .track u { box-shadow: 0 0 0 4px rgb(var(--c) / .3), 0 1px 4px rgb(0 0 0 / .6); }
+  .srow output { text-align: right; color: var(--ink); background: var(--raise); border-radius: 6px; padding: 3px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .srow .tail { display: flex; gap: 6px; align-items: center; justify-content: flex-end; min-width: 0; }
+  .srow .sync { position: static; flex: none; }
+  .srow.syncs { grid-template-columns: minmax(80px, 120px) minmax(0, 1fr) 120px; }
+  .srow select.pick { height: 28px; border-radius: 7px; background: var(--raise2); border: 1px solid #3a3f4b; color: var(--ink); font: inherit; padding: 0 8px; min-width: 0; max-width: 320px; }
+  .srow .lever { width: 44px; height: 24px; border-radius: 12px; background: #0b0c0f; border: 1px solid var(--line); position: relative; transition: background .15s; }
+  .srow .lever::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #d7dae1; transition: left .15s; }
+  .srow .lever.up { background: rgb(var(--c) / .75); border-color: transparent; }
+  .srow .lever.up::after { left: 23px; }
+  .insp.off .srow output { color: var(--dim); }
+  .ecols .empty { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 </style>
 </head>
 <body>
@@ -790,8 +900,12 @@
     <div class="toast" id="toast" role="status" hidden></div>
   </header>
 
-  <nav class="rail" id="rail" aria-label="Library"></nav>
-  <aside class="drawer" id="drawer" aria-label="On the Floor" hidden></aside>
+  <!-- (the side: the rail and the drawer; Classic+'s sidebar holds them, with its tools at the foot: Batch 4) -->
+  <div class="side" id="side">
+    <nav class="rail" id="rail" aria-label="Library"></nav>
+    <aside class="drawer" id="drawer" aria-label="On the Floor" hidden></aside>
+    <div class="toolbox" id="toolbox" aria-label="Tools" hidden></div>
+  </div>
 
   <section class="board" id="board" aria-label="Signal chain"></section>
 
@@ -920,7 +1034,17 @@ function image(urls, cls, small, lazy) {
 }
 
 // ---- the chain --------------------------------------------------------------------------------------------------
-const YA = 52, YB = 166, X0 = 74, R = 14;
+let YA = 52, YB = 166, TILE_H = 104, TILE_TOP = 52;
+const X0 = 74, R = 14;
+// The chain's sizes in each layout (Batch 4): the same paths, places, drags and asks, drawn smaller in Classic+ (as HX
+// Edit's own signal flow) and as gear on the stage (stageSizes). YA / YB: each lane's line; TILE_H: a block's height,
+// TILE_TOP: from its top to the line; TAG: the width of the path's label beside it.
+const CHAIN_SIZES = {workbench: {YA: 52, YB: 166, TILE_H: 104, TILE_TOP: 52, TAG: 88}, classicplus: {YA: 36, YB: 136, TILE_H: 84, TILE_TOP: 34, TAG: 0}};
+function chainSizes() {
+  const s = layout === 'stage' ? stageSizes() : CHAIN_SIZES[layout] || CHAIN_SIZES.workbench;
+  YA = s.YA; YB = s.YB; TILE_H = s.TILE_H; TILE_TOP = s.TILE_TOP;
+  return s;
+}
 let shownChain = '';
 function geometry(width) {
   // Eight places between the input (left) and the output (right); a gap is where the split or the mixer sits.
@@ -948,27 +1072,50 @@ function shownBlocks() {
 }
 const same = (a, b) => !!a && !!b && a.dsp === b.dsp && a.id === b.id;
 function drawChain(force) {
-  const board = $('board'), width = Math.max(800, board.clientWidth - 28 - 88);
-  const paths = workbenchPaths(shownBlocks(), catalog, state.topology);
+  const board = $('board'), paths = workbenchPaths(shownBlocks(), catalog, state.topology), sizes = chainSizes(paths);
+  const width = Math.max(800, board.clientWidth - 28 - sizes.TAG);
   const now = current();
-  const key = JSON.stringify([width, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
-                              now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), (state.irs || []).map(i => [i.slot, i.name]), dsp]);
+  const key = JSON.stringify([width, layout, sizes, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
+                              now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), (state.irs || []).map(i => [i.slot, i.name]), dsp,
+                              layout === 'stage' ? stageKey() : null]);
   if (!force && key === shownChain) return;
   if (dragging) return;                                         // (redrawn when the drag ends)
   shownChain = key;
   reusable = gather(board);
-  try { board.replaceChildren(...paths.map(p => drawPath(p, geometry(width), now))); } finally { reusable = null; }
+  try {
+    // (Classic+: "Signal flow" with both DSP meters over the paths, as HX Edit's own header has them; the stage: its
+    // scene and the button to Floor look over them)
+    const head = layout === 'classicplus' ? [flowHead()] : layout === 'stage' ? stageHead() : [];
+    board.replaceChildren(...head, ...paths.map(p => drawPath(p, geometry(width), now)));
+  } finally { reusable = null; }
+}
+function dspShare(k) {
+  const view = dsp && dsp[k];
+  return view && typeof view.used === 'number' && view.budget ? {share: Math.round(100 * view.used / view.budget), level: view.level || ''} : null;
+}
+function flowHead() {
+  const head = el('div', 'flowhead');
+  head.append(el('span', '', 'Signal flow'), el('span', 'sp'));
+  for (const k of [0, 1]) {
+    const m = dspShare(k), item = el('span', 'dspm');
+    item.append('DSP ' + (k + 1) + ' ', el('b', 'num', m ? m.share + '%' : '—'));
+    if (m) { const meter = el('span', 'meter ' + m.level); meter.append(el('i')); meter.firstChild.style.width = Math.min(100, m.share) + '%'; item.append(meter); }
+    head.append(item);
+  }
+  return head;
 }
 function drawPath(p, g, now) {
   const two = !!p.b, out = [], wires = [`<path d="M32 ${YA}H${g.width - 32}"/>`];
   const tileOf = (block, place, y) => {
     const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (same(block, now) ? ' on' : '') + (block.id === 'pending' ? ' coming' : ''));
-    button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - 52}px;width:${g.tile}px`;
+    button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - TILE_TOP}px;width:${g.tile}px;height:${TILE_H}px`;
+    if (layout === 'stage') button.classList.add(...gearClass(block));
     button.dataset.dsp = p.dsp; button.dataset.lane = y === YA ? 0 : 1; button.dataset.place = place;   // (laneBranch)
     button.dataset.id = block.id; if (isNam(block)) button.classList.add('nam-drop'); if (isIr(block)) button.classList.add('ir-drop');   // (from a drawer)
     const led = el('span', 'led' + (block.enabled ? '' : ' off'));
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
-    button.append(led, image(pictures(block), 'pic', true), strip);
+    // (the stage: the large render, as Focus Mode shows the gear, loaded once it is needed; elsewhere the small one)
+    button.append(led, layout === 'stage' ? image(lookPictures(block), 'pic', false, true) : image(pictures(block), 'pic', true), strip);
     button.title = title(block) + (capture(block) ? ' (' + model(block).name + ')' : '') + (block.enabled ? '' : ', bypassed');
     button.onclick = () => { if (!dragDone) pickBlock(block); };
     button.onpointerdown = event => liftBlock(event, block, button);
@@ -1034,7 +1181,7 @@ function drawPath(p, g, now) {
   tag.append(el('b', '', 'Path ' + (p.dsp + 1)), el('small', 'num', 'DSP ' + (p.dsp + 1) + (share === null ? '' : ' · ' + share + '%')));
   if (share !== null) { const meter = el('span', 'meter ' + (view.level || '')); meter.append(el('i')); meter.firstChild.style.width = Math.min(100, share) + '%'; tag.append(meter); }
   tag.title = two ? 'Lanes ' + (p.dsp + 1) + 'A and ' + (p.dsp + 1) + 'B' : '';
-  grid.style.height = (two ? 218 : 104) + 'px';
+  grid.style.height = (two ? YB : YA) + TILE_H - TILE_TOP + 'px';
   grid.dataset.two = two ? '1' : '';
   grid.dataset.step = g.step;                                  // (for the dotted branch a drag shows: laneBranch)
   grid.innerHTML = `<svg>${wires.join('')}</svg>`;
@@ -1147,7 +1294,7 @@ function laneBranch(spot) {
   if (circle && circle.parentNode === spot.parentNode && circle.dataset.place === spot.dataset.place) return;
   if (shown) shown.remove(); if (circle) circle.remove();
   const tile = spot.classList.contains('tile'), grid = spot.parentNode;
-  const x = parseFloat(spot.style.left) + (tile ? spot.offsetWidth / 2 : 0), y = parseFloat(spot.style.top) + (tile ? 52 : 0), d = tile ? 52 : BRANCH_DROP;
+  const x = parseFloat(spot.style.left) + (tile ? spot.offsetWidth / 2 : 0), y = parseFloat(spot.style.top) + (tile ? TILE_TOP : 0), d = tile ? TILE_H - TILE_TOP : BRANCH_DROP;
   const half = (Number(grid.dataset.step) || 167) / 2, bend = Math.min(30, half / 2.5);
   const holder = el('div');                                    // (parsed as the chain's own wires are)
   holder.innerHTML = `<svg class="lane-branch"><path d="M ${x - half} ${y} C ${x - half + bend} ${y}, ${x - half + bend} ${y + d}, ` +
@@ -1226,6 +1373,15 @@ function fill(item, p) {
     const value = valueOf(p.id), up = value === true || (typeof value === 'number' && value === p.max);
     item.querySelector('.lever').classList.toggle('up', up);
     item.querySelector('.lever').setAttribute('aria-checked', up);
+    return;
+  }
+  const track = item.querySelector('.track');
+  if (track) {
+    // (Classic+'s slider: the same position as the dial's, along its track)
+    const at = (100 * position(p)).toFixed(2) + '%';
+    track.querySelector('i').style.width = at; track.querySelector('u').style.left = at;
+    track.setAttribute('aria-valuetext', text(p));
+    const sync = item.querySelector('.sync'); if (sync) sync.classList.toggle('on', synced(p));
     return;
   }
   const t = position(p), angle = ARC_FROM + 270 * t;
@@ -1353,6 +1509,7 @@ function placeTarget() {
 }
 function drawPanel() {
   const panel = $('insp'), block = current();
+  if (layout === 'classicplus') { drawEdit(block); return; }        // (Batch 4: the Edit area with its lists in place)
   if (picking && picking.empty) { drawPicker(placeTarget()); return; }
   if (!block) {
     picking = false;
@@ -1591,14 +1748,20 @@ function openPlacePicker(dsp, lane, place) {
   shownPanel = ''; shownChain = '';
   drawChain(true); drawPanel();
 }
-function openPicker(tab) {
-  const block = current(); if (!block || !isChain(block)) return;
-  picking = {block: true}; pickQuery = '';
-  // A NAM block's picker opens on its capture's own NAM category (the Captures column), as the classic picker does.
+function pickHome(block, tab) {
+  // The lists open on the block's own category. A NAM block's on its capture's own NAM category (the Captures
+  // column), as the classic picker does.
+  pickQuery = '';
   const taken = isNam(block) ? capture(block) : null;
   pickedKind = taken && 'gear' in taken ? namKind(taken) : '';
   pickedCategory = pickedKind ? '' : tab === 'captures' || isNam(block) ? (captureHome(block) || '') : categoryOf(block);
   pickedTab = pickedKind ? 'all' : tab === 'captures' || isNam(block) ? 'captures' : '';
+}
+function openPicker(tab) {
+  const block = current(); if (!block || !isChain(block)) return;
+  // (Classic+: the lists are in place under the chain, no dialog: they go to the block's own category)
+  if (layout !== 'classicplus') picking = {block: true};
+  pickHome(block, tab);
   shownPanel = '';
   drawPanel();
 }
@@ -1620,49 +1783,14 @@ function room(block) {
   if (!view || typeof view.used !== 'number') return null;
   return {left: view.budget - view.used + (costOf(block.model) || 0), budget: view.budget};
 }
-function drawPicker(block) {
-  const panel = $('insp'), lists = catalog.lists || [], captures = state.captures || [];
-  const space = room(block), namCost = costOf(catalog.nam[0]);
-  const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickedKind, pickQuery, space, captures.map(c => [c.slot, c.name, c.icon, c.gear])]);
-  panel.style.setProperty('--c', tint(block).join(' '));
-  if (key === shownPanel) return;
-  const typing = document.activeElement && document.activeElement.id === 'pickSearch';
-  const scrolled = panel.querySelector('.cards') && shownPanel.startsWith(JSON.stringify(['pick', block.dsp, block.id]).slice(0, -1)) ? panel.querySelector('.cards').scrollTop : 0;
-  shownPanel = key;
-  panel.className = 'insp pick';
-  // Two columns: HX Edit's own categories, as its picker lists them, and the captures on the Floor by NAM category
-  // (the classic picker's NAM Amp, NAM Amp + cab, NAM Cab, NAM Pedal, NAM Other), each with how many it holds.
-  const cats = el('div', 'pcats'), models = el('div'), caps = el('div');
-  models.append(el('h6', '', 'Models'));
-  for (const group of lists) {
-    const row = el('button', group.name === pickedCategory && pickedTab !== 'all' ? 'on' : '');
-    row.style.setProperty('--c', group.tint.join(' '));
-    row.append(el('span', 'led'), el('span', '', group.name));
-    row.onclick = () => { pickedCategory = lastCategory = group.name; pickedTab = ''; pickedKind = ''; pickQuery = ''; drawPicker(block); };
-    models.append(row);
-  }
-  const capRow = (words, kind, count) => {
-    const row = el('button', pickedTab === 'all' && pickedKind === kind ? 'on' : ''); row.style.setProperty('--c', NAM_TINT.join(' '));
-    row.append(el('span', 'led'), el('span', '', words), el('b', 'num', String(count)));
-    row.onclick = () => { pickedCategory = ''; pickedTab = 'all'; pickedKind = kind; pickQuery = ''; drawPicker(block); };
-    return row;
-  };
+// The picker's choices for a block, shared (Batch 4): the picker dialog draws them as cards, Classic+'s Edit area as
+// its lists in place. One list of choices, one way to pick (pickModel, pickCapture): the same asks, the same DSP room
+// check (room, the "full" mark; focus_view.js checks again) and the same undo step, in every layout.
+function pickChoices(block) {
+  const lists = catalog.lists || [], captures = state.captures || [];
   if (pickedKind && !namKinds().some(kind => kind.name === pickedKind)) pickedKind = '';
-  caps.append(el('h6', '', 'Captures'), capRow('All captures', '', captures.length),
-    ...namKinds().map(kind => capRow(kind.name, kind.name, captures.filter(c => namKind(c) === kind.name).length)));
-  if (!block.isPlace) {
-    caps.append(el('hr'));
-    const gone = el('button', 'remove'); gone.style.setProperty('--c', '90 96 108');
-    gone.append(el('span', 'led'), el('span', '', 'Remove block'));
-    gone.title = 'Remove this block. Undo puts it back.';
-    gone.onclick = () => removeBlock(block);
-    caps.append(gone);
-  }
-  cats.append(models, caps);
-  // the category's kinds as tabs, captures among them
   const group = lists.find(g => g.name === pickedCategory);
   const kinds = (catalog.captureTabs || {})[pickedCategory] || [];
-  const mine = pickedTab === 'all' ? captures.filter(c => !pickedKind || namKind(c) === pickedKind) : captures.filter(c => kinds.includes(namKind(c)));
   if (!group && pickedTab !== 'all') pickedTab = kinds.length ? 'captures' : '';
   if (block.isPlace && !group && pickedTab !== 'all' && !kinds.length) pickedTab = 'all';
   const folders = group ? group.folders : [];
@@ -1670,80 +1798,314 @@ function drawPicker(block) {
     const own = folders.find(f => f.models.includes(block.model));
     pickedTab = own ? own.name : folders.length ? folders[0].name : '';
   }
-  const head = el('div', 'phead'), seg = el('div', 'seg2');
+  const mine = pickedTab === 'all' ? captures.filter(c => !pickedKind || namKind(c) === pickedKind) : captures.filter(c => kinds.includes(namKind(c)));
+  return {lists, captures, space: room(block), namCost: costOf(catalog.nam[0]), group, kinds, mine, folders};
+}
+// The two category columns: HX Edit's own categories, and the captures on the Floor by NAM category (the classic
+// picker's NAM Amp, NAM Amp + cab, NAM Cab, NAM Pedal, NAM Other), each with how many it holds; Remove block last.
+function pickCategoryRows(block, s, redraw, cls) {
+  const models = s.lists.map(group => {
+    const row = el('button', [cls, group.name === pickedCategory && pickedTab !== 'all' ? 'on' : ''].join(' ').trim());
+    row.style.setProperty('--c', group.tint.join(' '));
+    row.append(el('span', 'led'), el('span', '', group.name));
+    row.onclick = () => { pickedCategory = lastCategory = group.name; pickedTab = ''; pickedKind = ''; pickQuery = ''; redraw(); };
+    return row;
+  });
+  const capRow = (words, kind, count) => {
+    const row = el('button', [cls, pickedTab === 'all' && pickedKind === kind ? 'on' : ''].join(' ').trim()); row.style.setProperty('--c', NAM_TINT.join(' '));
+    row.append(el('span', 'led'), el('span', '', words), el('b', 'num', String(count)));
+    row.onclick = () => { pickedCategory = ''; pickedTab = 'all'; pickedKind = kind; pickQuery = ''; redraw(); };
+    return row;
+  };
+  const caps = [capRow('All captures', '', s.captures.length), ...namKinds().map(kind => capRow(kind.name, kind.name, s.captures.filter(c => namKind(c) === kind.name).length))];
+  let remove = null;
+  if (!block.isPlace && isChain(block)) {
+    remove = el('button', [cls, 'remove'].join(' ').trim()); remove.style.setProperty('--c', '90 96 108');
+    remove.append(el('span', 'led'), el('span', '', 'Remove block'));
+    remove.title = 'Remove this block. Undo puts it back.';
+    remove.onclick = () => removeBlock(block);
+  }
+  return {models, caps, remove};
+}
+// The kinds of the category as tabs (its folders, its captures), the search box and the room line
+function pickHead(block, s, redraw, inputId) {
+  const seg = el('div', 'seg2');
   const tab = (name, count, words, led) => {
     const button = el('button', pickedTab === name ? 'on' : '');
     if (led) button.append(el('span', 'led'));
     button.append(el('span', '', words), el('b', 'num', String(count)));
-    button.onclick = () => { pickedTab = name; pickQuery = ''; drawPicker(block); };
+    button.onclick = () => { pickedTab = name; pickQuery = ''; redraw(); };
     seg.append(button);
   };
-  if (pickedTab === 'all') tab('all', mine.length, pickedKind || 'Captures on the Floor', true);
+  if (pickedTab === 'all') tab('all', s.mine.length, pickedKind || 'Captures on the Floor', true);
   else {
-    for (const folder of folders) tab(folder.name, folder.models.length, folder.name || pickedCategory, false);
-    if (kinds.length) tab('captures', mine.length, 'Captures', true);
+    for (const folder of s.folders) tab(folder.name, folder.models.length, folder.name || pickedCategory, false);
+    if (s.kinds.length) tab('captures', s.mine.length, 'Captures', true);
   }
   const search = el('label', 'search'); search.innerHTML = ICON.search;
-  const input = el('input'); input.id = 'pickSearch'; input.type = 'search'; input.placeholder = 'Search ' + (pickedTab === 'all' && pickedKind ? pickedKind : pickedTab === 'all' || pickedTab === 'captures' ? 'captures' : (pickedCategory || 'models').toLowerCase());
+  const input = el('input'); input.id = inputId; input.type = 'search'; input.placeholder = 'Search ' + (pickedTab === 'all' && pickedKind ? pickedKind : pickedTab === 'all' || pickedTab === 'captures' ? 'captures' : (pickedCategory || 'models').toLowerCase());
   input.value = pickQuery; input.spellcheck = false; input.autocomplete = 'off';
-  input.oninput = () => { pickQuery = input.value; drawPicker(block); };
+  input.oninput = () => { pickQuery = input.value; redraw(); };
   search.append(input);
   const roomLine = el('span', 'room', 'Room on DSP ' + (block.dsp + 1) + (block.isPlace ? '' : ' for this block'));
-  if (space) roomLine.append(el('b', 'num', Math.max(0, Math.round(100 * space.left / space.budget)) + '%')); else roomLine.append(el('b', '', '—'));
-  roomLine.title = space ? 'What this block may cost: the DSP’s free room plus what this block costs now (the Floor’s own figures).' : 'The Floor has not reported its DSP load yet.';
-  head.append(seg, search, roomLine);
-  // the cards
-  const cards = el('div', 'cards'), query = pickQuery.trim().toLowerCase();
-  const costText = cost => space && Number.isFinite(cost) ? Math.round(100 * cost / space.budget) + '%' : '';
-  const modelCard = symbol => {
-    const m = catalog.models[symbol], cost = costOf(symbol), inUse = symbol === block.model;
-    const full = !inUse && space && Number.isFinite(cost) && cost > space.left + 1e-6;
-    const item = el('button', 'mc' + (inUse ? ' on' : '') + (full ? ' full' : ''));
-    item.style.setProperty('--c', m.tint.join(' '));
-    item.append(image(m.pictures, 'pic', true, true), el('i', 'num', inUse ? 'in use' : costText(cost)), el('span', '', m.name));
-    item.title = m.name + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
-    item.onclick = () => {
-      if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol}); }
-      else if (!inUse) ask('model', {dsp: block.dsp, id: block.id, symbol});
-    };
-    return item;
-  };
-  const captureCard = c => {
-    const inUse = isNam(block) && block.slot === c.slot, cost = isNam(block) ? 0 : namCost;
-    const full = !inUse && space && Number.isFinite(cost) && cost > space.left + 1e-6;
-    const item = el('button', 'mc' + (inUse ? ' on' : '') + (full ? ' full' : ''));
-    item.style.setProperty('--c', NAM_TINT.join(' '));
-    item.append(image(captureUrls(c), 'pic', true, true), el('i', 'num', inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : costText(cost)), el('span', '', c.name));
-    item.title = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
-    item.onclick = () => {
-      if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot}); }
-      else if (!inUse) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
-    };
-    return item;
-  };
-  let shownCards = [];
+  if (s.space) roomLine.append(el('b', 'num', Math.max(0, Math.round(100 * s.space.left / s.space.budget)) + '%')); else roomLine.append(el('b', '', '—'));
+  roomLine.title = s.space ? 'What this block may cost: the DSP’s free room plus what this block costs now (the Floor’s own figures).' : 'The Floor has not reported its DSP load yet.';
+  return {seg, search, input, roomLine};
+}
+// Picking: a model or a capture for the block, or added at the "+" picked (one undo step, as HX Edit's own picker)
+function pickModel(block, symbol) {
+  if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol}); }
+  else if (symbol !== block.model) ask('model', {dsp: block.dsp, id: block.id, symbol});
+}
+function pickCapture(block, c) {
+  if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot}); }
+  else if (!(isNam(block) && block.slot === c.slot)) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
+}
+// The choices shown for the category, kind and search picked: [{h: heading} | {p: words} | {symbol} | {capture}]
+function pickItems(block, s) {
+  const query = pickQuery.trim().toLowerCase();
   if (pickedTab === 'captures' || pickedTab === 'all') {
-    const list = mine.filter(c => !query || c.name.toLowerCase().includes(query));
+    const list = s.mine.filter(c => !query || c.name.toLowerCase().includes(query));
+    if (!list.length) return [{p: s.mine.length ? 'No capture here matches.' : 'No ' + (pickedTab === 'all' && pickedKind ? pickedKind + ' ' : '') + 'capture on the Floor yet. Put one there from the NAM library.'}];
     if (pickedTab === 'all' && !pickedKind && !query) {
-      for (const kind of namKinds()) {
-        const these = list.filter(c => namKind(c) === kind.name);
-        if (these.length) shownCards.push(el('h6', '', kind.name), ...these.map(captureCard));
-      }
-    } else shownCards = list.map(captureCard);
-    if (!list.length) shownCards = [el('p', '', mine.length ? 'No capture here matches.' : 'No ' + (pickedTab === 'all' && pickedKind ? pickedKind + ' ' : '') + 'capture on the Floor yet. Put one there from the NAM library.')];
-  } else {
-    const folder = folders.find(f => f.name === pickedTab);
-    const symbols = query ? lists.flatMap(g => g.folders.flatMap(f => f.models)).filter((s, i, a) => a.indexOf(s) === i && catalog.models[s].name.toLowerCase().includes(query))
-                          : folder ? folder.models : [];
-    shownCards = symbols.slice(0, 240).map(modelCard);
-    if (!symbols.length) shownCards = [el('p', '', 'Nothing matches that search.')];
+      return namKinds().flatMap(kind => { const these = list.filter(c => namKind(c) === kind.name); return these.length ? [{h: kind.name}, ...these.map(capture => ({capture}))] : []; });
+    }
+    return list.map(capture => ({capture}));
   }
-  cards.append(...shownCards);
-  const grid = el('div', 'pgrid'); grid.append(head, cards);
+  const folder = s.folders.find(f => f.name === pickedTab);
+  const symbols = query ? s.lists.flatMap(g => g.folders.flatMap(f => f.models)).filter((x, i, a) => a.indexOf(x) === i && catalog.models[x].name.toLowerCase().includes(query))
+                        : folder ? folder.models : [];
+  if (!symbols.length) return [{p: 'Nothing matches that search.'}];
+  return symbols.slice(0, 240).map(symbol => ({symbol}));
+}
+// One choice as a card (the picker) or a row (Classic+): its picture, name, mark (in use, its slot, its DSP) and click
+function pickChoice(block, s, item, shape) {
+  const costText = cost => s.space && Number.isFinite(cost) ? Math.round(100 * cost / s.space.budget) + '%' : '';
+  let pics, tintOf, name, mark, inUse, full, words;
+  if (item.symbol) {
+    const m = catalog.models[item.symbol], cost = costOf(item.symbol);
+    inUse = item.symbol === block.model; full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;
+    pics = m.pictures; tintOf = m.tint; name = m.name; mark = inUse ? 'in use' : costText(cost);
+    words = m.name + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
+  } else {
+    const c = item.capture, cost = isNam(block) ? 0 : s.namCost;
+    inUse = isNam(block) && block.slot === c.slot; full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;
+    pics = captureUrls(c); tintOf = NAM_TINT; name = c.name; mark = inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : costText(cost);
+    words = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
+  }
+  const choice = el('button', (shape === 'row' ? 'mrow' : 'mc') + (inUse ? ' on' : '') + (full ? ' full' : ''));
+  choice.style.setProperty('--c', tintOf.join(' '));
+  if (shape === 'row') choice.append(image(pics, '', true, true), el('span', '', name), el('i', 'num', mark));
+  else choice.append(image(pics, 'pic', true, true), el('i', 'num', mark), el('span', '', name));
+  choice.title = words;
+  choice.onclick = () => item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);
+  return choice;
+}
+function drawPicker(block) {
+  const panel = $('insp'), s = pickChoices(block);
+  const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear])]);
+  panel.style.setProperty('--c', tint(block).join(' '));
+  if (key === shownPanel) return;
+  const typing = document.activeElement && document.activeElement.id === 'pickSearch';
+  const scrolled = panel.querySelector('.cards') && shownPanel.startsWith(JSON.stringify(['pick', block.dsp, block.id]).slice(0, -1)) ? panel.querySelector('.cards').scrollTop : 0;
+  shownPanel = key;
+  panel.className = 'insp pick';
+  const redraw = () => drawPicker(block);
+  const rows = pickCategoryRows(block, s, redraw, '');
+  const cats = el('div', 'pcats'), models = el('div'), caps = el('div');
+  models.append(el('h6', '', 'Models'), ...rows.models);
+  caps.append(el('h6', '', 'Captures'), ...rows.caps);
+  if (rows.remove) caps.append(el('hr'), rows.remove);
+  cats.append(models, caps);
+  const top = pickHead(block, s, redraw, 'pickSearch'), head = el('div', 'phead');
+  head.append(top.seg, top.search, top.roomLine);
+  const cards = el('div', 'cards');
   reusable = gather(panel);
-  try { panel.replaceChildren(card(block, true), cats, grid); } finally { reusable = null; }
+  try {
+    cards.append(...pickItems(block, s).map(item => item.h ? el('h6', '', item.h) : item.p ? el('p', '', item.p) : pickChoice(block, s, item, 'card')));
+    const grid = el('div', 'pgrid'); grid.append(head, cards);
+    panel.replaceChildren(card(block, true), cats, grid);
+  } finally { reusable = null; }
   cards.scrollTop = scrolled;
-  if (typing) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  if (typing) { top.input.focus(); top.input.setSelectionRange(top.input.value.length, top.input.value.length); }
+}
+
+// ---- Classic+'s Edit area (Batch 4): HX Edit's own arrangement under the chain ------------------------------------
+// The tabs Edit | Bypass and controllers | Snapshot values; in Edit three columns: Models | Captures with the category
+// list, the model (or capture) list of that category, and the selected block's controls as sliders. The lists are the
+// picker's own (pickChoices ... pickChoice): a click changes the selected block's model or capture, or adds at the "+"
+// picked, as the picker does. An input, an output, the split and the mixer keep their model: their card (its routing
+// buttons, the split's type) in place of the lists.
+let editFor = '';
+function editHome(target) {
+  // The lists follow the block picked: they open on its own category (a NAM block: its capture's), as the picker does
+  const at = target.isPlace ? 'place' : target.dsp + ':' + target.id;
+  if (at === editFor) return;
+  editFor = at;
+  if (!target.isPlace) pickHome(target);
+}
+function drawEdit(block) {
+  const panel = $('insp'), target = picking && picking.empty ? placeTarget() : block;
+  if (!target) {
+    editFor = '';
+    const key = 'edit-empty:' + (state.blocks.length ? 1 : 0);
+    if (shownPanel === key) return;
+    shownPanel = key; panel.className = 'insp edit'; panel.style.removeProperty('--c');
+    const box = el('div', 'empty');
+    box.innerHTML = state.blocks.length ? '<span><b>Pick a block</b>Click a block in the signal flow above, or select one on the Floor.</span>'
+                                        : '<span><b>Classic+</b>Waiting for a preset from HX Edit.</span>';
+    panel.replaceChildren(editTabs(false), box);
+    return;
+  }
+  editHome(target);
+  const chain = target.isPlace || isChain(target), list = target.isPlace ? [] : controlsOf(target);
+  const s = chain ? pickChoices(target) : null, tab = target.isPlace ? 'controls' : panelTab;
+  const assignKey = state.assign ? list.map(p => (state.assign.controls[p.id] || {}).controller ?? 0) : null;
+  const key = JSON.stringify(['edit', target.dsp, target.id, target.lane ?? '', target.place ?? '', target.model, target.enabled, target.slot ?? 0, title(target),
+                              tab, tab === 'controls' ? assignKey : [state.assign, state.snapshots, state.snapshot, state.values],
+                              chain ? [pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear])] : null,
+                              irOn(target) && irOn(target).name, dsp && dsp[target.dsp], costs[target.model] ?? null, (state.irs || []).length]);
+  panel.style.setProperty('--c', tint(target).join(' '));
+  panel.classList.toggle('off', !target.isPlace && !target.enabled);
+  if (key !== shownPanel) {
+    const here = '["edit",' + target.dsp + ',"' + target.id + '"';
+    if (!shownPanel.startsWith(here)) held.clear();
+    const typing = document.activeElement && document.activeElement.id === 'editSearch';
+    const scrolled = shownPanel.startsWith(here) && panel.querySelector('.elist .erows') ? panel.querySelector('.elist .erows').scrollTop : null;
+    shownPanel = key;
+    panel.className = 'insp edit' + (!target.isPlace && !target.enabled ? ' off' : '');
+    reusable = gather(panel);
+    let input = null;
+    try {
+      let body;
+      if (tab !== 'controls') {
+        body = tab === 'bypass' ? bypassView(target, list) : snapshotView(target, list);
+      } else {
+        body = el('div', 'ecols' + (chain ? '' : ' node'));
+        if (chain) {
+          const redraw = () => { shownPanel = ''; drawPanel(); };
+          const cats = el('div', 'ebox cats'), tabs = el('div', 'kindtabs'), rows = el('div', 'erows'), found = pickCategoryRows(target, s, redraw, 'erow');
+          const side = pickedTab === 'all' ? 'captures' : 'models';
+          for (const [name, words] of [['models', 'Models'], ['captures', 'Captures']]) {
+            const b = el('button', side === name ? 'on' : '', words);
+            b.onclick = () => {
+              if (name === side) return;
+              if (name === 'captures') { pickedCategory = ''; pickedTab = 'all'; pickedKind = ''; }
+              else { pickedCategory = lastCategory || categoryOf(target) || ((catalog.lists || [])[0] || {}).name || ''; pickedTab = ''; pickedKind = ''; }
+              pickQuery = ''; redraw();
+            };
+            tabs.append(b);
+          }
+          rows.append(...(side === 'captures' ? found.caps : found.models));
+          if (found.remove) rows.append(el('hr'), found.remove);
+          cats.append(tabs, rows);
+          const listBox = el('div', 'ebox elist'), head = el('div', 'ehead'), top = pickHead(target, s, redraw, 'editSearch'), items = el('div', 'erows');
+          head.append(top.search);
+          if (top.seg.childElementCount > 1) head.append(top.seg);
+          head.append(top.roomLine);
+          items.append(...pickItems(target, s).map(item => item.h ? el('h6', '', item.h) : item.p ? el('p', '', item.p) : pickChoice(target, s, item, 'row')));
+          listBox.append(head, items);
+          input = top.input;
+          body.append(cats, listBox, editParams(target, list));
+        } else body.append(card(target, false), editParams(target, list));
+      }
+      panel.replaceChildren(editTabs(!target.isPlace), body);
+    } finally { reusable = null; }
+    const items = panel.querySelector('.elist .erows');
+    if (items) { if (scrolled !== null) items.scrollTop = scrolled; else centerIn(items, items.querySelector('.mrow.on')); }
+    if (typing && input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }
+  const rows = panel.querySelector('.sliders');
+  if (rows) list.forEach((p, i) => { const item = rows.children[i]; if (item) fill(item, p); });
+}
+function editTabs(enabled) {
+  const tabs = el('div', 'tabs');
+  for (const [name, label] of [['controls', 'Edit'], ['bypass', 'Bypass and controllers'], ['snaps', 'Snapshot values']]) {
+    const tab = el('button', (enabled ? panelTab === name : name === 'controls') ? 'on' : '', label);
+    tab.disabled = !enabled && name !== 'controls';
+    tab.onclick = () => { panelTab = name; shownPanel = ''; drawPanel(); };
+    tabs.append(tab);
+  }
+  return tabs;
+}
+// The block's controls as sliders, under its name with its on / off and remove (the picker's "+" target: what is added
+// where, and Cancel)
+function editParams(block, list) {
+  const box = el('div', 'ebox params'), head = el('h3'), name = el('em'), acts = el('span', 'acts2');
+  if (block.isPlace) {
+    name.append(el('span', '', 'New block'), el('small', '', 'Path ' + (block.dsp + 1) + ' · lane ' + (block.lane ? 'B' : 'A') + ' · place ' + (block.place + 1)));
+    const cancel = el('button', 'btn', 'Cancel'); cancel.onclick = closePicker; acts.append(cancel);
+    head.append(name, acts);
+    const hint = el('div', 'sliders'); hint.append(el('p', 'note2', 'Click a model or a capture in the lists to add it here. Undo takes it away again.'));
+    box.append(head, el('div'), hint);
+    return box;
+  }
+  const m = model(block), taken = capture(block);
+  if (isChain(block)) name.append(image(pictures(block), '', true));
+  name.append(el('span', '', title(block)), el('small', '', [taken ? m.name : kindOf(block), m.bypass ? (block.enabled ? 'on' : 'bypassed') : ''].filter(Boolean).join(' · ')));
+  if (isChain(block) && m.bypass) {
+    const power = el('button', 'btn power'); power.innerHTML = ICON.power;
+    power.setAttribute('aria-pressed', block.enabled); power.title = block.enabled ? 'On: click to bypass' : 'Bypassed: click to turn on';
+    power.onclick = () => ask('set', {dsp: block.dsp, id: block.id, key: '@enabled', value: !block.enabled, phase: 'single'});
+    acts.append(power);
+  }
+  if (isChain(block)) {
+    const remove = el('button', 'btn danger'); remove.innerHTML = ICON.trash;
+    remove.title = 'Remove this block (Delete). Undo puts it back.'; remove.setAttribute('aria-label', 'Remove this block');
+    remove.onclick = () => removeBlock(block);
+    acts.append(remove);
+  }
+  head.append(name, acts);
+  // a NAM block's capture, as the Workbench's capture panel says it
+  let line = el('div');
+  if (taken) {
+    line = el('div', 'capline');
+    const cost = Number(costs[block.model]), view = dsp && dsp[block.dsp], budget = view && view.budget ? view.budget : 75;
+    line.append('Capture', el('b', '', taken.name), ('gear' in taken ? namKind(taken) : 'Not in the NAM library') + ' · IR slot ' + block.slot +
+      (Number.isFinite(cost) && cost > 0 ? ' · this block ' + Math.round(100 * cost / budget) + '% of DSP ' + (block.dsp + 1) : ''), el('span', 'sp'));
+    const open = el('button', '', 'NAM library'); open.title = 'Its light version, its level and A/B compare: the NAM library';
+    open.onclick = () => setView('open', 'library');
+    line.append(open);
+  }
+  const rows = el('div', 'sliders');
+  rows.append(...list.map(p => {
+    const item = sliderRow(p);
+    if (isList(p)) { const pick = item.querySelector('select'); pick.onchange = () => { setValue(block, p.id, Number(pick.value), 'single'); pick.blur(); fill(item, p); }; }
+    else wireControl(item, p, block, () => fill(item, p));
+    return item;
+  }));
+  if (!list.length) rows.append(el('p', 'note2', 'This block has no controls.'));
+  box.append(head, line, rows);
+  return box;
+}
+// One control as a slider row: its name (marked when snapshots change it), the slider, its value; a list setting as a
+// drop-down, a switch as a switch, a time that can follow the tempo with its Sync (the slider then sets the note)
+function sliderRow(p) {
+  const label = el('label', '', p.name), c = state.assign && state.assign.controls[p.id];
+  if (c && c.controller === 19) { const mark = el('i', 'snapmark', 'S'); mark.title = 'Snapshots change this (Snapshot values)'; label.append(mark); }
+  let item;
+  if (isList(p)) {
+    item = el('div', 'srow listc');
+    const pick = el('select', 'pick'); pick.setAttribute('aria-label', p.name);
+    choices(p).forEach(([value, name]) => pick.append(new Option(name, String(value))));
+    const tail = el('div'); tail.style.gridColumn = '2 / -1'; tail.append(pick);
+    item.append(label, tail);
+  } else if (p.kind === 'switch') {
+    item = el('div', 'srow');
+    const holder = el('div'), lever = el('button', 'lever'); lever.setAttribute('role', 'switch'); lever.setAttribute('aria-label', p.name);
+    holder.append(lever);
+    item.append(label, holder, el('output', 'val'));
+  } else {
+    item = el('div', 'srow' + (p.sync ? ' syncs' : ''));
+    const track = el('div', 'track'); track.tabIndex = 0; track.setAttribute('role', 'slider'); track.setAttribute('aria-label', p.name);
+    track.append(el('i'), el('u'));
+    const tail = el('div', 'tail');
+    if (p.sync) { const sync = el('button', 'sync', 'Sync'); sync.title = 'Follow the tempo: the slider then sets the note'; tail.append(sync); }
+    tail.append(el('output', 'val num'));
+    item.append(label, track, tail);
+  }
+  item.dataset.id = p.id;
+  return item;
 }
 
 // ---- the top bar ---------------------------------------------------------------------------------------------------
@@ -2348,6 +2710,20 @@ function drawRail() {
     b.onclick = () => setView('rail', name);
     return b;
   };
+  $('toolbox').hidden = layout !== 'classicplus';
+  if (layout === 'classicplus') {
+    // Classic+: the lists as the sidebar's tabs, the tools in a box at its foot (the same buttons, the same views)
+    $('rail').setAttribute('aria-label', 'Lists');
+    $('rail').replaceChildren(button('presets', 'Presets', 'presets', '', 'The setlist’s presets'),
+      button('captures', 'Captures', 'capture', '', DRAWERS.captures.hint), button('irs', 'IRs', 'ir', '', DRAWERS.irs.hint));
+    const tools = [button('tone', 'TONE3000', 'cloud', 'plain', 'Find captures on TONE3000'),
+      button('look', 'Floor look', 'floor', '', 'Floor look: in place of the Edit area'),
+      ...(options.level ? [button('level', 'Levels', 'level', '', 'Levels: in place of the Edit area')] : []),
+      button('library', 'Library', 'library', '', 'The NAM library: every capture you have')];
+    $('toolbox').replaceChildren(el('h3', '', 'Tools'), ...tools);
+    return;
+  }
+  $('rail').setAttribute('aria-label', 'Library');
   $('rail').replaceChildren(
     button('presets', 'Presets', 'presets', '', 'The setlist’s presets, beside the chain'),
     button('captures', 'Captures', 'capture', '', DRAWERS.captures.hint), button('irs', 'IRs', 'ir', '', DRAWERS.irs.hint), el('div', 'sep'),
@@ -2357,8 +2733,8 @@ function drawRail() {
     button('library', 'Library', 'library', 'un', 'The NAM library: every capture you have (the whole work area)'));
 }
 function drawDrawer() {
-  const box = $('drawer'), kind = DRAWERS[view.drawer], drawer = view.drawer;
-  box.hidden = !drawer || !!view.full;
+  const box = $('drawer'), drawer = workbenchPlaces(layout, view).drawer, kind = DRAWERS[drawer];
+  box.hidden = !drawer;
   if (drawer === 'presets') { if (catalog && state) drawPresetDrawer(box); return; }
   if (!kind || !catalog || !state) return;
   box.setAttribute('aria-label', kind.title + ' on the Floor');

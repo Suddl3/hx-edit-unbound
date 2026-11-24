@@ -91,7 +91,11 @@ function wireControl(el, p, block, redraw) {
   // A control of the page changes the block as HX Edit's sliders do: the '.lever' (a switch) flips with a click, the
   // '.dial' turns with a vertical drag, the wheel or the arrow keys, and goes back to its default with a double-click;
   // a '.sync' button makes a time follow the tempo. redraw(): the page shows what was set.
-  const lever = el.querySelector('.lever'), dial = el.querySelector('.dial'), sync = el.querySelector('.sync');
+  // A '.track' (the Workbench's Classic+ sliders) is the same control laid flat: the point pressed or dragged to along
+  // it is the position, with the same begin / move / end steps, wheel, keys and double-click.
+  const lever = el.querySelector('.lever'), dial = el.querySelector('.dial, .track'), sync = el.querySelector('.sync');
+  const across = !!dial && dial.classList.contains('track');
+  const along = e => { const r = dial.getBoundingClientRect(); return (e.clientX - r.left) / Math.max(1, r.width); };
   if (sync) sync.onclick = () => { setValue(block, p.sync.switch, !synced(p), 'single'); redraw(); };
   if (lever) {
     lever.onclick = () => {
@@ -108,10 +112,11 @@ function wireControl(el, p, block, redraw) {
     if (e.button !== 0) return;
     try { dial.setPointerCapture(e.pointerId); } catch (_) { /* a pointer that is already gone */ }
     from = {y: e.clientY, x: position(p), moved: false}; last = valueAt(p, from.x); el.classList.add('live');
+    if (across) dial.onpointermove(e);                    // (a press on the track goes there: a change of its own)
   };
   dial.onpointermove = e => {
     if (!from) return;
-    const value = valueAt(p, from.x + (from.y - e.clientY) / (e.shiftKey ? 900 : 190));
+    const value = valueAt(p, across ? along(e) : from.x + (from.y - e.clientY) / (e.shiftKey ? 900 : 190));
     if (value === last) return;
     if (!from.moved) { from.moved = true; setValue(block, turning(p).key, last, 'begin'); }
     last = value; held.set(turning(p).key, {value, until: 0}); redraw();
@@ -133,7 +138,8 @@ function wireControl(el, p, block, redraw) {
     push(value, 'move');
     nudging = setTimeout(() => { nudging = null; push(last, 'end'); }, 350);
   };
-  dial.onwheel = e => { e.preventDefault(); if (!from) nudge(e.deltaY < 0 ? 1 : -1, e.shiftKey); };
+  // (not a slider's track: in a list of them the wheel scrolls the list, a change by a passing wheel would be unasked)
+  if (!across) dial.onwheel = e => { e.preventDefault(); if (!from) nudge(e.deltaY < 0 ? 1 : -1, e.shiftKey); };
   dial.onkeydown = e => {
     if (['ArrowUp', 'ArrowRight'].includes(e.key)) nudge(1, e.shiftKey);
     else if (['ArrowDown', 'ArrowLeft'].includes(e.key)) nudge(-1, e.shiftKey);

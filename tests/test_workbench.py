@@ -220,7 +220,7 @@ class ChainTests(unittest.TestCase):
         self.assertIn("laneBranch(near ? (oneLane(near) ? near : null) : over && oneLane(over) && fitsOn(block, Number(over.dataset.dsp)) ? over : null);", lift)
         self.assertIn("button.dataset.dsp = p.dsp; button.dataset.lane = y === YA ? 0 : 1; button.dataset.place = place;", page)
         branch = page[page.index('function laneBranch('):page.index('function splitFormat(')]
-        self.assertIn("y = parseFloat(spot.style.top) + (tile ? 52 : 0), d = tile ? 52 : BRANCH_DROP", branch)   # on its bottom edge
+        self.assertIn("y = parseFloat(spot.style.top) + (tile ? TILE_TOP : 0), d = tile ? TILE_H - TILE_TOP : BRANCH_DROP", branch)   # on its bottom edge
         self.assertIn("svg.classList.add('behind')", branch)                     # the branch passes behind the block
         self.assertIn("el('div', 'slot spot lane-drop', '+')", branch)          # its circle is a place like the others
         self.assertIn("drop.dataset.lane = '1'", branch)                         # dropped on: lane B at that place
@@ -231,7 +231,7 @@ class ChainTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn('reusable = gather(board);', page)
         self.assertIn('reusable = gather(panel);', page)
-        self.assertIn("const paths = workbenchPaths(shownBlocks(), catalog, state.topology);", page)
+        self.assertIn("paths = workbenchPaths(shownBlocks(), catalog, state.topology)", page)
         for action in ('move', 'remove', 'add'):
             self.assertIn(f"chainAsk('{action}', ", page)
 
@@ -1296,7 +1296,7 @@ class DspCostTests(unittest.TestCase):
         self.assertIn("'payload': {'action': 'costs', 'costs': dict(workbench.costs.costs)}", launcher)
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertNotIn('catalog.loads ||', page.replace('(catalog && catalog.loads || {})', ''))   # only through costOf
-        self.assertIn('namCost = costOf(catalog.nam[0])', page)
+        self.assertIn('namCost: costOf(catalog.nam[0])', page)
 
     def test_the_pane_sends_what_it_measured(self):
         import tempfile
@@ -1532,14 +1532,14 @@ class WiringTests(unittest.TestCase):
 
     def test_the_picker_lists_the_nam_categories_beside_hx_edits_own(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
-        picker = page[page.index('function drawPicker(block) {'):page.index('// ---- the top bar')]
-        self.assertIn("models.append(el('h6', '', 'Models'));", picker)
-        self.assertIn("caps.append(el('h6', '', 'Captures'), capRow('All captures', '', captures.length),", picker)
-        self.assertIn("...namKinds().map(kind => capRow(kind.name, kind.name, captures.filter(c => namKind(c) === kind.name).length)));", picker)
+        # (Batch 4: the choices are shared with Classic+'s lists, pickChoices ... pickChoice)
+        picker = page[page.index('function pickChoices(block) {'):page.index("// ---- Classic+'s Edit area")]
+        self.assertIn("models.append(el('h6', '', 'Models'), ...rows.models);", picker)
+        self.assertIn("const caps = [capRow('All captures', '', s.captures.length), ...namKinds().map(kind => capRow(kind.name, kind.name, s.captures.filter(c => namKind(c) === kind.name).length))];", picker)
         self.assertIn("captures.filter(c => !pickedKind || namKind(c) === pickedKind)", picker)
         self.assertIn('cats.append(models, caps);', picker)
         # a NAM block's picker opens on its capture's own NAM category
-        opener = page[page.index('function openPicker(tab) {'):page.index('function closePicker() {')]
+        opener = page[page.index('function pickHome(block, tab) {'):page.index('function closePicker() {')]
         self.assertIn("pickedKind = taken && 'gear' in taken ? namKind(taken) : '';", opener)
         self.assertIn("pickedTab = pickedKind ? 'all' :", opener)
 
