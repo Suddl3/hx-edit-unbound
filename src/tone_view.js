@@ -28,7 +28,7 @@ function floorPreviewPlan(state) {
   // (allowed128: "Replace it and preview"). Anything else is asked about once and never replaced
   // unasked (Batch 3, 2026-11-24): the reply carries it as the slot to replace.
   if (!state.empty128 && !state.ours128 && !state.allowed128) {
-    const error = new Error('Slot 128 is in use. Replace it to preview?' + (state.name128 ? ` It holds ${state.name128}, which HX Edit Unbound did not put there.` : ''));
+    const error = new Error('Slot 128 is in use. Replace it to preview?' + (state.name128 ? ` It holds ${state.name128}. HX Edit Unbound has no record of putting it there.` : ''));
     error.replace = [[128, String(state.name128 || '')]];
     throw error;
   }

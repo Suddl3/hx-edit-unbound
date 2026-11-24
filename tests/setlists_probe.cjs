@@ -3,8 +3,9 @@
 // setlist names read from its chooser's items, another setlist asked for as HX Edit's chooser asks it, and a preset of
 // the setlist the list shows loaded as its double-click loads it.
 const assert = require('node:assert/strict');
-const {setlistGuards: guards, setlistNamesFrom, installSetlists: install, SETLIST_CONTROLLER_VTABLE} = require('../src/setlists.js');
-const BASE = 0x400000, memory = new Map(), strings = new Map(), hooks = new Map(), calls = [];
+const {setlistGuards: guards, setlistRead, setlistNamesFrom, installSetlists: install, SETLIST_CONTROLLER_VTABLE, SETLIST_ASKS, SETLIST_ASK_MS} = require('../src/setlists.js');
+const BASE = 0x400000, memory = new Map(), strings = new Map(), hooks = new Map(), calls = [], sent = [];
+global.send = message => sent.push(message);
 let address = 0x20000000;
 class Pointer {
   constructor(value) { this.value = Number(value); }
@@ -39,11 +40,19 @@ assert.equal(setlistNamesFrom(33, () => 'x'), null);
 assert.equal(setlistNamesFrom(2, i => ['USER 1', null][i]), null);
 assert.equal(setlistNamesFrom(1, () => 'Café'), null);
 assert.equal(setlistNamesFrom(1, () => ''), null);
+// (and how far a reading got, for the trace)
+assert.equal(setlistRead(0, () => 'x').word, 'chooser-empty');
+assert.equal(setlistRead(40, () => 'x').word, 'count-40');
+assert.equal(setlistRead(2, i => ['USER 1', null][i]).word, 'item-1-null (count 2)');
+assert.equal(setlistRead(1, () => 'Café').word, 'item-0-refused (count 1): "Café" length 4');
+assert.equal(setlistRead(8, () => 'USER').word, 'ok-8');
 
 const api = install();
-assert.deepEqual([...hooks.keys()].map(r => r.toString(16)).sort(), ['240210', '244a60']);
-// nothing found yet: nothing read, nothing asked
+assert.deepEqual([...hooks.keys()].map(r => r.toString(16)).sort(), ['2156a0', '240210', '244a60']);
+// nothing found yet: nothing read, nothing asked, and the trace says so
 assert.equal(api.ready(), false);
+assert.equal(api.explain(), 'names: no-controller; shown: no-controller');
+assert.equal(api.askNames(), false);
 assert.equal(api.names(), null);
 assert.equal(api.shown(), null);
 assert.throws(() => api.look(1), /not ready/);
@@ -62,6 +71,10 @@ hooks.get(0x240210).onEnter.call(made); hooks.get(0x240210).onLeave.call(made);
 assert.equal(api.ready(), true);
 assert.deepEqual(api.names(), NAMES);
 assert.equal(api.shown(), 2);
+assert.equal(api.explain(), 'names: ok-8 (constructor); shown: shown-2');
+assert.deepEqual(sent.at(-1), {type: 'toneTrace', reason: 'setlists', stage: 'controller', via: 'constructor'});
+assert.equal(api.askNames(), false);                       // (names there: nothing asked)
+assert.equal(calls.length, 0);
 
 // looking at the setlist the list shows already: nothing to ask
 assert.equal(api.look(2), false);
@@ -101,6 +114,33 @@ assert.equal(api.shown(), 5);
 hooks.get(0x244a60).onEnter.call({context: {ecx: alloc(8)}});      // something else: ignored
 assert.equal(api.shown(), 5);
 assert.equal(calls.length, 1);
+
+// HX Edit started with the Floor off (live check 2026-11-24 08:22): the chooser stays empty. The trace says so, and once
+// the Presets list has its rows (the caller's word) HX Edit's own "get setlist names" is asked: setlists 0..7, three
+// times at most, SETLIST_ASK_MS apart.
+array.add(8).writeU32(0);
+assert.equal(api.names(), null);
+assert.equal(api.explain(), 'names: chooser-empty (handler); shown: shown-5');
+calls.length = 0;
+assert.equal(api.askNames(1000), true);
+assert.deepEqual(calls, [['3fcbc0', model.value, 0, 7]]);
+assert.deepEqual(sent.at(-1), {type: 'toneTrace', reason: 'setlists', stage: 'ask-names', via: 'handler', last: 7, ask: 1});
+assert.equal(api.askNames(1000 + SETLIST_ASK_MS - 1), false);              // not again so soon
+for (let i = 1; i < SETLIST_ASKS; i++) assert.equal(api.askNames(1000 + i * SETLIST_ASK_MS), true);
+assert.equal(api.askNames(1000 + 9 * SETLIST_ASK_MS), false);              // not more than SETLIST_ASKS times
+assert.equal(calls.length, SETLIST_ASKS);
+array.add(8).writeU32(NAMES.length);
+// the controller found from the library container on its tab switch (its +0x58), when the other hooks missed it
+const third = alloc(0x300);
+third.writeU32(BASE + SETLIST_CONTROLLER_VTABLE); third.add(0x29c).writeU32(model.value); third.add(0x40).writeU32(chooser.value); third.add(0x54).writeS32(1);
+const container = alloc(0x80); container.add(0x58).writeU32(third.value);
+hooks.get(0x2156a0).onEnter.call({context: {ecx: container}});
+assert.equal(api.shown(), 1);
+assert.equal(api.explain(), 'names: ok-8 (container); shown: shown-1');
+third.add(0x40).writeU32(0);
+assert.equal(api.explain(), 'names: no-chooser (container); shown: no-chooser (container)');
+third.writeU32(0x99);
+assert.equal(api.explain(), 'names: controller-vtable-differs (container); shown: controller-vtable-differs (container)');
 
 // a byte guard that does not hold: nothing installed
 const original = Pointer.prototype.readByteArray;

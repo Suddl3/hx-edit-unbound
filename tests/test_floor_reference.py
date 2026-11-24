@@ -146,7 +146,7 @@ class FloorNativePolicyTests(unittest.TestCase):
         self.assertEqual(js(script), [{'kind': 'first', 'slot': 128, 'replace': False},
                                       {'kind': 'first', 'slot': 128, 'replace': True},
                                       {'kind': 'first', 'slot': 128, 'replace': True},
-                                      {'asked': 'Slot 128 is in use. Replace it to preview? It holds Room Mic 4x12 Dark, which HX Edit Unbound did not put there.',
+                                      {'asked': 'Slot 128 is in use. Replace it to preview? It holds Room Mic 4x12 Dark. HX Edit Unbound has no record of putting it there.',
                                        'replace': [[128, 'Room Mic 4x12 Dark']]}] + ['blocked'] * 5)
 
     def test_reuse_requires_same_target_and_owned_preview_and_permanent_origin(self):

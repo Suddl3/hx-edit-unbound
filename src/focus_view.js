@@ -376,6 +376,7 @@ function installFocusView(options, parts) {
     'not-ready': () => 'HX Edit\'s IR list is not ready, so nothing was cleared.',
     bad: () => 'Nothing was cleared.'};
   let namesWord = '';                                        // the last outcome of reading the preset list, for the trace
+  let setlistsWord = '';                                     // the same for the setlists (setlists.js explain)
   // A preset that comes up with nothing selected gets its first block selected, a few tries per preset load and
   // never again once something has been selected in it (a cursor moved to an empty cell on purpose stays there).
   let pickKey = null, pickTries = 0;
@@ -405,8 +406,19 @@ function installFocusView(options, parts) {
             ...(Array.isArray(names) && !presets && preset ? {row: String(names[preset.number]).slice(0, 40), name: preset.name} : {})});
     }
     // The Floor's setlists (setlists.js: the names HX Edit's own chooser holds) and the one its list shows.
+    // A chooser still empty while HX Edit's Presets list has its rows (the Floor connected after HX Edit started, say)
+    // is filled as HX Edit fills it (setlists.js askNames). How far the reading gets goes to the trace when it changes.
     let lists = null;
-    try { const found = setlists && setlists.names(); if (found) lists = {names: found, shown: setlists.shown()}; } catch (_) { lists = null; }
+    try {
+      const found = setlists && setlists.names();
+      if (found) lists = {names: found, shown: setlists.shown()};
+      else if (setlists && Array.isArray(names)) setlists.askNames();
+    } catch (_) { lists = null; }
+    if (setlists) {
+      let word;
+      try { word = setlists.explain(); } catch (error) { word = 'explain-failed: ' + String(error.message).slice(0, 60); }
+      if (word !== setlistsWord) { setlistsWord = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'setlists', result: word}); }
+    }
     return {preset, snapshots, presets, tempo: typeof tempo === 'number' && Number.isFinite(tempo) ? tempo : null, topology, setlists: lists};
   }
   // Value writes from the pane, and the drag HX Edit has been told has begun (ended by us if the pane never does).

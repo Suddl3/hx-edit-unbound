@@ -3103,7 +3103,7 @@ function ask128(name) {
   const shade = el('div', 'modal'), box = el('div', 'ask3'), what = el('p'), row = el('div', 'btnrow');
   const done = go => { shade.remove(); removeEventListener('keydown', keys, true); if (go) ask('levels', {do: 'replace', arg: 128}); };
   const keys = e => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } };
-  what.append('Previews always play from slot 128. Right now it holds ', el('b', '', name), ', which HX Edit Unbound did not put there.');
+  what.append('Previews always play from slot 128. Right now it holds ', el('b', '', name), '. HX Edit Unbound has no record of putting it there.');
   const no = el('button', 'btn', 'Don’t preview'), go = el('button', 'btn danger fill', 'Replace it and preview');
   no.onclick = () => done(false); go.onclick = () => done(true);
   row.append(no, el('span', 'sp'), go);
@@ -3138,7 +3138,7 @@ function libFloorActions(row) {
     // asked once (the question opens by itself the first time), and it is never replaced unasked
     const name = String(taken[0][1] || 'something'), again = el('button', 'btn danger', 'Replace it and preview');
     again.disabled = busy; again.onclick = () => ask128(name);
-    box.append(el('span', 'note2', 'Slot 128 holds ' + name + ', which HX Edit Unbound did not put there.'), again);
+    box.append(el('span', 'note2', 'Slot 128 holds ' + name + '. HX Edit Unbound has no record of putting it there.'), again);
     const word = name + '|' + (fs.text || '');
     if (asked128 !== word) { asked128 = word; setTimeout(() => ask128(name), 0); }
   } else if (taken.length) {
@@ -3399,8 +3399,9 @@ function preview128() {
   else if (playing) text.append(el('b', '', 'Preview slot · a preview is playing'), el('small', '', '“' + name + '” is on a block of the loaded preset right now.'));
   else if (ours) text.append(el('b', '', 'Preview slot · holds a preview that was left behind'),
     el('small', '', '“' + name + '”, from a preview on ' + libDate(ours.when) + ' that never ended. It is one of ours, so the next preview replaces it without asking.'));
-  else text.append(el('b', '', 'Preview slot · holds something that is not a preview'),
-    el('small', '', '“' + name + '” was put in slot 128 outside HX Edit Unbound. Previews play from this slot, so the next one asks before it replaces it.'));
+  // (only what is known: a preview of ours from before the names were remembered looks the same as anything else)
+  else text.append(el('b', '', 'Preview slot · holds something with no record of ours'),
+    el('small', '', 'HX Edit Unbound has no record of putting “' + name + '” in slot 128. Previews play from this slot, so the next one asks before it replaces it.'));
   strip.append(text);
   if (name && !playing) {
     // (a preview of ours goes without a question, unless a block still plays it: HX Edit closed during that preview,

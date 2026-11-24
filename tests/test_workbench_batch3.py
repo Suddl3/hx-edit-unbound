@@ -133,7 +133,7 @@ class SetlistTests(unittest.TestCase):
         from test_target_binding import FIXTURE, _reader
         source = (ROOT / 'setlists.js').read_text(encoding='utf-8')
         guards = re.findall(r"'([0-9a-f]+)': '([0-9a-f]+)'", source[source.index('const setlistGuards'):source.index('const SETLIST_CONTROLLER_VTABLE')])
-        self.assertEqual(len(guards), 12)
+        self.assertEqual(len(guards), 16)
         # (HX Edit.exe has a dynamic base: no absolute operand in a guard)
         for _, expected in guards:
             self.assertNotIn('ff15', expected)
@@ -209,6 +209,10 @@ class SetlistTests(unittest.TestCase):
         self.assertIn('state.looking = looking ?', script)
         self.assertIn('state.setlists = header.setlists;', script)
         self.assertIn("if (command.action === 'look') looking = {setlist: command.setlist, at: Date.now(), state: 'failed'};", script)
+        # (live check 2026-11-24: how far the setlist reading gets goes to the trace when it changes; an empty chooser
+        # is filled as HX Edit fills it, only once the Presets list has its rows)
+        self.assertIn("if (word !== setlistsWord) { setlistsWord = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'setlists', result: word}); }", script)
+        self.assertIn('else if (setlists && Array.isArray(names)) setlists.askNames();', script)
         source = launcher()
         self.assertIn("'setlists.js', 'focus_view.js')) + '\\n'", source)
         self.assertIn("let setlists = null; try { setlists = installSetlists(); }", source)
@@ -356,6 +360,11 @@ class FloorSlotTests(unittest.TestCase):
     def test_the_tab_and_its_question_are_the_mock_ups(self):
         source = page()
         self.assertIn("for (const [key, words] of [['captures', 'Captures'], ['slots', 'Floor slots']]) {", source)
+        # (only what is known about what is in 128: an old preview of ours looks the same as anything else)
+        self.assertIn("'Preview slot · holds something with no record of ours'", source)
+        self.assertIn("'HX Edit Unbound has no record of putting “' + name + '” in slot 128.", source)
+        self.assertNotIn('did not put there', source + (ROOT / 'tone_view.js').read_text(encoding='utf-8'))
+        self.assertNotIn('outside HX Edit Unbound', source)
         self.assertIn("head.append(libTabs(), find, sort, layout, el('span', 'sp'), t3k, imp);", source)
         for words in ("'Clear slot ' + rows[0].slot + ' on the Floor?'", "' taken off the Floor. '", "' in your library on this PC.'",
                       "' filled again. Undo does not bring a cleared slot back: you would put '", "'. Only presets opened in this editor are known.'",
