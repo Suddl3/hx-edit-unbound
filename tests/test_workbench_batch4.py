@@ -473,5 +473,125 @@ class LiveCheckTests(unittest.TestCase):
         self.assertGreater(css.index(both), css.index(off))           # (and more specific than both: classes + :hover + .off)
 
 
+
+# A made-up chain for the add tests: path 1 with Kinky Boost (block0, picked) and a NAM block, place 3 of lane A empty.
+ADD = """(() => {
+  const NAM = 'HD2_NAM', IR = 'HD2_ImpulseResponse1024';
+  const base = [{dsp: 0, id: 'block0', model: 'HD2_DistKinkyBoost', position: 0, path: 0},
+                {dsp: 0, id: 'block1', model: NAM, position: 1, path: 0, slot: 17}];
+  const reading = (extra, selected, preset) => ({blocks: base.concat(extra || []), selected: selected === undefined ? {dsp: 0, id: 'block0'} : selected,
+                                               preset: preset === undefined ? {setlist: 0, number: 32} : preset});
+  const step = (follow, s, now) => workbenchAddSelect(follow, s, NAM, now === undefined ? 1000 : now);
+  return (%s)();
+})()"""
+
+
+class AddPicksTheNewBlockTests(unittest.TestCase):
+    """After a "+" add the new block is the picked one (Nick, 2026-11-24), in every layout and for every way to add."""
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_each_way_to_add_picks_the_block_once_hx_edit_shows_it(self):
+        out = js(ADD % """() => {
+          const ways = {model: {dsp: 0, lane: 0, place: 2, symbol: 'HD2_DelaySimpleDelay'},   // the picker / Classic+'s model list
+                        capture: {dsp: 0, lane: 0, place: 2, slot: 21},                       // a capture: the picker, the list or the drawer
+                        ir: {dsp: 0, lane: 0, place: 2, symbol: IR, slot: 5}};                // an IR from the IRs drawer
+          const made = {model: {dsp: 0, id: 'block2', model: 'HD2_DelaySimpleDelay', position: 2, path: 0},
+                        capture: {dsp: 0, id: 'block2', model: NAM, position: 2, path: 0, slot: 21},
+                        ir: {dsp: 0, id: 'block2', model: IR, position: 2, path: 0, slot: 5}};
+          const out = {};
+          for (const way of Object.keys(ways)) {
+            const follow = workbenchAddFollow(ways[way], reading(), 1000);
+            out[way] = [step(follow, reading()), step(follow, reading([made[way]]))];
+          }
+          return out;
+        }""")
+        for way in ('model', 'capture', 'ir'):
+            self.assertEqual(out[way][0], {'select': None, 'done': False}, way)                     # not there yet: wait
+            self.assertEqual(out[way][1], {'select': {'dsp': 0, 'id': 'block2'}, 'done': True}, way)
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_a_slow_add_waits_and_a_wrong_or_refused_one_picks_nothing(self):
+        out = js(ADD % """() => {
+          const follow = workbenchAddFollow({dsp: 0, lane: 0, place: 2, slot: 21}, reading(), 1000);
+          const slotOne = {dsp: 0, id: 'block2', model: NAM, position: 2, path: 0, slot: 1};     // HX Edit first: NAM on IR slot 1
+          const other = {dsp: 0, id: 'block2', model: 'HD2_DelaySimpleDelay', position: 2, path: 0};
+          const ir = workbenchAddFollow({dsp: 0, lane: 0, place: 2, symbol: IR, slot: 5}, reading(), 1000);
+          return {
+            slotOne: step(follow, reading([slotOne]), 3000),                                       // a capture whose slot comes later
+            late: step(follow, reading([{...slotOne, slot: 21}]), 6900),                           // ... within the wait
+            tooLate: step(follow, reading([{...slotOne, slot: 21}]), 1000 + WORKBENCH_ADD_SELECT_MS + 1),
+            wrongModel: step(follow, reading([other])),                                            // something else at the place
+            otherPath: step(follow, reading([{...slotOne, slot: 21, dsp: 1}])),
+            irDefault: step(ir, reading([{dsp: 0, id: 'block2', model: IR, position: 2, path: 0, slot: 1}])),   // the IR not on it yet
+            nothing: step(follow, reading(), 1000 + WORKBENCH_ADD_SELECT_MS + 1),                  // refused / never came: given up
+            none: workbenchAddSelect(null, reading(), NAM, 1000)};
+        }""")
+        self.assertEqual(out['slotOne'], {'select': None, 'done': False})
+        self.assertEqual(out['late'], {'select': {'dsp': 0, 'id': 'block2'}, 'done': True})
+        for name in ('tooLate', 'nothing'):
+            self.assertEqual(out[name], {'select': None, 'done': True}, name)
+        for name in ('wrongModel', 'otherPath', 'irDefault'):
+            self.assertEqual(out[name], {'select': None, 'done': False}, name)
+        self.assertEqual(out['none'], {'select': None, 'done': True})
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_nothing_is_picked_over_the_players_own_pick_another_preset_or_hx_edits_own(self):
+        out = js(ADD % """() => {
+          const follow = workbenchAddFollow({dsp: 0, lane: 0, place: 2, symbol: 'HD2_DelaySimpleDelay'}, reading(), 1000);
+          const made = {dsp: 0, id: 'block2', model: 'HD2_DelaySimpleDelay', position: 2, path: 0};
+          return {
+            picked: step(follow, reading([made], {dsp: 0, id: 'block1'})),                        // the player picked the NAM block
+            preset: step(follow, reading([made], undefined, {setlist: 0, number: 33})),           // another preset came up
+            noHeader: step(follow, reading([made], undefined, null)),                              // a reading without the header
+            already: step(follow, reading([made], {dsp: 0, id: 'block2'})),                       // HX Edit picked it itself
+            blank: step(follow, reading([], null)),                                                 // nothing selected while it adds
+            fromNone: step(workbenchAddFollow({dsp: 0, lane: 0, place: 2, symbol: 'HD2_DelaySimpleDelay'}, reading([], null), 1000), reading([made], null)),
+            key: workbenchPresetKey(reading())};
+        }""")
+        self.assertEqual(out['picked'], {'select': None, 'done': True})
+        self.assertEqual(out['preset'], {'select': None, 'done': True})
+        self.assertEqual(out['noHeader'], {'select': {'dsp': 0, 'id': 'block2'}, 'done': True})
+        self.assertEqual(out['already'], {'select': None, 'done': True})                            # no second select
+        self.assertEqual(out['blank'], {'select': None, 'done': False})
+        self.assertEqual(out['fromNone'], {'select': {'dsp': 0, 'id': 'block2'}, 'done': True})
+        self.assertEqual(out['key'], '0:32')
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_an_ir_added_shows_as_an_ir_block_while_it_comes(self):
+        # (the chain shown meanwhile: an IR block, not a NAM block, and settled once it has the IR)
+        out = js(ADD % """() => {
+          const add = {action: 'add', dsp: 0, lane: 0, place: 2, symbol: IR, slot: 5};
+          const coming = workbenchPending(base, add, NAM);
+          const there = workbenchPending(base.concat([{dsp: 0, id: 'block2', model: IR, position: 2, path: 0, slot: 5}]), add, NAM);
+          return [coming.settled, coming.blocks.find(b => b.position === 2).model, there.settled];
+        }""")
+        self.assertEqual(out, [False, 'HD2_ImpulseResponse1024', True])
+
+    def test_one_place_in_the_page_for_every_way_to_add_and_layout(self):
+        text = page().replace('\r\n', '\n')
+        # every add goes through chainAsk (the picker, Classic+'s lists, the drawers' drops), none asks "add" itself
+        self.assertEqual(text.count("chainAsk('add'"), 4)
+        self.assertNotIn("ask('add'", text)
+        chain_ask = between(text, 'function chainAsk(', 'function shownBlocks(')
+        self.assertIn("addFollow = action === 'add' ? workbenchAddFollow(value, state, Date.now()) : null;", chain_ask)
+        # each reading: the new block picked as a click picks it (pickBlock: one select ask, the same in all layouts)
+        receive = between(text, "else if (message.type === 'state') {", "else if (message.type === 'dsp')")
+        self.assertIn('const next = workbenchAddSelect(addFollow, state, catalog.nam[0], Date.now());', receive)
+        self.assertIn('if (next.done) addFollow = null;', receive)
+        self.assertIn('if (next.select) pickBlock(next.select);', receive)
+        self.assertNotIn('layout', between(receive, 'if (addFollow && catalog)', 'pickBlock(next.select);'))
+        self.assertIn("function pickBlock(block) {\n  ask('select', {dsp: block.dsp, id: block.id});", text)
+
+    def test_undo_or_a_refusal_ends_the_wait_and_selecting_adds_no_step(self):
+        text = page()
+        ask_line = between(text, 'const ask = (name, value) => {', '};')
+        self.assertIn("if (name === 'undo' || name === 'redo') addFollow = null;", ask_line)       # every undo the page asks
+        self.assertIn("else if (message.type === 'notice') { addFollow = null;", text)                # a refused add (no room, ...)
+        # the page's select is not an edit: no unsaved mark and no undo step of the page's own
+        self.assertNotIn("'select'", between(text, 'const EDIT_ASKS = new Set(', ');'))
+        # after Undo the block is gone from HX Edit's reading: the panel is drawn from that reading (no block kept here)
+        self.assertIn('return state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id) || null;', text)
+
+
 if __name__ == '__main__':
     unittest.main()

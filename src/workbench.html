@@ -1024,6 +1024,7 @@ const EDIT_ASKS = new Set(['set', 'model', 'capture', 'add', 'remove', 'move', '
 let editAskedAt = 0;
 const ask = (name, value) => {
   if (EDIT_ASKS.has(name)) editAskedAt = Date.now();
+  if (name === 'undo' || name === 'redo') addFollow = null;       // (an add undone before it showed: nothing to pick)
   if (host) host.postMessage(JSON.stringify({name, value: value === undefined ? null : value}));
 };
 const el = (tag, cls, words) => { const node = document.createElement(tag); if (cls) node.className = cls; if (words !== undefined) node.textContent = words; return node; };
@@ -1141,8 +1142,12 @@ function geometry(width) {
 // A change to the chain asked for here, shown until HX Edit's reading has it (workbenchPending).
 let pending = null, pendingTimer = 0;
 const PENDING_MS = 3000;
+// After an add (every way there is: the picker, Classic+'s lists, a capture or an IR dropped on a "+"), the new block
+// is picked once HX Edit shows it (workbenchAddSelect): addFollow, until then.
+let addFollow = null;
 function chainAsk(action, value) {
   const block = value.id ? state.blocks.find(b => b.dsp === value.dsp && b.id === value.id) : null;
+  addFollow = action === 'add' ? workbenchAddFollow(value, state, Date.now()) : null;
   // (to the other path's lane B: pasted on its lane A first and moved down once the Floor has it, up to 4 s later)
   const wait = action === 'move' && value.to !== undefined && value.lane === 1 ? 6000 : PENDING_MS;
   pending = {action, ...value, block: block ? {...block} : null, until: Date.now() + wait};
@@ -4508,6 +4513,11 @@ function receive(message) {
     if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();
     if (picking && picking.block && !(current() && isChain(current()))) picking = false;
     if (picking && picking.empty && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
+    if (addFollow && catalog) {                                    // (the block just added: picked once it is there)
+      const next = workbenchAddSelect(addFollow, state, catalog.nam[0], Date.now());
+      if (next.done) addFollow = null;
+      if (next.select) pickBlock(next.select);
+    }
   }
   else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
   else if (message.type === 'dspCosts') { costs = message.costs && typeof message.costs === 'object' ? message.costs : {}; shownPanel = ''; }
@@ -4517,7 +4527,7 @@ function receive(message) {
     if (!(layoutAsked && Date.now() - layoutAsked.at < 2000 && options.layout !== layoutAsked.name)) setLayout(options.layout, false);
     drawRail(); return;
   }
-  else if (message.type === 'notice') { toast(message.text); if (snapHeld.size) { snapHeld.clear(); shownPanel = ''; render(); } return; }   // (a change refused: shown as it is)
+  else if (message.type === 'notice') { addFollow = null; toast(message.text); if (snapHeld.size) { snapHeld.clear(); shownPanel = ''; render(); } return; }   // (a change refused: shown as it is)
   else if (message.type === 'shown') {
     // (hidden, a tool's window goes back over HX Edit's own panel: shown again, it is placed over its frame again)
     visible = message.shown === true; toolShown = '';

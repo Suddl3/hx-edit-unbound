@@ -165,14 +165,49 @@ function workbenchPending(blocks, pending, namEngine) {
     return {blocks: all.filter(b => !(b.dsp === pending.dsp && b.id === pending.id)), settled: false};
   }
   if (pending.action === 'add') {
-    const model = pending.slot ? namEngine : pending.symbol;
+    // (a slot alone: a capture, on NAM's engine; a slot with a model: an IR block with that IR, as focus_view.js adds)
+    const model = pending.slot && !pending.symbol ? namEngine : pending.symbol;
     const there = all.find(at);
-    if (there && there.model === model && (!pending.slot || there.slot === pending.slot)) return {blocks: all, settled: true};
+    if (workbenchAdded(all, pending, namEngine)) return {blocks: all, settled: true};
     const shown = {dsp: pending.dsp, id: there ? there.id : 'pending', model, position: pending.place, path: pending.lane, enabled: true,
                    ...(pending.slot ? {slot: pending.slot} : {})};
     return {blocks: there ? all.map(b => b === there ? {...b, ...shown} : b) : all.concat([shown]), settled: false};
   }
   return {blocks: all, settled: true};
+}
+
+// ---- after an add, the new block is the picked one (Nick, 2026-11-24) -------------------------------------------
+// The block an add asked for, once a reading shows it at its place with the model asked for (a capture: NAM's engine
+// with that slot; an IR: the IR block with that IR), else null. The add is asked only on an empty place.
+function workbenchAdded(blocks, add, namEngine) {
+  if (!add) return null;
+  const model = add.slot && !add.symbol ? namEngine : add.symbol;
+  return (Array.isArray(blocks) ? blocks : []).find(b => b && b.dsp === add.dsp && /^block\d{1,2}$/.test(b.id) && b.position === add.place &&
+    b.path === add.lane && b.model === model && (!add.slot || b.slot === add.slot)) || null;
+}
+// What the page waits for after it asked for an add: that place, what was asked, the block picked then and the preset.
+// HX Edit can be slow to show a new block (a capture's slot or an IR is set once the block is there: 467b644), so it
+// waits up to WORKBENCH_ADD_SELECT_MS; past that, or if the add was refused, nothing is picked.
+const WORKBENCH_ADD_SELECT_MS = 6000;
+const workbenchPresetKey = state => state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
+function workbenchAddFollow(add, state, now) {
+  return {dsp: add.dsp, lane: add.lane, place: add.place, symbol: add.symbol, slot: add.slot,
+          was: state && state.selected ? {dsp: state.selected.dsp, id: state.selected.id} : null,
+          preset: workbenchPresetKey(state), until: now + WORKBENCH_ADD_SELECT_MS};
+}
+// For each reading while it waits: {select: {dsp, id} | null, done}. The new block is picked once it is there, as a
+// click on it picks it (one ask, no undo step of the page's own), unless HX Edit already has it selected. Nothing is
+// picked, and the wait ends, when another block was picked meanwhile (by the player, here or on the Floor), another
+// preset came up, or the time ran out. (A reading without the preset's header, as during an undo, is the same preset.)
+function workbenchAddSelect(follow, state, namEngine, now) {
+  if (!follow || !state) return {select: null, done: !follow};
+  const sel = state.selected || null, key = workbenchPresetKey(state);
+  const made = workbenchAdded(state.blocks, follow, namEngine);
+  if (made && sel && sel.dsp === made.dsp && sel.id === made.id) return {select: null, done: true};
+  // (a reading with nothing selected, as HX Edit may give while it adds, is not another pick)
+  const was = follow.was, moved = !!sel && !(was && sel.dsp === was.dsp && sel.id === was.id);
+  if ((key && follow.preset && key !== follow.preset) || moved || now > follow.until) return {select: null, done: true};
+  return made ? {select: {dsp: made.dsp, id: made.id}, done: true} : {select: null, done: false};
 }
 
 function workbenchRedo(track, at, preset, redoing) {
@@ -506,7 +541,8 @@ function workbenchSlotUsers(usage, slot, loaded) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
-                     WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved,
+                     WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
+                     workbenchAdded, WORKBENCH_ADD_SELECT_MS, workbenchPresetKey, workbenchAddFollow, workbenchAddSelect, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
                      workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, workbenchPreviewOn, WORKBENCH_PREVIEW_END_WAIT_MS, WORKBENCH_PREVIEW_STEP_MS, workbenchSaveHold, WORKBENCH_BACK_MS,
 
