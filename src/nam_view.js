@@ -149,9 +149,10 @@ function presetIrSlots(tree, irParameters) {
 // The IR slots a preset uses, for the record of opened presets (the warning before a Clear):
 // every IR parameter of every known IR block, and snapshot values of those parameters. Anything
 // else is skipped, not refused; the Clear protection of the current preset keeps presetIrSlots.
-function presetIrSlotsLenient(tree, irParameters) {
+function presetIrSlotsLenient(tree, irParameters, last = 127) {
+  // (last: the highest slot counted; 127 for the record of what each preset uses, 128 for a Clear's check)
   const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-  const slotOf = value => { const slot = record(value) ? value['@value'] : value; return Number.isInteger(slot) && slot >= 1 && slot <= 127 ? slot : null; };
+  const slotOf = value => { const slot = record(value) ? value['@value'] : value; return Number.isInteger(slot) && slot >= 1 && slot <= last ? slot : null; };
   const parametersOf = node => {
     const model = record(node) ? node['@model'] : undefined;
     return typeof model === 'string' ? irParameters[model] ?? irParameters[model.replace(/(Mono|Stereo)$/, '')] ?? [] : [];
@@ -2161,7 +2162,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const row = getIrRow(list, transfer.slot - 1);
       if (row.isNull() || !row.add(0x10c).readU32()) return '';
       const name = row.readUtf8String();
-      return name === transfer.name || (name.length >= 31 && transfer.name.startsWith(name)) ? name : '';
+      // (HX Edit stores a character outside printable ASCII as "?": a name staged with one, an en dash say, is still
+      // ours; live check 2026-11-24 10:43. Staged names are plain ASCII since: nam_convert ascii_name.)
+      const plain = String(transfer.name).replace(/[^\x20-\x7e]/g, '?');
+      return [transfer.name, plain].some(wanted => name === wanted || (name.length >= 31 && wanted.startsWith(name))) ? name : '';
     },
     registerProfile(transfer) {
       const name = this.previewName(transfer);
@@ -2258,9 +2262,13 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (!Array.isArray(slots) || !slots.length || slots.length > AUDITION_SLOT || new Set(slots).size !== slots.length ||
           !slots.every(slot => Number.isInteger(slot) && slot >= 1 && slot <= AUDITION_SLOT)) return {refused: 'bad'};
       const librarian = irController.isNull() ? NULL : irController.add(0x270).readPointer();
-      if (librarian.isNull() || irList().isNull()) return {refused: 'not-ready'};
-      const preset = readCurrentPreset();
-      if (!(preset?.slots instanceof Set)) return {refused: 'unknown', reason: String(preset?.reason || '')};
+      if (librarian.isNull()) return {refused: 'not-ready'};
+      // (live check 2026-11-24 10:43: the strict reader refuses whole preset shapes it does not know,
+      // "unsupported-global-node", so nothing could be cleared. The lenient one reads the blocks' IR slots and
+      // snapshot-controlled ones of any preset; with 128 too. The Workbench also checks the blocks it reads itself.)
+      const raw = readCurrentPreset(true, true);
+      if (!raw?.tree) return {refused: 'unknown', reason: String(raw?.reason || '')};
+      const preset = presetIrSlotsLenient(raw.tree, irParameters, AUDITION_SLOT);
       const used = slots.filter(slot => preset.slots.has(slot));
       if (used.length) return {refused: 'used', slots: used};
       const sorted = [...slots].sort((a, b) => a - b), index = Memory.alloc(4 * sorted.length);

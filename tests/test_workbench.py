@@ -455,7 +455,9 @@ class PresetTests(unittest.TestCase):
         self.assertIn("ask('pin', {setlist, number, on});", page)                 # (Batch 3: of the setlist shown)
         # a preset is loaded the way the top bar's list loads it: through loadPreset, which asks first when the
         # loaded preset has changes that are not saved
-        self.assertEqual(page.count("if (index !== at) loadPreset(presetTarget(index));"), 2)   # the top bar's list and the drawer (Batch 3: or another setlist's)
+        self.assertEqual(page.count("if (index !== at) loadPreset(presetTarget(index));"), 1)   # the drawer (Batch 3: or another setlist's)
+        self.assertIn("if (index !== at) loadPreset(target); };", page)                       # the top bar's list (its target read first)
+
         self.assertIn("b.onclick = () => { if (number !== at) loadPreset(presetTarget(number)); };", page)   # the grid
         self.assertIn("loadPreset('previous');", page)                                    # the top bar's arrows
         self.assertIn("loadPreset('next');", page)
@@ -496,7 +498,7 @@ class PresetTests(unittest.TestCase):
         self.assertIn("$('edited').hidden = !changedHere();", page)                     # (Batch 3: or a pending name)
 
         # a preset starts unchanged from where HX Edit's undo position stands when it is loaded; a Save moves the mark
-        self.assertIn("if (before !== after || savedMark.key !== after || (typeof savedMark.at !== 'number' && typeof state.undoAt === 'number')) savedMark = {key: after, at: state.undoAt};", page)
+        self.assertIn("if (before !== after || savedMark.key !== after || (typeof savedMark.at !== 'number' && typeof state.undoAt === 'number')) savedMark = {key: after, at: state.undoAt, settle: Date.now() + WORKBENCH_LOAD_SETTLE_MS};", page)
         self.assertIn("savedMark = {key: presetWord(), at: state.undoAt};", page)
         self.assertNotIn('state.undoAt === 0', page)
         # two banks of four a row: a preset's bank (number / 4) alternates between the two columns

@@ -538,6 +538,11 @@
   .btn.danger:hover:not(:disabled) { border-color: #e2483c; color: #ff8a80; }
   /* the Floor's slots (Batch 3): a second tab of the NAM library, with Clear */
   .btn.danger { border-color: rgb(240 96 96 / .5); color: #ff9c9c; }
+  /* a word that stays until it is dismissed (a Clear that did not happen; what a preview left behind) */
+  .sticky { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 40; width: max-content; max-width: min(640px, calc(100% - 40px));
+            display: flex; gap: 14px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; background: #1d1517; border: 1px solid rgb(240 96 96 / .5);
+            box-shadow: 0 20px 50px rgb(0 0 0 / .7); color: var(--ink); font-size: 13px; line-height: 1.5; }
+  .sticky span { flex: 1; white-space: pre-line; }
   .btn.danger.fill { background: #c2413f; border-color: #c2413f; color: #fff; }
   .btn.danger svg { width: 14px; height: 14px; }
   .libtabs { display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #0e1014; border: 1px solid var(--line); flex: none; }
@@ -799,7 +804,14 @@ let catalog = null, state = null, dsp = null, options = {}, visible = !host;
 let costs = {};          // each model's DSP as the Floor's meter measured it ({type: "dspCosts"}, workbench.py)
 // A model's DSP: as measured on the Floor where it has been, else HX Edit's estimate (catalog.loads). NaN: unknown.
 const costOf = symbol => { const found = Number(costs[symbol]); return Number.isFinite(found) && found > 0 ? found : Number((catalog && catalog.loads || {})[symbol]); };
-const ask = (name, value) => { if (host) host.postMessage(JSON.stringify({name, value: value === undefined ? null : value})); };
+// (the page's own changes to the loaded preset, for the unsaved mark: what HX Edit does by itself right after a load
+// is not one of them; see receive)
+const EDIT_ASKS = new Set(['set', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'rename', 'undo', 'redo', 'snapshot']);
+let editAskedAt = 0;
+const ask = (name, value) => {
+  if (EDIT_ASKS.has(name)) editAskedAt = Date.now();
+  if (host) host.postMessage(JSON.stringify({name, value: value === undefined ? null : value}));
+};
 const el = (tag, cls, words) => { const node = document.createElement(tag); if (cls) node.className = cls; if (words !== undefined) node.textContent = words; return node; };
 const svg = inner => '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
 const ICON = {
@@ -1782,7 +1794,9 @@ function fillPresets() {
     const button = el('button', (index === at ? 'cur' : '') + (pinned ? ' pinned' : ''));
     button.append(el('span', 'num', String(index).padStart(3, '0')), el('span', '', pendingRow(index, names)));
     if (pinned) button.title = 'Pinned';
-    button.onclick = () => { closePresets(); if (index !== at) loadPreset(presetTarget(index)); };
+    // (the target first: a row of a setlist looked at loads that setlist's preset, and the list closes without letting
+    // that look go, or the way back would make the click a preset of the loaded setlist; live check 2026-11-24 10:40)
+    button.onclick = () => { const target = presetTarget(index); closePresets(typeof target === 'object'); if (index !== at) loadPreset(target); };
     return button;
   };
   // (the pinned ones first, then every preset in order)
@@ -1818,10 +1832,11 @@ function centerIn(list, row) {
   const top = row.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
   list.scrollTop = Math.max(0, top - (list.clientHeight - row.offsetHeight) / 2);
 }
-function closePresets() {
+function closePresets(keepLook) {
   $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false');
-  // (closed, it no longer looks at another setlist, unless the Presets drawer or view still shows it)
-  letLookGo();
+  // (closed, it no longer looks at another setlist, unless the Presets drawer or view still shows it, or a preset of
+  // that setlist is being loaded from it: keepLook)
+  if (!keepLook) letLookGo();
 }
 // ---- a name box of our own (Batch 3): the preset's name in the top bar, a snapshot's in its button -----------------
 // Ways in: the pencil beside the name (it shows when the pointer is over it), a double-click, F2 for the preset. Enter
@@ -1949,6 +1964,7 @@ function loadPreset(target) {
   if (leaving) return;
   // (a preset of the loaded setlist: HX Edit's list is sent back to that setlist first, should it still show another)
   if (!(target && typeof target === 'object')) settleLook(true);
+  else holdLookUntil = Date.now() + HOLD_LOOK_MS;                // (HX Edit's list must still show it when it loads)
   if (!changedHere()) { ask('preset', target); return; }
 
   const other = !!target && typeof target === 'object', number = other ? target.number : target;
@@ -2009,6 +2025,20 @@ function openMenu() {
 }
 function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
 let toastTimer = 0;
+// A word that stays on screen until OK (the launcher no longer shows a box of its own for the Workbench's session): a
+// Clear that did not happen, what a preview left behind. A newer word replaces it.
+function stickyNote(words) {
+  const text = String(words || '').trim();
+  if (!text) return;
+  let note = document.querySelector('.sticky');
+  if (!note) {
+    note = el('div', 'sticky'); note.setAttribute('role', 'alert');
+    const ok = el('button', 'btn sm', 'OK'); ok.onclick = () => note.remove();
+    note.append(el('span'), ok); document.body.append(note);
+  }
+  note.querySelector('span').textContent = text;
+}
+let seenClearNote = 0;
 function toast(words) {
   const line = $('toast');
   line.textContent = String(words || ''); line.hidden = !line.textContent;
@@ -2101,7 +2131,7 @@ function commitView(next) {
   shownRail = '';
   drawFrames(); drawRail(); drawDrawer();
   // (the chain has less, or more, room; a tool's window follows its frame: reading where it is lays the page out)
-  if (catalog && state && !view.full) drawChain(true);
+  if (catalog && state && !view.full) { drawChain(true); shownPanel = ''; drawPanel(); }   // (the panel too: a load made meanwhile, live check 10:45)
   syncTool(); syncLevels();
   letLookGo();                                                    // (the Presets drawer or view left: HX Edit's list goes back)
 }
@@ -2388,11 +2418,15 @@ function settleLook(now) {
   if (decided.ask) { backAskedAt = Date.now(); ask('setlist', {setlist: setlistOf()}); }
 }
 // (the retry that does not wait for a state message)
-const BACK_TIMER = setInterval(() => { if (visible && state && lookAt === null) settleLook(false); }, 1000);
+const BACK_TIMER = setInterval(() => { if (visible && state) { letLookGo(); if (lookAt === null) settleLook(false); } }, 1000);
+// (a preset of the setlist looked at is being loaded, or the unsaved prompt is open for one: the look is kept)
+let holdLookUntil = 0;
+const HOLD_LOOK_MS = 8000;
 // Nothing shows another setlist any more (the top bar's list closed, the Presets drawer and view not open): it is let go
 // and HX Edit's list asked back at once. True when it was let go.
 function letLookGo() {
   if (lookAt === null || !$('presetList').hidden || view.full === 'presets' || view.drawer === 'presets') return false;
+  if (leaving || Date.now() < holdLookUntil) return false;
   lookAt = null; shownPresets = ''; shownDrawer = ''; shownGrid = '';
   settleLook(true);
   return true;
@@ -3177,8 +3211,8 @@ function libFloorActions(row) {
     const name = String(taken[0][1] || 'something'), again = el('button', 'btn danger', 'Replace it and preview');
     again.disabled = busy; again.onclick = () => ask128(name);
     box.append(el('span', 'note2', 'Slot 128 holds ' + name + '. HX Edit Unbound has no record of putting it there.'), again);
-    const word = name + '|' + (fs.text || '');
-    if (asked128 !== word) { asked128 = word; setTimeout(() => ask128(name), 0); }
+    // (it opens by itself once for each thing found there: not again when the status line changes, live check 10:43)
+    if (asked128 !== name && !busy) { asked128 = name; setTimeout(() => ask128(name), 0); }
   } else if (taken.length) {
     const pick = el('select', 'lvpick'), go = el('button', 'btn danger', 'Replace');
     for (const [slot, name, users] of taken) pick.append(new Option('Slot ' + slot + ' · ' + name + (users && users.length ? ' · used by ' + users.length + (users.length === 1 ? ' preset' : ' presets') : ''), slot));
@@ -3193,6 +3227,9 @@ function libFloorActions(row) {
     const r = el('div', 'btnrow'); r.append(pick, go);
     box.append(el('span', 'note2', 'Every slot on the Floor is taken. Choose one to replace:'), r);
   }
+  // (why the two buttons are dimmed, said on the page: a disabled button shows no tooltip)
+  if (!busy && !trial && !fs.can_install && !fs.can_audition) box.append(el('span', 'note2', 'Put on the Floor and Preview work on the NAM block selected in the chain. Select one there (Back to the chain), then come back.'));
+  if (!taken.length) asked128 = '';
   if (fs.text) box.append(el('span', 'note2', fs.text));
   return box;
 }
@@ -3810,8 +3847,15 @@ function receive(message) {
     if (Array.isArray(state.presets) && state.presets.length && setlistOf() !== null) { loadedNames = {setlist: setlistOf(), names: state.presets}; seenNames[setlistOf()] = state.presets; }
     if (state.looking && state.looking.state === 'ok' && Array.isArray(state.looking.names)) seenNames[state.looking.setlist] = state.looking.names;
     if (lookAt !== null && lookAt === setlistOf()) lookAt = null;
+    // (a Clear that did not happen stays on screen until OK: live check 2026-11-24 10:43, a 6 s word was missed)
+    if (state.clearNote && state.clearNote.at !== seenClearNote) { seenClearNote = state.clearNote.at; stickyNote(state.clearNote.text); }
     // (another preset: unchanged from where HX Edit's undo position stands now; also once that position can be read)
-    if (before !== after || savedMark.key !== after || (typeof savedMark.at !== 'number' && typeof state.undoAt === 'number')) savedMark = {key: after, at: state.undoAt};
+    if (before !== after || savedMark.key !== after || (typeof savedMark.at !== 'number' && typeof state.undoAt === 'number')) savedMark = {key: after, at: state.undoAt, settle: Date.now() + WORKBENCH_LOAD_SETTLE_MS};
+    // (for WORKBENCH_LOAD_SETTLE_MS after a load, a step HX Edit makes by itself moves the mark with it, unless the page asked for
+    // a change meanwhile: live check 2026-11-24 10:40, a block picker side chosen for the new preset's block made a
+    // "Change Model" step (BACKLOG: fix-side-change-model) and the dot showed on a preset nobody touched)
+    else savedMark = workbenchSettledMark(savedMark, after, state.undoAt, Date.now(), editAskedAt);
+
     // (values set in other snapshots are shown as set until HX Edit's own record agrees: forgotten on another preset
     // or an undo)
     if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();
@@ -3831,7 +3875,9 @@ function receive(message) {
   else if (message.type === 'toolClosed') { toolClosed(); return; }
   else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
   else if (message.type === 'session' && message.kind === 'tone') { toneTray = message.data || null; shownTray = ''; drawTray(); return; }
+  else if (message.type === 'session' && message.kind === 'notice') { stickyNote(message.data && message.data.text); return; }
   else if (message.type === 'session') { levelSessionMessage(message.kind, message.data || {}); return; }
+
   else if (message.type === 'prefs') {
     const kept = message.prefs && message.prefs.levels;
     if (kept && typeof kept === 'object') { levelPrefs = {...levelPrefs, ...kept, offsets: kept.offsets && typeof kept.offsets === 'object' ? kept.offsets : {}}; shownLevels = ''; drawLevels(); }

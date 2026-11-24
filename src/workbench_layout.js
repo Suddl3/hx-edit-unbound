@@ -303,6 +303,17 @@ function workbenchUnsaved(undoAt, preset, mark) {
   return undoAt !== mark.at;
 }
 
+// Right after a load HX Edit can add an undo step by itself (live check 2026-11-24 10:40: the block picker's side
+// chosen for the new preset's selected block made a "Change Model" step; BACKLOG "fix-side-change-model"). For
+// WORKBENCH_LOAD_SETTLE_MS after the load (mark.settle) such a step moves the mark with it, unless the page asked for a
+// change of its own after the load (editAskedAt). A change made on the Floor itself in those 2.5 s is not counted.
+const WORKBENCH_LOAD_SETTLE_MS = 2500;
+function workbenchSettledMark(mark, key, undoAt, now, editAskedAt) {
+  if (!mark || mark.key !== key || !mark.settle || now > mark.settle || typeof undoAt !== 'number' || undoAt === mark.at) return mark;
+  if (editAskedAt && editAskedAt >= mark.settle - WORKBENCH_LOAD_SETTLE_MS) return mark;
+  return {...mark, at: undoAt};
+}
+
 // ---- a name box of our own: a preset's name, a snapshot's ---------------------------------------------------------
 // The Floor keeps 16 characters for a preset's name and 10 for a snapshot's, in its own font: the printable ASCII
 // characters (space to "~"). What it would refuse is left out as it is typed, quietly; anything past the limit too.
@@ -391,6 +402,6 @@ function workbenchSlotUsers(usage, slot, loaded) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
-                     workbenchPendingNamed, workbenchPendingHere, WORKBENCH_BACK_MS, WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
+                     workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_BACK_MS, WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

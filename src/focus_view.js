@@ -370,7 +370,7 @@ function installFocusView(options, parts) {
   const LOAD_IN_MS = 5000;
   // The Workbench's Floor slots (Batch 3): what User IR 128 holds (its name, each full reading), and a Clear asked of
   // HX Edit until the slots read empty (CLEAR_MS at most).
-  let slot128 = '', clearing = null;
+  let slot128 = '', clearing = null, clearNote = null;   // (clearNote: the last Clear that did not happen, for the page to keep on screen)
   // A preset's stored copy renamed right after HX Edit's Save (setlists.js renamePreset), followed until HX Edit shows
   // the name (the loaded preset's header, or its row in HX Edit's list) or RENAME_PRESET_MS has passed: the outcome stays
   // in the state ("presetRename") for the page until the next one.
@@ -702,7 +702,7 @@ function installFocusView(options, parts) {
           // own Clear, never a slot the loaded preset uses). Followed until the slots read empty.
           const result = namView.clearSlotsChecked(command.slots);
           send({type: 'toneTrace', reason: 'focus-view', stage: 'clear', slots: command.slots, result});
-          if (result.refused) send({type: 'dspNotice', text: (CLEAR_REFUSED[result.refused] || CLEAR_REFUSED.bad)(result.slots || [])});
+          if (result.refused) clearNote = {text: (CLEAR_REFUSED[result.refused] || CLEAR_REFUSED.bad)(result.slots || []), at: Date.now()};
           else clearing = {slots: result.cleared, until: Date.now() + CLEAR_MS};
           changed = true;
         } else if (command.action === 'preset') {
@@ -772,12 +772,13 @@ function installFocusView(options, parts) {
         try { left = clearing.slots.filter(slot => !namView.slotEmpty(slot)); } catch (_) { left = clearing.slots; }
         if (!left.length) { send({type: 'toneTrace', reason: 'focus-view', stage: 'cleared', slots: clearing.slots}); clearing = null; changed = true; }
         else if (Date.now() > clearing.until) {
-          send({type: 'dspNotice', text: `HX Edit did not clear slot ${left.join(', ')}.`});
+          clearNote = {text: `HX Edit did not clear slot ${left.join(', ')}.`, at: Date.now()};
           send({type: 'toneTrace', reason: 'focus-view', stage: 'clear-unseen', slots: left});
           clearing = null;
         }
       }
       state.clearing = clearing ? clearing.slots : null;
+      state.clearNote = clearNote;
       if (looking && (looking.state === 'reading' || (looking.state === 'failed' && looking.watch))) {
         // (a look called failed is still watched for a while: late rows turn it into ok by themselves)
         let names = null;

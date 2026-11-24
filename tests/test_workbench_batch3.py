@@ -330,7 +330,7 @@ class SetlistTests(unittest.TestCase):
 
     def test_every_way_out_sends_hx_edits_list_back(self):
         source = page()
-        close = source[source.index('function closePresets() {'):source.index('// ---- a name box of our own')]
+        close = source[source.index('function closePresets(keepLook) {'):source.index('// ---- a name box of our own')]
         self.assertLess(close.index("$('presetList').hidden = true;"), close.index('letLookGo();'))              # Esc, a click outside, a pick
         let_go = source[source.index('function letLookGo() {'):source.index('// What a click on a preset of the setlist shown does')]
         self.assertIn("if (lookAt === null || !$('presetList').hidden || view.full === 'presets' || view.drawer === 'presets') return false;", let_go)
@@ -339,7 +339,7 @@ class SetlistTests(unittest.TestCase):
         self.assertIn('letLookGo();', commit)                                                                   # the drawer or view left
         self.assertIn('if (lookAt === null) settleLook(true);', source)                                         # "Back to X"
         self.assertIn("if (!(target && typeof target === 'object')) settleLook(true);", source)                 # a load of the loaded setlist
-        self.assertIn('const BACK_TIMER = setInterval(() => { if (visible && state && lookAt === null) settleLook(false); }, 1000);', source)
+        self.assertIn('const BACK_TIMER = setInterval(() => { if (visible && state) { letLookGo(); if (lookAt === null) settleLook(false); } }, 1000);', source)
         render = source[source.index('function render() {'):source.index('function receive(message) {')]
         self.assertIn('letLookGo();\n  settleLook(false);', render)
 
@@ -371,7 +371,8 @@ class SetlistTests(unittest.TestCase):
         self.assertIn("const pick = el('select', 'slpick');", source)
         # a click on a preset of another setlist: loadPreset, so the unsaved-changes prompt applies
         self.assertIn('const presetTarget = number => lookingAt() === null ? number : {setlist: lookingAt(), number};', source)
-        self.assertEqual(source.count('loadPreset(presetTarget('), 3)                     # the list, the drawer, the grid
+        self.assertEqual(source.count('loadPreset(presetTarget('), 2)                     # the drawer, the grid
+        self.assertIn('const target = presetTarget(index); closePresets(typeof target === \'object\');', source)   # the list
         self.assertIn("const other = !!target && typeof target === 'object', number = other ? target.number : target;", source)
         # looking asks HX Edit's list for the names; nothing else; back to the loaded setlist once nothing looks elsewhere
         self.assertIn("ask('setlist', {setlist: index})", source)
@@ -418,11 +419,13 @@ class FloorSlotTests(unittest.TestCase):
         self.assertIn('const result = namView.clearSlotsChecked(command.slots);', script)
         self.assertIn("try { slot128 = namView.slotName?.(128) || ''; } catch (_) { slot128 = ''; }", script)
         self.assertIn('state.clearing = clearing ? clearing.slots : null;', script)
-        self.assertIn('send({type: \'dspNotice\', text: `HX Edit did not clear slot ${left.join(\', \')}.`});', script)
+        self.assertIn('clearNote = {text: `HX Edit did not clear slot ${left.join(\', \')}.`, at: Date.now()};', script)
+
         # HX Edit's own Clear, with its protection: never a slot the loaded preset uses, nor while that cannot be read
         reader = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         body = reader[reader.index('    clearSlotsChecked(slots) {'):reader.index('    previewSlotEmpty(transfer) {')]
-        self.assertIn("if (!(preset?.slots instanceof Set)) return {refused: 'unknown'", body)
+        self.assertIn("if (!raw?.tree) return {refused: 'unknown'", body)
+
         self.assertIn("if (used.length) return {refused: 'used', slots: used};", body)
         self.assertIn('submitClear(librarian, vector, sorted);', body)
         self.assertLess(body.index("return {refused: 'used'"), body.index('submitClear('))
@@ -499,6 +502,81 @@ class FloorSlotTests(unittest.TestCase):
         self.assertIn("clear.onclick = () => { if (ours && !ours.onBlock) ask('clear', {slots: [128]}); else askClear([row]); };", source)
         # a slot the loaded preset uses cannot be cleared (HX Edit's own protection), and says why
         self.assertIn('clear.disabled = row.here || clearing.size > 0;', source)
+
+
+class LiveCheckFixTests(unittest.TestCase):
+    """The faults of the 2026-11-24 10:39-10:47 live check (trial 20261124-103902-1c6b00d9), one by one."""
+
+    def test_a_a_looked_at_rows_click_loads_that_setlists_preset_never_the_same_number_elsewhere(self):
+        # Cause: the click closed the list first, which let the look go, so presetTarget gave a bare number.
+        source = page()
+        self.assertIn("button.onclick = () => { const target = presetTarget(index); closePresets(typeof target === 'object'); if (index !== at) loadPreset(target); };", source)
+        close = source[source.index('function closePresets(keepLook) {'):source.index('// ---- a name box of our own')]
+        self.assertIn('if (!keepLook) letLookGo();', close)
+        let_go = source[source.index('function letLookGo() {'):source.index('// What a click on a preset of the setlist shown does')]
+        self.assertIn('if (leaving || Date.now() < holdLookUntil) return false;', let_go)     # the prompt open, or the load on its way
+        self.assertIn('else holdLookUntil = Date.now() + HOLD_LOOK_MS;', source)
+        # the drawer and the grid never closed anything before reading the target
+        self.assertIn("button.onclick = () => { if (index !== at) loadPreset(presetTarget(index)); };", source)
+        self.assertIn('b.onclick = () => { if (number !== at) loadPreset(presetTarget(number)); };', source)
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_b_a_step_hx_edit_makes_by_itself_right_after_a_load_is_not_an_unsaved_change(self):
+        mark = lambda *a: run_js(['workbench_layout.js'], 'workbenchSettledMark(%s)' % ', '.join(json.dumps(x) for x in a))
+        loaded = {'key': '0:0', 'at': 0, 'settle': 12500}                      # loaded at 10000
+        self.assertEqual(mark(loaded, '0:0', 1, 11000, 0)['at'], 1)             # the step a second later moves the mark
+        self.assertEqual(mark(loaded, '0:0', 1, 11000, 10500)['at'], 0)         # the page asked for a change: counted
+        self.assertEqual(mark(loaded, '0:0', 1, 13000, 0)['at'], 0)             # after the settling time: counted
+        self.assertEqual(mark(loaded, '3:31', 1, 11000, 0)['at'], 0)            # another preset: not this mark
+        self.assertEqual(mark({'key': '0:0', 'at': 0}, '0:0', 1, 11000, 0)['at'], 0)   # a Save's mark never settles
+        self.assertEqual(run_js(['workbench_layout.js'], 'WORKBENCH_LOAD_SETTLE_MS'), 2500)
+        source = page()
+        self.assertIn('savedMark = {key: after, at: state.undoAt, settle: Date.now() + WORKBENCH_LOAD_SETTLE_MS};', source)
+        self.assertIn('else savedMark = workbenchSettledMark(savedMark, after, state.undoAt, Date.now(), editAskedAt);', source)
+        self.assertIn('if (EDIT_ASKS.has(name)) editAskedAt = Date.now();', source)
+
+    def test_c_back_from_a_full_view_the_block_panel_is_drawn_again(self):
+        # Cause: commitView drew the chain but not the panel; the panel waited for a state message.
+        source = page()
+        commit = source[source.index('function commitView(next) {'):source.index('function pickBlock(block) {')]
+        self.assertIn("if (catalog && state && !view.full) { drawChain(true); shownPanel = ''; drawPanel(); }", commit)
+
+    def test_d_clear_reads_any_preset_and_its_refusal_stays_on_screen(self):
+        # Cause: the strict preset reader refuses preset shapes it does not know ("unsupported-global-node").
+        reader = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        body = reader[reader.index('    clearSlotsChecked(slots) {'):reader.index('    previewSlotEmpty(transfer) {')]
+        self.assertIn('const raw = readCurrentPreset(true, true);', body)
+        self.assertIn('const preset = presetIrSlotsLenient(raw.tree, irParameters, AUDITION_SLOT);', body)
+        self.assertNotIn('irList().isNull()', body)                          # HX Edit's own IR list need not be built
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("if (result.refused) clearNote = {text: (CLEAR_REFUSED[result.refused] || CLEAR_REFUSED.bad)(result.slots || []), at: Date.now()};", script)
+        self.assertIn('state.clearNote = clearNote;', script)
+        source = page()
+        self.assertIn('if (state.clearNote && state.clearNote.at !== seenClearNote) { seenClearNote = state.clearNote.at; stickyNote(state.clearNote.text); }', source)
+        self.assertIn("const ok = el('button', 'btn sm', 'OK'); ok.onclick = () => note.remove();", source)
+
+    def test_e_a_preview_named_with_a_dash_is_found_again_and_its_word_goes_to_the_page(self):
+        # Cause: the staged name had an en dash; HX Edit stores it as "?", the read-back never matched, the upload
+        # was then treated as not ours after 12 s.
+        from nam_convert import ascii_name
+        self.assertEqual(ascii_name('LA-2A Classic – Medium'), 'LA-2A Classic - Medium')
+        self.assertEqual(ascii_name('Café “Big” — Amp…'), 'Caf "Big" - Amp...')
+        self.assertEqual(ascii_name('☃☃'), 'Preview')
+        convert = (ROOT / 'nam_convert.py').read_text(encoding='utf-8')
+        self.assertIn("name = ascii_name(source.stem)[:IR_NAME_LIMIT - len(tag)].rstrip(' .') + tag + '.wav'", convert)
+        reader = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        self.assertIn("const plain = String(transfer.name).replace(/[^\\x20-\\x7e]/g, '?');", reader)
+        preview = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
+        self.assertIn("to_page = bool(self.workbench_sink) and (self.workbench or self.bounds_override is not None)", preview)
+        self.assertIn("if notice and to_page:\n                self._to_workbench('notice', {'text': str(notice[0])})", preview.replace('\r\n', '\n'))
+        source = page()
+        self.assertIn("else if (message.type === 'session' && message.kind === 'notice') { stickyNote(message.data && message.data.text); return; }", source)
+        # the slot 128 question opens by itself once for each thing found there, not again when the status changes
+        self.assertIn("if (asked128 !== name && !busy) { asked128 = name; setTimeout(() => ask128(name), 0); }", source)
+
+    def test_f_the_dimmed_floor_buttons_say_why(self):
+        source = page()
+        self.assertIn("'Put on the Floor and Preview work on the NAM block selected in the chain. Select one there (Back to the chain), then come back.'", source)
 
 
 if __name__ == '__main__':

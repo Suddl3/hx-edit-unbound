@@ -523,6 +523,10 @@ class TonePreview:
             if not self.detached.is_set():
                 notice = ('Could not complete the TONE3000 audition. Check the IRs tab before retrying.', 0x10)
         finally:
+            # (a session of the Workbench, or a window sitting in it: its closing word goes to the page, which keeps it
+            # on screen until OK, never a box of the launcher's own: live check 2026-11-24 10:43, that box blocked the
+            # Workbench's clicks and ended up minimized)
+            to_page = bool(self.workbench_sink) and (self.workbench or self.bounds_override is not None)
             helper_error = getattr(browser, 'error', None)
             if isinstance(helper_error, str) and helper_error:
                 notice = notice or (helper_error + '\n\nThe operation is unconfirmed; check HX Edit before another audition.', 0x10)
@@ -581,7 +585,9 @@ class TonePreview:
                     queued, self.queued = self.queued, None
             if queued:
                 self.receive(queued)
-            if notice:
+            if notice and to_page:
+                self._to_workbench('notice', {'text': str(notice[0])})
+            elif notice:
                 self.message(*notice)
 
     def browse(self, browser, session, client_id):

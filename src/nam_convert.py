@@ -58,6 +58,19 @@ def validate_import(files, first_slot, occupied, nam_only=False):
     return profiles
 
 
+ASCII_LOOKALIKES = str.maketrans({'–': '-', '—': '-', '‒': '-', '−': '-', '‐': '-', '‑': '-',
+                                  '‘': "'", '’': "'", '“': '"', '”': '"', ' ': ' ', '…': '...'})
+
+
+def ascii_name(stem):
+    """A file name stem HX Edit keeps as it is: dashes, quotes and spaces of other kinds made plain, anything else
+    outside printable ASCII left out (HX Edit stores each such character as "?", so an IR name read back from the
+    Floor never matched the file's: live check 2026-11-24, "LA-2A Classic – Medium")."""
+    plain = str(stem).translate(ASCII_LOOKALIKES)
+    plain = ''.join(ch for ch in plain if ' ' <= ch <= '~')
+    return ' '.join(plain.split()) or 'Preview'
+
+
 def stage_tone_import(file, workspace, *, audition=False):
     """Give HX Edit a disposable copy for each upload, including Save to Helix."""
     source = Path(file).resolve(strict=True)
@@ -66,9 +79,9 @@ def stage_tone_import(file, workspace, *, audition=False):
         raise ValueError('Could not read the converted TONE3000 profile.')
     name = source.name
     if audition:
-        # The editor matches this name before clearing the audition slot.
+        # The editor matches this name before clearing the audition slot: only characters HX Edit keeps as they are.
         tag = ' ' + secrets.token_hex(3)
-        name = source.stem[:IR_NAME_LIMIT - len(tag)].rstrip(' .') + tag + '.wav'
+        name = ascii_name(source.stem)[:IR_NAME_LIMIT - len(tag)].rstrip(' .') + tag + '.wav'
     folder = Path(tempfile.mkdtemp(prefix='tone-import-', dir=workspace))
     return shutil.copyfile(source, folder / name)
 
