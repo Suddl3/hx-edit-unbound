@@ -233,8 +233,10 @@ function focusPresetNames(names, preset) {
 }
 // The Workbench's look at another setlist (Batch 3, setlists.js): once HX Edit's list has been asked for that
 // setlist's names, its rows change when the Floor answers. The reading is taken once the rows have stood still for
-// FOCUS_LOOK_SETTLE_MS and differ from what the list showed before, or after FOCUS_LOOK_SAME_MS when they never
-// changed (two setlists can hold the same names); nothing usable after FOCUS_LOOK_GIVE_UP_MS: failed.
+// FOCUS_LOOK_SETTLE_MS and differ from what the list showed before (or at once when the list showed that setlist
+// already: same). Rows that never change are not taken as the other setlist's (the ask may not have worked): failed
+// after FOCUS_LOOK_SAME_MS, and "Try again" then reads them as they stand (the list shows that setlist by then); nothing
+// usable after FOCUS_LOOK_GIVE_UP_MS: failed. Never another setlist's names under this one's.
 // look: {setlist, at, before, last, lastAt, same, state: 'reading'}; names: the list's rows now (namView.presetNames).
 const FOCUS_LOOK_SETTLE_MS = 500, FOCUS_LOOK_SAME_MS = 2500, FOCUS_LOOK_GIVE_UP_MS = 8000;
 function focusLookStep(look, names, now) {
@@ -245,9 +247,10 @@ function focusLookStep(look, names, now) {
   const word = JSON.stringify(names);
   if (word !== look.last) return {...look, last: word, lastAt: now};
   const settled = now - look.lastAt >= FOCUS_LOOK_SETTLE_MS;
-  if (settled && (look.same || word !== look.before || now - look.at >= FOCUS_LOOK_SAME_MS)) {
+  if (settled && (look.same || word !== look.before)) {
     return {setlist: look.setlist, at: look.at, state: 'ok', names: names.map(name => name.trim().slice(0, 32))};
   }
+  if (now - look.at >= FOCUS_LOOK_SAME_MS) return {setlist: look.setlist, at: look.at, state: 'failed', unchanged: true};
   return look;
 }
 function focusPaneBounds(sf, ed, main) {

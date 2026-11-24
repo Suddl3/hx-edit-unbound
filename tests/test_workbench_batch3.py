@@ -188,9 +188,11 @@ class SetlistTests(unittest.TestCase):
         states, names = steps(start, [[old, 100], [new, 600], [new, 900], [new, 1200]])
         self.assertEqual(states, ['reading', 'reading', 'reading', 'ok'])
         self.assertEqual(names, new)
-        # rows that never change (two setlists with the same names): read after a longer wait
-        states, _ = steps(start, [[old, 100], [old, 700], [old, 2000], [old, 2600]])
-        self.assertEqual(states, ['reading', 'reading', 'reading', 'ok'])
+        # rows that never change: never taken as the other setlist's (the ask may not have worked): failed, and "Try
+        # again" (the list shows that setlist by then: same) reads them as they stand
+        states, names = steps(start, [[old, 100], [old, 700], [old, 2000], [old, 2600]])
+        self.assertEqual(states, ['reading', 'reading', 'reading', 'failed'])
+        self.assertIsNone(names)
         # the list was already there: as soon as the rows stand still
         states, _ = steps({**start, 'same': True}, [[old, 100], [old, 700]])
         self.assertEqual(states, ['reading', 'ok'])
