@@ -858,7 +858,7 @@ class LibraryFloorTests(unittest.TestCase):
 class ToneTrayTests(unittest.TestCase):
     """Stage 6: TONE3000's site at full height with the tray of what was chosen on it."""
 
-    def test_only_the_windows_own_keep_and_load_reach_it(self):
+    def test_only_the_windows_own_keep_load_and_end_reach_it(self):
         from threading import Event
         from unittest.mock import Mock
         from queue import Queue
@@ -867,11 +867,11 @@ class ToneTrayTests(unittest.TestCase):
         preview.browser = Mock(); preview.browser.actions = Queue()
         self.assertFalse(preview.tone_action('keep:3'))                   # not over the Workbench: nothing
         preview.bounds_override = {'visible': True, 'x': 0, 'y': 0, 'w': 800, 'h': 600}
-        for good in ('keep:3', 'save:3:21'):
+        for good in ('keep:3', 'save:3:21', 'end'):                       # (end: the window's own End preview)
             self.assertTrue(preview.tone_action(good))
-        for bad in ('remove:abc', 'save:3:', 'keep:x', 'finish', 'save:3:21;x'):
+        for bad in ('remove:abc', 'save:3:', 'keep:x', 'finish', 'save:3:21;x', 'end:3', 'close', 'bind'):
             self.assertFalse(preview.tone_action(bad))
-        self.assertEqual([preview.browser.actions.get_nowait() for _ in range(2)], ['keep:3', 'save:3:21'])
+        self.assertEqual([preview.browser.actions.get_nowait() for _ in range(3)], ['keep:3', 'save:3:21', 'end'])
         preview.workbench = True                                          # never into the Workbench's own session
         self.assertFalse(preview.tone_action('keep:3'))
 
@@ -886,6 +886,31 @@ class ToneTrayTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("$('vbody').querySelector('.t3web') || $('vbody')", page)     # the site's part only, the tray beside
         self.assertIn("ask('tray', {do: 'save', trial: t.trial, slot: free[0]});", page)
+
+    def test_the_one_playing_has_a_card_that_says_where_and_can_stop(self):
+        # Batch 2 (Nick, 2026-11-23: opening TONE3000 "still feels kind of confusing"): the tray says what is playing,
+        # on which block, that nothing is saved, and has Stop preview beside Load on Floor and Keep on this PC.
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        tray = page[page.index('function drawTray() {'):page.index('function libraryRow(')]
+        self.assertIn("const playing = all.find(i => i.state === 'ready' && i.trial === t.trial) || null, items = all.filter(i => i !== playing);", tray)
+        for words in ("'Playing on '", "'the NAM block on Path ' + (now.dsp + 1)", "'Stop preview'",
+                      "ask('tray', {do: 'end', trial: t.trial});", "ask('tray', {do: 'keep', trial: t.trial});",
+                      "Stop puts the block\u2019s own capture back."):
+            self.assertIn(words, tray)
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        self.assertIn("if preview is not None and value.get('do') == 'end':\n                        preview.tone_action('end')", launcher)
+        src = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
+        # once the preview has ended the tray no longer shows it as the one playing
+        ended = src[src.index("elif action == 'end':"):src.index("status('Target selected. Choose a profile to audition.')")]
+        self.assertIn("tray_now['trial'] = None", ended)
+
+    def test_the_banner_over_the_site_is_in_the_workbenchs_colours_and_plain_words(self):
+        window = (ROOT / 'tone_browser.cs').read_text(encoding='utf-8')
+        self.assertIn('targetBar.BackColor = Color.FromArgb(20, 22, 27);', window)      # workbench.html --panel
+        self.assertNotIn('Color.FromArgb(33, 29, 37)', window)                         # the plum strip
+        self.assertIn('return "Preview plays on " + PlainTarget(Convert.ToString(label));', window)
+        self.assertIn('return "Select a NAM block to hear a tone";', window)
+        self.assertIn('popOut.Text = mode == WindowMode.Floating ? "Dock" : "Pop out";', window)   # Pop out stays
 
 
 class SplitMoveTests(unittest.TestCase):

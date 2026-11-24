@@ -159,11 +159,19 @@ class BrowserWindowChecks {
             }
         }
         var target = new Dictionary<string,object>();
-        Check(ToneBrowser.TargetText(target) == "Select a NAM block in HX Edit");
+        Check(ToneBrowser.TargetText(target) == "Select a NAM block to hear a tone");
         target["selected"] = "NAM A";
         Check(ToneBrowser.TargetText(target) == "Selected: NAM A");
         target["bound"] = true; target["label"] = "NAM B"; target["text"] = "Ready";
-        Check(ToneBrowser.TargetText(target) == "Selected: NAM B");
+        Check(ToneBrowser.TargetText(target) == "Preview plays on NAM B");
+        // the banner names the block plainly: the capture and its path, not the DSP, the block id or the slot
+        target["label"] = "DSP 1 · block0 · Deluxe Reverb · User IR 127";
+        Check(ToneBrowser.TargetText(target) == "Preview plays on Deluxe Reverb · Path 1");
+        Check(ToneBrowser.PlainTarget("DSP 2 · block11 · Klon Gain=0 · User IR 17") == "Klon Gain=0 · Path 2");
+        Check(ToneBrowser.PlainTarget("DSP 1 · block0 · A · B · User IR 9") == "DSP 1 · block0 · A · B · User IR 9");   // not that shape: as it came
+        Check(ToneBrowser.PlainTarget("NAM A") == "NAM A");
+        Check(ToneBrowser.PlainTarget(null) == "");
+        target["label"] = "NAM B";
         target["bound"] = false; target["quarantined"] = true;
         target["text"] = "Preview remains in User IR 128";
         Check(ToneBrowser.TargetText(target).Contains("Preview retained"));

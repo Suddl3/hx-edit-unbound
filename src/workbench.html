@@ -350,6 +350,18 @@
   .ti .act u i { position: absolute; top: 0; bottom: 0; width: 40%; border-radius: 2px; background: #f0c94a; animation: t3slide 1.4s ease-in-out infinite; }
   @keyframes t3slide { from { left: -40%; } to { left: 100%; } }
   .ti.hot { border-color: rgb(176 112 224 / .6); background: rgb(176 112 224 / .1); }
+  /* the one playing now: what it is, where it plays, and what Stop does */
+  .np { border-radius: 12px; padding: 12px; background: linear-gradient(180deg, rgb(176 112 224 / .16), rgb(176 112 224 / .05)); border: 1px solid rgb(176 112 224 / .5); display: grid; gap: 10px; }
+  .np .row { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .np .row img { width: 58px; height: 58px; object-fit: contain; }
+  .np b { font-size: 15px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .np small { color: var(--dim); font-size: 12px; line-height: 1.4; display: block; }
+  .np small em { font-style: normal; color: var(--ink); }
+  .np .eq { display: inline-flex; gap: 2px; align-items: end; height: 10px; margin-right: 7px; }
+  .np .eq i { width: 3px; background: #b070e0; border-radius: 1px; }
+  .np .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .np .acts .btn { justify-content: center; }
+  .np .acts .wide { grid-column: 1 / -1; }
   .tray .bar { border-top: 1px solid var(--line); margin: 0 -18px; padding: 12px 18px; display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 12.5px; }
   .tray .bar b { color: var(--ink); } .tray .bar .sp { flex: 1; }
 
@@ -3067,9 +3079,30 @@ function drawTray() {
   const t = toneTray || {tray: []}, key = JSON.stringify([t, (state.captures || []).length, (state.irs || []).length]);
   if (key === shownTray && box.childElementCount) return;
   shownTray = key;
-  const head = el('div'); head.append(el('b', '', 'From TONE3000'), el('div', 'note2', 'What you chose on the site, and where it is now.'));
+  const head = el('div'); head.append(el('b', '', 'From TONE3000'), el('div', 'note2', 'Click a tone on the site to hear it. Nothing changes for good until you say so.'));
   head.firstChild.style.cssText = 'font-size:16px;font-weight:600';
-  const list = el('div', 'list'), items = t.tray || [], free = Array.isArray(t.free_slots) ? t.free_slots : [];
+  const list = el('div', 'list'), all = t.tray || [], free = Array.isArray(t.free_slots) ? t.free_slots : [];
+  // The one playing now, in a card of its own: what it is, which block plays it, and what Stop does. The preview plays
+  // on the NAM block that was selected when the tone was picked (the banner over the site names it).
+  const playing = all.find(i => i.state === 'ready' && i.trial === t.trial) || null, items = all.filter(i => i !== playing);
+  if (playing) {
+    const now = current(), where = now && isChain(now) && isNam(now) ? 'the NAM block on Path ' + (now.dsp + 1) : 'the selected NAM block';
+    const card = el('div', 'np'), row = el('div', 'row'), words = el('div'), acts = el('div', 'acts'), line = el('small'), eq = el('span', 'eq');
+    for (const height of [5, 10, 7]) { const bar = el('i'); bar.style.height = height + 'px'; eq.append(bar); }
+    line.append(eq, 'Playing on ', el('em', '', where));
+    words.append(el('b', '', playing.name), line, el('small', '', 'Nothing is saved. Stop puts the block’s own capture back.' + (playing.kept ? ' It is in your library.' : '')));
+    row.append(image(captureUrls({icon: playing.icon}), '', true, true), words);
+    const stop = el('button', 'btn wide', 'Stop preview'); stop.title = 'End the preview: the block plays its own capture again';
+    stop.onclick = () => ask('tray', {do: 'end', trial: t.trial});
+    const load = el('button', 'btn pri', free.length ? 'Load on Floor \u00b7 slot ' + free[0] : 'Load on Floor'); load.style.setProperty('--c', '176 112 224');
+    load.disabled = !free.length; load.title = free.length ? 'Load it into slot ' + free[0] + ' (the lowest free one) and keep it on this block. The preset is not saved.' : 'No free slot on the Floor: free one in the NAM library first.';
+    load.onclick = () => ask('tray', {do: 'save', trial: t.trial, slot: free[0]});
+    acts.append(stop, load);
+    if (!playing.kept) { const keep = el('button', 'btn', 'Keep on this PC'); keep.title = 'Add it to your library on this PC. Nothing changes on the Floor.'; keep.onclick = () => ask('tray', {do: 'keep', trial: t.trial}); acts.append(keep); }
+    else load.classList.add('wide');
+    card.append(row, acts);
+    list.append(card);
+  }
   const item = (it, hot) => {
     const row = el('div', 'ti' + (hot ? ' hot' : ''));
     row.append(image(captureUrls({icon: it.icon}), '', true, true), el('b', '', it.name));
@@ -3077,22 +3110,15 @@ function drawTray() {
     if (it.state === 'getting') { sub.textContent = 'downloading and fitting it to the Floor'; const u = el('u'); u.append(el('i')); act.append(el('span', 'wait', 'Getting ready'), u); }
     else if (it.state === 'failed') { sub.textContent = 'did not get ready'; act.append(el('span', 'bad', it.text || 'Something went wrong. Pick it again on the site.')); }
     else if (it.state === 'floor') { sub.textContent = 'in your library'; act.append(el('span', 'ok', '\u2713 Slot ' + it.slot + ' \u00b7 in the Captures drawer')); }
-    else if (it.state === 'ready' && it.trial === t.trial) {
-      sub.textContent = 'previewing on the selected block' + (it.kept ? ' \u00b7 in your library' : '');
-      const load = el('button', 'btn sm pri', 'Load on Floor'); load.style.setProperty('--c', '176 112 224');
-      load.disabled = !free.length; load.title = free.length ? 'Load it into slot ' + free[0] + ' (the lowest free one) and keep it on the selected block. The preset is not saved.' : 'No free slot on the Floor: free one in the library first.';
-      load.onclick = () => ask('tray', {do: 'save', trial: t.trial, slot: free[0]});
-      act.append(load);
-      if (!it.kept) { const keep = el('button', 'btn sm', 'Keep on this PC'); keep.title = 'Add it to your library on this PC. Nothing changes on the Floor.'; keep.onclick = () => ask('tray', {do: 'keep', trial: t.trial}); act.append(keep); }
-    } else { sub.textContent = it.kept ? 'in your library' : 'previewed, not kept'; }
+    else { sub.textContent = it.kept ? 'in your library' : 'heard, not kept'; }
     if (it.gear) sub.textContent = (catalog && lib && lib.gears && lib.gears[it.gear] ? lib.gears[it.gear] : it.gear) + ' \u00b7 ' + sub.textContent;
     row.append(sub, act);
     return row;
   };
   const groups = [['Getting ready', items.filter(i => i.state === 'getting' || i.state === 'failed')],
-                  ['Ready', items.filter(i => i.state === 'ready')], ['On the Floor', items.filter(i => i.state === 'floor')]];
-  for (const [title, these] of groups) if (these.length) list.append(el('h5', '', title), ...these.map(i => item(i, i.key === t.current && i.state === 'ready')));
-  if (!items.length) list.append(el('span', 'note2', 'Pick a tone on the site. It shows here while it gets ready; then you can load it on the Floor. ' + (t.bound === false ? 'Select a NAM block in the chain first: the preview plays on it.' : '')));
+                  ['Heard this session', items.filter(i => i.state === 'ready')], ['On the Floor', items.filter(i => i.state === 'floor')]];
+  for (const [title, these] of groups) if (these.length) list.append(el('h5', '', title), ...these.map(i => item(i, false)));
+  if (!all.length) list.append(el('span', 'note2', 'Pick a tone on the site. It shows here while it gets ready; then you can load it on the Floor. ' + (t.bound === false ? 'Select a NAM block in the chain first: the preview plays on it.' : '')));
   if (t.text) list.append(el('span', 'note2', t.text));
   const bar = el('div', 'bar'), used = (state.captures || []).length + (state.irs || []).length, open = el('button', 'btn sm', 'Open the library');
   open.onclick = () => setView('open', 'library');

@@ -567,9 +567,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     return
                 if name == 'tray' and isinstance(value, dict):
                     # The Workbench's TONE3000 tray: Keep on this PC or Load on Floor for the profile previewing now,
-                    # as the window's own card asks it (TonePreview.tone_action checks the shape; browse() the rest).
+                    # as the window's own card asks it (TonePreview.tone_action checks the shape; browse() the rest),
+                    # or Stop preview (the window's own End preview).
                     trial, slot = value.get('trial'), value.get('slot')
-                    if preview is not None and isinstance(trial, int) and not isinstance(trial, bool):
+                    if preview is not None and value.get('do') == 'end':
+                        preview.tone_action('end')
+                    elif preview is not None and isinstance(trial, int) and not isinstance(trial, bool):
                         if value.get('do') == 'keep':
                             preview.tone_action(f'keep:{trial}')
                         elif value.get('do') == 'save' and isinstance(slot, int) and not isinstance(slot, bool) and 1 <= slot <= 127:

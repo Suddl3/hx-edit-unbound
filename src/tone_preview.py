@@ -307,10 +307,11 @@ class TonePreview:
 
     def tone_action(self, action):
         """The Workbench tray's request for the TONE3000 window sitting in it: Keep on this PC or Load on Floor for
-        the preview now (the window's own "keep:<trial>" / "save:<trial>:<slot>", checked there as from its card)."""
+        the preview now (the window's own "keep:<trial>" / "save:<trial>:<slot>", checked there as from its card), or
+        Stop preview (the window's own "end": the block gets its own capture back)."""
         browser = self.browser
         if (not self.workbench and self.bounds_override is not None and browser is not None and isinstance(action, str)
-                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}', action)):
+                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end', action)):
             browser.actions.put(action)
             return True
         return False
@@ -1265,6 +1266,8 @@ class TonePreview:
                     elif action == 'end':
                         if reply.get('ended'):
                             slot, free_slots, kept = None, [], None
+                            if tray_now is not None:                 # (the tray: it is no longer the one playing)
+                                tray_now['trial'] = None
                         status(reply.get('notice') or 'Preview ended. Choose another tone to audition.')
                     else:
                         status('Target selected. Choose a profile to audition.')
