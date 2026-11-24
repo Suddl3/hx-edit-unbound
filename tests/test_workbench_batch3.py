@@ -199,7 +199,7 @@ class SetlistTests(unittest.TestCase):
         from test_target_binding import FIXTURE, _reader
         source = (ROOT / 'setlists.js').read_text(encoding='utf-8')
         guards = re.findall(r"'([0-9a-f]+)': '([0-9a-f]+)'", source[source.index('const setlistGuards'):source.index('const SETLIST_CONTROLLER_VTABLE')])
-        self.assertEqual(len(guards), 24)
+        self.assertEqual(len(guards), 27)
         # (HX Edit.exe has a dynamic base: no absolute operand in a guard)
         for _, expected in guards:
             self.assertNotIn('ff15', expected)

@@ -49,6 +49,9 @@ const setlistGuards = Object.freeze({
   '25596d': '48506a00e84a721a00',         // HX Edit's own ask: dec eax; push eax (last); push 0; call 0x3fcbc0
   '3ac030': '558bec81c1500100005de9',     // the chooser's item: add ecx, 0x150; jmp 0x386220
   '386220': '558bec8b417c8b4d083b4808730e8b400485c0740d8b0488',   // items at [+0x7c]+4, count at +8
+  '3865e0': '68400100008bf86a0057',       // an item: 0x140 bytes, zeroed (memset(item, 0, 0x140))
+  '3865ef': '68ff000000ff750c680001000057e8',   //   its name: strncpy_s(item, 0x100, name, 0xff)
+  '386608': 'c687ff00000000',             //   and item[0xff] = 0
   '3bcb20': '558bec807d1000b8',           // the chooser's selection (index, 1, 0)
   '3fb7a0': '558bec6aff',                 // the model's "rename preset" (operation 3)
   '3fb80b': 'c745d803000000',             //   operation = 3
@@ -66,21 +69,36 @@ const SETLIST_ASKS = 3, SETLIST_ASK_MS = 10000;
 
 // The names in a chooser's item array as read memory gives them: {names: 1..32 names of up to 32 printable
 // characters, or null; word: how far the reading got, for the trace}.
-function setlistRead(count, read) {
+// dump(index): the item's first 64 bytes as hex, put in the word when a name is refused (traced once per change), so a
+// launch settles the item's layout.
+function setlistRead(count, read, dump = () => '') {
   if (!Number.isInteger(count)) return {names: null, word: 'count-unreadable'};
   if (count === 0) return {names: null, word: 'chooser-empty'};
   if (count < 0 || count > 32) return {names: null, word: 'count-' + count};
   const names = [];
   for (let index = 0; index < count; index++) {
     const name = read(index);
-    if (name === null || name === undefined) return {names: null, word: `item-${index}-null (count ${count})`};
+    if (name === null || name === undefined) return {names: null, word: `item-${index}-null (count ${count}); bytes ${dump(index)}`};
+    if (name === false) return {names: null, word: `item-${index}-no-nul (count ${count}); bytes ${dump(index)}`};
     if (typeof name !== 'string' || !/^[\x20-\x7e]{1,32}$/.test(name)) {
-      return {names: null, word: `item-${index}-refused (count ${count}): ` + JSON.stringify(String(name).slice(0, 40)) + ' length ' + String(name).length};
+      return {names: null, word: `item-${index}-refused (count ${count}): ` + JSON.stringify(String(name).slice(0, 40)) + ' length ' + String(name).length + '; bytes ' + dump(index)};
     }
     names.push(name.trim());
   }
   return {names, word: 'ok-' + count};
 }
+// A chooser item's text (live check 2026-11-24 09:44; static: HX Edit's append 0x386590 makes each item a zeroed 0x140-byte
+// block and copies the name with strncpy_s(item, 0x100, name, 0xff), 0xa2a602, so the name is a NUL-terminated string
+// in the item's first 256 bytes): the bytes up to the first NUL, or null when there is none in those 256. (Frida's
+// readCString(64) had read exactly 64 bytes, past the NUL into strncpy_s's fill bytes.)
+function setlistText(bytes) {
+  const end = bytes.indexOf(0);
+  if (end < 0) return null;
+  let text = '';
+  for (let i = 0; i < end; i++) text += String.fromCharCode(bytes[i]);
+  return text;
+}
+const setlistHex = bytes => Array.from(bytes.slice(0, 64), b => b.toString(16).padStart(2, '0')).join('');
 const setlistNamesFrom = (count, read) => setlistRead(count, read).names;
 
 function installSetlists() {
@@ -137,10 +155,11 @@ function installSetlists() {
       if (array.isNull()) return {names: null, word: 'no-item-array (' + via + ')'};
       const count = array.add(8).readU32(), items = array.add(4).readPointer();
       if (items.isNull() && count) return {names: null, word: `items-null (count ${count}, ${via})`};
+      const bytesOf = index => { const item = items.add(4 * index).readPointer(); return item.isNull() ? null : new Uint8Array(item.readByteArray(256)); };
       const result = setlistRead(count, index => {
-        const item = items.add(4 * index).readPointer();
-        return item.isNull() ? null : item.readCString(64);
-      });
+        const bytes = bytesOf(index);
+        return bytes ? setlistText(bytes) ?? false : null;            // (false: no NUL in the item's 256 bytes)
+      }, index => { try { const bytes = bytesOf(index); return bytes ? setlistHex(bytes) : 'none'; } catch (_) { return 'unreadable'; } });
       return {names: result.names, word: result.word + ' (' + via + ')'};
     } catch (error) { return {names: null, word: 'read-failed: ' + String(error.message).slice(0, 60)}; }
   }
@@ -216,5 +235,5 @@ function installSetlists() {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { setlistGuards, setlistRead, setlistNamesFrom, installSetlists, SETLIST_CONTROLLER_VTABLE, SETLIST_ASKS, SETLIST_ASK_MS };
+  module.exports = { setlistGuards, setlistRead, setlistText, setlistHex, setlistNamesFrom, installSetlists, SETLIST_CONTROLLER_VTABLE, SETLIST_ASKS, SETLIST_ASK_MS };
 }

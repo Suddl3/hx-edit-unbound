@@ -3,7 +3,8 @@
 // setlist names read from its chooser's items, another setlist asked for as HX Edit's chooser asks it, and a preset of
 // the setlist the list shows loaded as its double-click loads it.
 const assert = require('node:assert/strict');
-const {setlistGuards: guards, setlistRead, setlistNamesFrom, installSetlists: install, SETLIST_CONTROLLER_VTABLE, SETLIST_ASKS, SETLIST_ASK_MS} = require('../src/setlists.js');
+const {setlistGuards: guards, setlistRead, setlistText, setlistHex, setlistNamesFrom, installSetlists: install, SETLIST_CONTROLLER_VTABLE, SETLIST_ASKS, SETLIST_ASK_MS} = require('../src/setlists.js');
+const items_without_nul = new Set();
 const BASE = 0x400000, memory = new Map(), strings = new Map(), hooks = new Map(), calls = [], sent = [];
 global.send = message => sent.push(message);
 let address = 0x20000000;
@@ -19,6 +20,13 @@ class Pointer {
   readPointer() { return new Pointer(this.readU32()); }
   readCString() { return strings.get(this.value); }
   readByteArray(size) {
+    // (a chooser item as HX Edit makes it: its name, a NUL, then strncpy_s's fill bytes, 0xfe; "nonul": none at all)
+    if (strings.has(this.value)) {
+      const text = strings.get(this.value), bytes = new Uint8Array(size).fill(0xfe);
+      Buffer.from(text, 'latin1').copy(Buffer.from(bytes.buffer));
+      if (!items_without_nul.has(this.value)) bytes[text.length] = 0;
+      return bytes.buffer;
+    }
     const rva = (this.value - BASE).toString(16);
     return Uint8Array.from(Buffer.from(guards[rva] || '00'.repeat(size), 'hex')).buffer;
   }
@@ -48,8 +56,13 @@ assert.equal(setlistNamesFrom(1, () => ''), null);
 // (and how far a reading got, for the trace)
 assert.equal(setlistRead(0, () => 'x').word, 'chooser-empty');
 assert.equal(setlistRead(40, () => 'x').word, 'count-40');
-assert.equal(setlistRead(2, i => ['USER 1', null][i]).word, 'item-1-null (count 2)');
-assert.equal(setlistRead(1, () => 'Café').word, 'item-0-refused (count 1): "Café" length 4');
+assert.equal(setlistRead(2, i => ['USER 1', null][i]).word, 'item-1-null (count 2); bytes ');
+assert.equal(setlistRead(1, () => 'Café', () => 'c3a9').word, 'item-0-refused (count 1): "Café" length 4; bytes c3a9');
+// an item's text: up to its first NUL (HX Edit's strncpy_s fills the rest of the field with other bytes); none: null
+assert.equal(setlistText(Uint8Array.from([0x46, 0x41, 0x43, 0, 0xfe, 0xfe, 0x41])), 'FAC');
+assert.equal(setlistText(Uint8Array.from([0x46, 0xfe, 0xfe])), null);
+assert.equal(setlistText(Uint8Array.from([0])), '');
+assert.equal(setlistHex(new Uint8Array(100).fill(0xfe)), 'fe'.repeat(64));
 assert.equal(setlistRead(8, () => 'USER').word, 'ok-8');
 
 const api = install();
@@ -70,13 +83,22 @@ controller.writeU32(BASE + SETLIST_CONTROLLER_VTABLE);
 controller.add(0x29c).writeU32(model.value); controller.add(0x40).writeU32(chooser.value); controller.add(0x54).writeS32(2);
 controller.add(0x2b0).writeU32(0x210001);
 chooser.add(0x150 + 0x7c).writeU32(array.value); array.add(4).writeU32(items.value); array.add(8).writeU32(NAMES.length);
-NAMES.forEach((name, i) => { const item = alloc(64); strings.set(item.value, name); items.add(4 * i).writeU32(item.value); });
+const itemAt = [];
+NAMES.forEach((name, i) => { const item = alloc(0x140); strings.set(item.value, name); items.add(4 * i).writeU32(item.value); itemAt.push(item); });
+
 const made = {context: {ecx: controller}};
 hooks.get(0x240210).onEnter.call(made); hooks.get(0x240210).onLeave.call(made);
 assert.equal(api.ready(), true);
 assert.deepEqual(api.names(), NAMES);
 assert.equal(api.shown(), 2);
 assert.equal(api.explain(), 'names: ok-8 (constructor); shown: shown-2');
+// (live check 09:44: the names sit in fill bytes after their NUL: read up to it. An item with no NUL in its 256 bytes is
+// refused, and its first 64 bytes go to the trace as hex)
+items_without_nul.add(itemAt[0].value);
+assert.equal(api.names(), null);
+assert.equal(api.explain(), 'names: item-0-no-nul (count 8); bytes ' + Buffer.from('FACTORY 1').toString('hex') + 'fe'.repeat(55) + ' (constructor); shown: shown-2');
+items_without_nul.delete(itemAt[0].value);
+assert.deepEqual(api.names(), NAMES);
 assert.deepEqual(sent.at(-1), {type: 'toneTrace', reason: 'setlists', stage: 'controller', via: 'constructor'});
 assert.equal(api.askNames(), false);                       // (names there: nothing asked)
 assert.equal(calls.length, 0);
