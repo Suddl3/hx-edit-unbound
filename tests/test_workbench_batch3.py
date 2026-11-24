@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import focus_view  # noqa: E402
 import workbench  # noqa: E402
-from test_focus_view import NODE, FakePane, resources, run_js  # noqa: E402
+from test_focus_view import NODE, FakePane, resources, run_js, run_js_source  # noqa: E402
 
 
 def setUpModule():
@@ -424,7 +424,7 @@ class FloorSlotTests(unittest.TestCase):
         # HX Edit's own Clear, with its protection: never a slot the loaded preset uses, nor while that cannot be read
         reader = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         body = reader[reader.index('    clearSlotsChecked(slots) {'):reader.index('    previewSlotEmpty(transfer) {')]
-        self.assertIn("if (!raw?.tree) return {refused: 'unknown'", body)
+        self.assertIn("if (!(preset?.slots instanceof Set)) return {refused: 'unknown'", body)
 
         self.assertIn("if (used.length) return {refused: 'used', slots: used};", body)
         self.assertIn('submitClear(librarian, vector, sorted);', body)
@@ -545,8 +545,10 @@ class LiveCheckFixTests(unittest.TestCase):
         # Cause: the strict preset reader refuses preset shapes it does not know ("unsupported-global-node").
         reader = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         body = reader[reader.index('    clearSlotsChecked(slots) {'):reader.index('    previewSlotEmpty(transfer) {')]
-        self.assertIn('const raw = readCurrentPreset(true, true);', body)
-        self.assertIn('const preset = presetIrSlotsLenient(raw.tree, irParameters, AUDITION_SLOT);', body)
+        self.assertIn('const preset = presetSlotsForClear();', body)
+        shared = reader[reader.index('  function presetSlotsForClear() {'):reader.index('  function presetSlotUse(slot) {')]
+        self.assertIn('const raw = readCurrentPreset(true, true);', shared)
+        self.assertIn('return presetIrSlotsLenient(raw.tree, irParameters, AUDITION_SLOT);', shared)
         self.assertNotIn('irList().isNull()', body)                          # HX Edit's own IR list need not be built
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("if (result.refused) clearNote = {text: (CLEAR_REFUSED[result.refused] || CLEAR_REFUSED.bad)(result.slots || []), at: Date.now()};", script)
@@ -577,6 +579,69 @@ class LiveCheckFixTests(unittest.TestCase):
     def test_f_the_dimmed_floor_buttons_say_why(self):
         source = page()
         self.assertIn("'Put on the Floor and Preview work on the NAM block selected in the chain. Select one there (Back to the chain), then come back.'", source)
+
+
+class PreviewEndTests(unittest.TestCase):
+    """Live check 2026-11-24 11:47 (trial 20261124-114511-df7e104e): End preview on 032 put the block back on 127 but
+    its own clean-up of slot 128 was refused ("clear-refused"); the preset kept an unsaved dot; after the Floor slots
+    tab cleared 128 by hand, leaving the library said "Preview slot ownership changed"."""
+
+    def test_the_preview_clean_up_uses_the_floor_slots_clear_check(self):
+        # Cause: canClearPreview / previewUse asked the strict preset reader, which refuses 032's shape.
+        reader = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        use = reader[reader.index('  function presetSlotUse(slot) {'):reader.index('  // --- Which presets use each IR slot')]
+        self.assertIn('const preset = presetSlotsForClear();', use)
+        self.assertIn("return preset.slots.has(slot) ? 'used' : 'unused';", use)
+        view = reader[reader.index('    canClearPreview(transfer) {'):reader.index('    clearPreview(transfer) {')]
+        self.assertIn("return this.previewUse(transfer) === 'unused';", view)
+        self.assertIn('return presetSlotUse(transfer.slot);', view)
+        self.assertIn('const use = presetSlotUse(AUDITION_SLOT);', view)       # the leftover from an earlier launch too
+        self.assertNotIn('readCurrentPreset()', view)
+
+    def test_the_lenient_check_counts_128_and_snapshot_controlled_slots(self):
+        source = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
+        helper = source[source.index('function presetIrSlotsLenient('):source.index('function previewSlotUnused(')]
+        tree = {'global': {}, 'globalNodes': {'snapshot0': {'controllers': {'dsp0': {'block1': {'Index': {'@value': 128}}}}},
+                                              'unknownNode': {'x': {'y': 1}}},
+                'dsp0': {'block0': {'@model': 'NAM', 'Index': 127}, 'block1': {'@model': 'NAM', 'Index': 9}}, 'dsp1': {}}
+        slots = run_js_source(helper, '[...presetIrSlotsLenient(%s, {NAM: ["Index"]}, 128).slots].sort((a, b) => a - b)' % json.dumps(tree))
+        self.assertEqual(slots, [9, 127, 128])                    # an unknown global node is no refusal
+
+
+    def test_end_preview_ends_with_the_block_back_even_when_128_stays(self):
+        tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        body = tone[tone.index('  function restoreOwnedPreview(request, completed) {'):tone.index('  function slotGone(request, completed) {')]
+        self.assertIn("const use = namView.previewUse(transfer);", body)
+        self.assertIn("if (use === 'unknown' && !expired) return null;", body)
+        self.assertIn("'It stays marked as ours, so the next preview replaces it; Floor slots can clear it.'", body)
+        self.assertNotIn("retained('clear-refused'", body)                # the block is back: the session is not held
+        self.assertNotIn("retained('clear-not-confirmed'", body)
+        self.assertNotIn('Preview slot ownership changed', tone)
+        # emptied by the user: no note; something else there: plain words
+        self.assertIn('if (namView.previewSlotEmpty(transfer)) return slotGone(request, completed);', body)
+        self.assertIn("return completed('Slot 128 holds something else now, so the preview\\'s clean-up left it and the block as they are.');", tone)
+        # the next preview never replaces a 128 this preset uses
+        self.assertIn("if (namView.slotUse?.(AUDITION_SLOT) === 'used') {", tone)
+
+    def test_the_previews_own_two_steps_are_not_an_unsaved_change(self):
+        mark = lambda *a: run_js(['workbench_layout.js'], 'workbenchPreviewMark(%s)' % ', '.join(json.dumps(x) for x in a))
+        clean = {'key': '3:31', 'at': 1}
+        ended = {'from': 1, 'to': 3, 'at': 10000}
+        self.assertEqual(mark(clean, '3:31', 3, ended, 11000)['at'], 3)        # 1 -> preview 2 -> back 3: unchanged
+        self.assertEqual(mark(clean, '3:31', 4, ended, 11000)['at'], 1)        # one step more: a real change
+        self.assertEqual(mark({'key': '3:31', 'at': 0}, '3:31', 3, ended, 11000)['at'], 0)   # changed before it began
+        self.assertEqual(mark(clean, '3:32', 3, ended, 11000)['at'], 1)        # another preset
+        self.assertEqual(mark(clean, '3:31', 3, ended, 19000)['at'], 1)        # long after
+        self.assertEqual(mark(clean, '3:31', 3, None, 11000)['at'], 1)
+        self.assertEqual(run_js(['workbench_layout.js'], 'WORKBENCH_PREVIEW_END_MS'), 8000)
+        self.assertIn('savedMark = workbenchPreviewMark(savedMark, after, state.undoAt, state.previewEnded, Date.now());', page())
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn('state.previewEnded = toneView.previewEnded ? toneView.previewEnded() : null;', script)
+        tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
+        self.assertIn("previewEnd = {from: origin.undo, to: active.undoAfter + 1, at: Date.now()};", tone)
+        self.assertIn('if (!active.origin.structural && undoBefore !== (active.previewChain ?? active.origin.undo)) active.previewTainted = true;', tone)
+        self.assertIn('previewEnded: () => previewEnd,', tone)
+
 
 
 if __name__ == '__main__':

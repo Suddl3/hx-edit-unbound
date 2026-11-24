@@ -213,6 +213,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
   let leftover = profile.navigation ? leftoverRecord(profile.leftoverPreview) : null;
   let leftoverCheckAt = 0;
+  // The last preview that ended with its block back on its own capture, nothing else changed meanwhile: the undo
+  // position before it (from) and after its step back (to). The Workbench's unsaved mark moves from one to the other
+  // (focus_view state.previewEnded; workbench_layout workbenchPreviewMark).
+  let previewEnd = null;
   // The names this editor gave its own previews in User IR 128 (each carries a random tag: nam_convert
   // stage_tone_import), kept by the launcher (floor_memory previews) from one launch to the next: a
   // leftover of ours found in 128 is replaced without asking (floorPreviewPlan).
@@ -3866,6 +3870,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       active.inserting = active.origin.structural;
     }
     const undoBefore = undoIndex();
+    // (the preview's own undo steps, for the Workbench's unsaved mark (previewEnded): each preview starts where the
+    // one before it ended, else something else was changed in between and the steps are not only the preview's)
+    if (!active.origin.structural && undoBefore !== (active.previewChain ?? active.origin.undo)) active.previewTainted = true;
     const deadline = Date.now() + 1500;
     if (active.inserting) insertNam();
     let selecting = false;
@@ -4023,6 +4030,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         active.transfer = null;
         active.origin = null;
         active.undoAfter = undefined;
+        active.previewChain = undefined;
+        active.previewTainted = false;
         releaseTarget();
       }
       publishTarget(result.notice);
@@ -4060,7 +4069,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       return retained('preset-saved', 'The preset was saved while this preview was playing, so the saved preset uses User IR 128. Nothing was restored or cleared.');
     }
     if (!nativeTarget?.valid || active.context !== contextVersion) return releaseDetachedPreview(request, completed, retained);
-    if (!namView.previewName(transfer)) return retained('ownership-changed', 'Preview slot ownership changed. Nothing was overwritten or cleared.');
+    if (!namView.previewName(transfer)) {
+      // Slot 128 no longer holds this preview. Emptied (the Workbench's Floor slots Clear, say, live check
+      // 2026-11-24 11:48): nothing is wrong and nothing is left to do. Something else in it: left as it is.
+      if (namView.previewSlotEmpty(transfer)) return slotGone(request, completed);
+      return slotTaken(request, completed);
+    }
     // The capture the block ends on: its original one, or, when the preview ended because the
     // block itself was moved off the preview slot (watchPreviewLeft: an Undo, or Model changed on
     // an unlocked block), the one it plays now. Keeping 128 then only blocked the next preview.
@@ -4094,7 +4108,30 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       }
     } catch (error) { return retained('native-read-or-write-failed', String(error.message)); }
     active.restoring = true;
-    let clearing = false, refreshed = false;
+    let clearing = false, refreshed = false, confirmed = false;
+    const finish = notice => {
+      namView.stopPreview();
+      active.transfer = null;
+      active.restoring = false;
+      forgetPreview();
+      // (the block plays its own capture again: the preview's two steps (to 128, back) count for nothing when nothing
+      // else was changed meanwhile; the Workbench's unsaved mark moves past them, previewEnded)
+      if (keep === origin.slot && !origin.structural && Number.isInteger(active.undoAfter)) {
+        active.previewChain = active.undoAfter + 1;
+        if (['end', 'close', 'autoEnd'].includes(request.action) && !active.previewTainted) {
+          previewEnd = {from: origin.undo, to: active.undoAfter + 1, at: Date.now()};
+        }
+      }
+      return completed(notice);
+    };
+    // The block is back but User IR 128 could not be cleared: the preview has ended all the same (nothing of it plays);
+    // the slot keeps it, named as ours (ownPreviews), so the next preview replaces it without asking and the Floor
+    // slots tab offers to clear it. Said on the page in plain words.
+    const slotKept = (reason, observed, why) => {
+      cleanupTrace(request, 'slot-kept', observed, reason);
+      return finish(`The block plays its own capture again. Slot 128 still holds the preview: ${why} ` +
+        'It stays marked as ours, so the next preview replaces it; Floor slots can clear it.');
+    };
     poll(request, expired => {
       try {
         if (!nativeTarget.valid || active.context !== contextVersion || active.deviceSaved) {
@@ -4116,23 +4153,50 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           return retained('restore-not-confirmed', 'The previous block did not confirm its original capture. Preview was retained.', current.slot);
         }
         if (!clearing) {
-          cleanupTrace(request, 'native-model-confirmed', current.slot);
-          if (!namView.previewName(transfer) || !namView.canClearPreview(transfer) || !namView.clearPreview(transfer)) {
-            return retained('clear-refused', 'User IR 128 is still referenced or could not be checked. The original block is restored; the slot was retained.', current.slot);
+          if (!confirmed) { confirmed = true; cleanupTrace(request, 'native-model-confirmed', current.slot); }
+          if (!namView.previewName(transfer)) {
+            if (namView.previewSlotEmpty(transfer)) { cleanupTrace(request, 'already-empty', current.slot); return finish(); }
+            cleanupTrace(request, 'slot-taken', current.slot, 'ownership-changed');
+            return finish('The block plays its own capture again. Slot 128 holds something else now, so it was left as it is.');
           }
+          // (live check 2026-11-24 11:47: the strict preset reader refused 032, "clear-refused" though nothing used
+          // 128. The same check as the Floor slots' Clear now: namView.previewUse, the lenient reader with 128.)
+          const use = namView.previewUse(transfer);
+          if (use === 'unknown' && !expired) return null;            // the preset is busy or changing: asked again
+          if (use === 'used') return slotKept('still-referenced', current.slot, 'another block or snapshot of this preset uses it.');
+          if (use !== 'unused') return slotKept('clear-refused', current.slot, 'HX Edit could not say whether this preset uses it.');
+          if (!namView.clearPreview(transfer)) return slotKept('clear-refused', current.slot, 'HX Edit did not take the Clear.');
           clearing = true;
         }
         if (!namView.previewSlotEmpty(transfer)) {
-          return expired ? retained('clear-not-confirmed', 'The original block is restored; clearing User IR 128 was not confirmed.', current.slot) : null;
+          return expired ? slotKept('clear-not-confirmed', current.slot, 'the Clear was not confirmed in time.') : null;
         }
         cleanupTrace(request, 'completed', current.slot);
-        namView.stopPreview();
-        active.transfer = null;
-        active.restoring = false;
-        forgetPreview();
-        return completed();
+        return finish();
       } catch (error) { return retained('native-read-or-clear-failed', String(error.message)); }
-    }, 3500);
+    }, 6000);
+  }
+
+  // Slot 128 was emptied while the preview was on (the Floor slots tab's Clear: it refuses a slot the preset uses, so
+  // the block no longer plays it). The preview has ended; no note: nothing went wrong.
+  function slotGone(request, completed) {
+    cleanupTrace(request, 'already-empty');
+    namView.stopPreview();
+    active.transfer = null;
+    active.restoring = false;
+    forgetPreview();
+    return completed();
+  }
+
+  // Slot 128 holds something that is not this preview: it is left as it is, and so is the block. The preview has
+  // ended (nothing of ours is left to clean up).
+  function slotTaken(request, completed) {
+    cleanupTrace(request, 'slot-taken', null, 'ownership-changed');
+    namView.stopPreview();
+    active.transfer = null;
+    active.restoring = false;
+    forgetPreview();
+    return completed('Slot 128 holds something else now, so the preview\'s clean-up left it and the block as they are.');
   }
 
   function releaseDetachedPreview(request, completed, retained) {
@@ -4158,10 +4222,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       let finished = false;
       try {
         if (!namView.previewName(transfer)) {
-          if (!namView.previewSlotEmpty(transfer)) {
-            return retained('ownership-changed', 'Preview slot ownership changed. Nothing was overwritten or cleared.');
-          }
-          finished = true; // already cleared elsewhere
+          if (!namView.previewSlotEmpty(transfer)) return slotTaken(request, completed);
+          finished = true; // already cleared elsewhere (the Floor slots tab, say): no note
         } else if (!clearing) {
           const state = use();
           if (state !== 'unused') {
@@ -4198,13 +4260,13 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
 
   function restoreBoundPreview(request) {
-    return restoreOwnedPreview(request, () => {
+    return restoreOwnedPreview(request, notice => {
         const permanent = active.orphanTransfer?.slot;
         if (permanent && permanent !== 128) {
           active.orphanTransfer = null;
-          return afterRestore(request, {notice:`Preview ended. The completed library upload remains in User IR ${permanent}.`});
+          return afterRestore(request, {notice:[notice, `Preview ended. The completed library upload remains in User IR ${permanent}.`].filter(Boolean).join(' ')});
         }
-        return afterRestore(request, {});
+        return afterRestore(request, notice ? {notice} : {});
     });
   }
 
@@ -4228,7 +4290,13 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (plan.kind === 'first') {
         if (active.navigation) captureTarget();
         if (!plan.replace) return load(plan.slot);
+        // (an earlier preview of ours kept in 128 because this preset uses it (slotKept, "still-referenced"): replacing
+        // it would change what that block or snapshot plays)
+        if (namView.slotUse?.(AUDITION_SLOT) === 'used') {
+          throw new Error('Slot 128 is used by this preset (a block or snapshot plays it), so it was not replaced. Nothing was uploaded.');
+        }
         if (!namView.clearSlot(AUDITION_SLOT)) throw new Error('User IR 128 could not be cleared for the preview.');
+
         poll(request, expired => {
           if (!namView.slotEmpty(AUDITION_SLOT)) {
             if (!expired) return null;
@@ -4245,10 +4313,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // returned to its permanent capture. Direct Model edits retain Input/EQ;
       // no Undo and no unknown-slot replacement is used between auditions.
       if (active.navigation) {
-        return restoreOwnedPreview(request, () => {
+        return restoreOwnedPreview(request, notice => {
           if (!atTarget() || request.targetVersion !== active.targetVersion) {
             throw new Error('The selected NAM target changed; no replacement preview was uploaded.');
           }
+          // (slot 128 kept, see slotKept: the next preview would need the same Clear first)
+          if (notice && !namView.slotEmpty(AUDITION_SLOT)) throw new Error(notice);
           load(AUDITION_SLOT);
           return {};
         });
@@ -4308,8 +4378,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // Save explicitly keeps this capture. If selection changes while cleanup
       // completes, do not restore the capture that preceded the saved preview.
       active.origin = {slot:saved.slot,block:active.block,position:active.position,structural:false};
+      active.previewTainted = true;           // the block keeps a new capture: a real change
     }
     let clearing = false;
+
     poll(request, expired => {
       // HX Edit can update the Model widget before recording the edit for Undo.
       if (namView.modelSlot() !== saved.slot || undoIndex() < expected) {
@@ -4623,6 +4695,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
   listen();
   return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook,
+           previewEnded: () => previewEnd,
+
            // Focus Mode: the block the editor's cursor is on, as {editor, dsp, block}. With no cursor yet,
            // the edit buffer alone ({editor, dsp: -1, block: ''}), or null before HX Edit has shown any block.
            cursorBlock: () => {

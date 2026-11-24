@@ -1501,6 +1501,22 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     }
   }
 
+  // The IR slots the loaded preset uses, for a Clear (the Workbench's Floor slots and a preview's own clean-up):
+  // the lenient reader with 128 counted. The strict presetIrSlots refuses whole preset shapes it does not know
+  // ("unsupported-global-node", live checks 2026-11-24 10:43 and 11:47), so nothing could ever be cleared on them.
+  // {slots: Set} or {reason}.
+  function presetSlotsForClear() {
+    const raw = readCurrentPreset(true, true);
+    if (!raw?.tree) return {reason: String(raw?.reason || 'unreadable')};
+    return presetIrSlotsLenient(raw.tree, irParameters, AUDITION_SLOT);
+  }
+  // 'used' | 'unused' | 'unknown' (the preset cannot be read right now: busy, changing, no editor).
+  function presetSlotUse(slot) {
+    const preset = presetSlotsForClear();
+    if (!(preset?.slots instanceof Set)) return 'unknown';
+    return preset.slots.has(slot) ? 'used' : 'unused';
+  }
+
   // --- Which presets use each IR slot, learned as presets are opened ---
   // HX Edit keeps the loaded preset's header as the Floor sent it, packed as MessagePack, at
   // [[editor+0x140]+0x3c]: {0x66: n, 0x67: n, 0x68: {0x6b: setlist, 0x6c: preset, 0x6d: name, …}}
@@ -2184,25 +2200,25 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       return !!this.previewName(transfer) && setModelSlot(transfer.slot);
     },
     canClearPreview(transfer) {
-      return !!transfer && !!this.previewName(transfer) && previewSlotUnused(readCurrentPreset(), transfer.slot);
+      return this.previewUse(transfer) === 'unused';
     },
     previewUse(transfer) {
       // Whether the current preset references this session's preview slot: 'unused' (safe to
       // clear), 'used', or 'unknown' when the slot is not ours by name or the preset cannot be
-      // read right now (busy, changing, or a shape presetIrSlots does not support).
-      if (!transfer || !this.previewName(transfer)) return 'unknown';
-      const preset = readCurrentPreset();
-      if (!(preset?.slots instanceof Set)) return 'unknown';
-      return preset.slots.has(transfer.slot) ? 'used' : 'unused';
+      // read right now (busy, changing). The same check as the Floor slots' Clear (presetSlotsForClear).
+      if (!transfer || !Number.isInteger(transfer.slot) || !this.previewName(transfer)) return 'unknown';
+      return presetSlotUse(transfer.slot);
     },
+    // Whether the loaded preset uses this IR slot, by the Clear's check: 'used' | 'unused' | 'unknown'.
+    slotUse: slot => Number.isInteger(slot) && slot >= 1 && slot <= AUDITION_SLOT ? presetSlotUse(slot) : 'unknown',
     releaseLeftoverPreview(name) {
       // A preview left in User IR 128 by a session that ended without cleanup, known only by
       // its slot name. Cleared once the current preset no longer references the slot.
       // 'gone': 128 no longer holds it; 'used' / 'unknown': not yet; 'cleared': clear submitted.
       if (typeof name !== 'string' || !name || this.slotName(AUDITION_SLOT) !== name) return 'gone';
-      const preset = readCurrentPreset();
-      if (!(preset?.slots instanceof Set)) return 'unknown';
-      if (preset.slots.has(AUDITION_SLOT)) return 'used';
+      const use = presetSlotUse(AUDITION_SLOT);
+
+      if (use !== 'unused') return use;
       return this.clearSlot(AUDITION_SLOT) ? 'cleared' : 'unknown';
     },
     clearPreview(transfer) {
@@ -2266,9 +2282,8 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       // (live check 2026-11-24 10:43: the strict reader refuses whole preset shapes it does not know,
       // "unsupported-global-node", so nothing could be cleared. The lenient one reads the blocks' IR slots and
       // snapshot-controlled ones of any preset; with 128 too. The Workbench also checks the blocks it reads itself.)
-      const raw = readCurrentPreset(true, true);
-      if (!raw?.tree) return {refused: 'unknown', reason: String(raw?.reason || '')};
-      const preset = presetIrSlotsLenient(raw.tree, irParameters, AUDITION_SLOT);
+      const preset = presetSlotsForClear();
+      if (!(preset?.slots instanceof Set)) return {refused: 'unknown', reason: preset?.reason || ''};
       const used = slots.filter(slot => preset.slots.has(slot));
       if (used.length) return {refused: 'used', slots: used};
       const sorted = [...slots].sort((a, b) => a - b), index = Memory.alloc(4 * sorted.length);

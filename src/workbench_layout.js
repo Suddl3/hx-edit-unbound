@@ -314,6 +314,19 @@ function workbenchSettledMark(mark, key, undoAt, now, editAskedAt) {
   return {...mark, at: undoAt};
 }
 
+// A preview adds two undo steps of its own: the block to slot 128, and back to its own capture when it ends. When it
+// ended so, with nothing else changed meanwhile (tone_view previewEnded: {from, to, at}: the position before it and
+// after the step back), the preset is as it was: the mark moves from `from` to `to`. Only while the mark stood at
+// `from` (the preset was unchanged when the preview began), only at exactly `to` (one step more is a real change), and
+// only for WORKBENCH_PREVIEW_END_MS after it ended. (live check 2026-11-24 11:47: 032 kept the dot after End preview)
+const WORKBENCH_PREVIEW_END_MS = 8000;
+function workbenchPreviewMark(mark, key, undoAt, ended, now) {
+  if (!mark || mark.key !== key || !ended || typeof ended.from !== 'number' || typeof ended.to !== 'number' ||
+      typeof ended.at !== 'number' || now > ended.at + WORKBENCH_PREVIEW_END_MS) return mark;
+  if (mark.at !== ended.from || undoAt !== ended.to) return mark;
+  return {...mark, at: undoAt};
+}
+
 // ---- a name box of our own: a preset's name, a snapshot's ---------------------------------------------------------
 // The Floor keeps 16 characters for a preset's name and 10 for a snapshot's, in its own font: the printable ASCII
 // characters (space to "~"). What it would refuse is left out as it is typed, quietly; anything past the limit too.
@@ -402,6 +415,7 @@ function workbenchSlotUsers(usage, slot, loaded) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
-                     workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_BACK_MS, WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
+                     workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, WORKBENCH_BACK_MS,
+ WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

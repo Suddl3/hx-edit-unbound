@@ -3855,6 +3855,10 @@ function receive(message) {
     // a change meanwhile: live check 2026-11-24 10:40, a block picker side chosen for the new preset's block made a
     // "Change Model" step (BACKLOG: fix-side-change-model) and the dot showed on a preset nobody touched)
     else savedMark = workbenchSettledMark(savedMark, after, state.undoAt, Date.now(), editAskedAt);
+    // (a preview that ended with its block back on its own capture: its own two steps are not a change; live check
+    // 2026-11-24 11:47, 032 kept the dot after End preview. A change made during it keeps the dot.)
+    savedMark = workbenchPreviewMark(savedMark, after, state.undoAt, state.previewEnded, Date.now());
+
 
     // (values set in other snapshots are shown as set until HX Edit's own record agrees: forgotten on another preset
     // or an undo)

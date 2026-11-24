@@ -126,6 +126,10 @@ function fixture(options = {}) {
     previewName: transfer => preview === transfer && transfer.imported ? 'owned-preview' : '',
     previewSlotEmpty: () => preview === null,
     canClearPreview: () => clearAllowed,
+    slotUse(slot) {
+      if (presetUse) return presetUse;
+      return [...states.values()].some(block => block.slot === slot) ? 'used' : 'unused';
+    },
     previewUse(transfer) {
       if (preview !== transfer || !transfer.imported) return 'unknown';
       if (presetUse) return presetUse;
@@ -218,6 +222,9 @@ function fixture(options = {}) {
     reply: id => messages.filter(value => value.type === 'toneReply' && value.id === id).at(-1),
     editBufferEvent,
     setPresetUse: value => { presetUse = value; },
+    undoAt: () => editor.add(0x294).readS32(),
+    bumpUndo: () => { editor.add(0x294).writeU32(editor.add(0x294).readU32() + 1); },   // an edit made meanwhile
+    emptyPreviewSlot: () => { preview = null; },        // the Floor slots tab's Clear
     traces: reason => messages.filter(value => value.type === 'toneTrace' && value.reason === reason),
   };
 }
@@ -278,16 +285,103 @@ function fixture(options = {}) {
   assert.deepEqual(f.writes, []); assert.equal(f.a.slot, 9); assert.equal(f.c.slot, 11);
 }
 
-// An owned but uncleared128 remains quarantined; selecting yet another block
-// cannot clear the failure or silently authorize a new audition.
+// The block is back on its own capture but 128 could not be cleared: the preview has ended all the same (live
+// check 2026-11-24 11:47: "needs attention" and End preview stayed). The slot keeps it, named as ours, so the
+// next preview replaces it without asking; no other block is written.
 {
   const f = fixture(); f.select(f.a); f.open(); f.command('audition', {file:'fixture.wav'});
-  f.setClearAllowed(false); f.select(f.b); f.pump();
-  assert.equal(f.target().quarantined, true); assert.equal(f.target().bound, false);
-  f.select(f.c); f.pump(); assert.equal(f.target().bound, false);
-  const count = f.imports.length; const id = f.command('audition', {file:'forbidden.wav'});
-  assert.ok(f.reply(id).error); assert.equal(f.imports.length, count);
-  assert.equal(f.b.slot, 10); assert.equal(f.c.slot, 11);
+  f.setClearAllowed(false); f.select(f.b); f.pump(); f.tick(); f.tick();
+  assert.equal(f.a.slot, 9); assert.equal(f.clears.length, 0);
+  assert.ok(f.traces('preview-cleanup').some(m => m.stage === 'slot-kept' && m.rejection === 'clear-refused'));
+  assert.equal(f.target().quarantined, false); assert.equal(f.target().bound, true);
+  assert.equal(f.previewStates().at(-1), null, 'the block is back: nothing to recover at the next launch');
+  f.select(f.c); f.pump();
+  const count = f.imports.length; const id = f.command('audition', {file:'next.wav'}); f.tick(); f.tick();
+  assert.equal(f.reply(id).error, undefined); assert.equal(f.imports.length, count + 1);
+  assert.ok(f.slotClears.includes(128), 'our own preview in 128 is replaced without asking');
+  assert.equal(f.b.slot, 10); assert.equal(f.a.slot, 9);
+}
+
+// End preview when 128 cannot be cleared: ended, said plainly, the slot kept as ours.
+{
+  const f = fixture(); f.select(f.a); f.open(); f.command('audition', {file:'fixture.wav'});
+  f.setClearAllowed(false);
+  const end = f.command('end'); f.tick(); f.tick();
+  assert.equal(f.reply(end).ended, true); assert.equal(f.reply(end).retained, undefined);
+  assert.match(f.reply(end).notice, /plays its own capture again\. Slot 128 still holds the preview: HX Edit did not take the Clear\. It stays marked as ours/);
+  assert.equal(f.a.slot, 9); assert.equal(f.target().quarantined, false);
+  assert.doesNotMatch(f.target().text, /needs attention/);
+}
+
+// 128 used by another block of the preset: kept, said so; the next preview does not replace it.
+{
+  const f = fixture(); f.select(f.a); f.open(); f.command('audition', {file:'fixture.wav'});
+  f.setPresetUse('used');
+  const end = f.command('end'); f.tick(); f.tick();
+  assert.equal(f.reply(end).ended, true); assert.equal(f.clears.length, 0); assert.equal(f.a.slot, 9);
+  assert.match(f.reply(end).notice, /another block or snapshot of this preset uses it/);
+  assert.ok(f.traces('preview-cleanup').some(m => m.stage === 'slot-kept' && m.rejection === 'still-referenced'));
+  const count = f.imports.length; const id = f.command('audition', {file:'next.wav'}); f.tick(); f.tick();
+  assert.match(f.reply(id).error, /Slot 128 is used by this preset/); assert.equal(f.imports.length, count);
+  assert.equal(f.slotClears.includes(128), false);
+}
+
+// A preset that is busy for a moment is asked again; then 128 is cleared (no refusal on the first look).
+{
+  const f = fixture(); f.select(f.a); f.open(); f.command('audition', {file:'fixture.wav'});
+  f.setPresetUse('unknown');
+  const end = f.command('end'); f.tick(); f.tick();
+  assert.equal(f.reply(end), undefined); assert.equal(f.clears.length, 0);
+  f.setPresetUse(null); f.tick(); f.tick();
+  assert.equal(f.reply(end).ended, true); assert.equal(f.reply(end).notice, undefined); assert.equal(f.clears.length, 1);
+}
+
+// The preview's own two steps: End with nothing else changed tells the Workbench where the preset stood before it
+// and after the step back (the unsaved mark moves past them); a change made meanwhile tells nothing.
+{
+  const f = fixture(); f.select(f.a); f.open();
+  const before = f.undoAt();
+  f.command('audition', {file:'first.wav'}); f.command('audition', {file:'second.wav'});
+  const end = f.command('end'); f.tick(); f.tick();
+  assert.equal(f.reply(end).ended, true); assert.equal(f.a.slot, 9);
+  const ended = f.view.previewEnded();
+  assert.deepEqual([ended.from, ended.to], [before, before + 4]); assert.equal(f.undoAt(), before + 4);
+}
+{
+  const f = fixture(); f.select(f.a); f.open();
+  f.command('audition', {file:'first.wav'}); f.bumpUndo();          // a knob turned between the two previews
+  f.command('audition', {file:'second.wav'});
+  f.command('end'); f.tick(); f.tick();
+  assert.equal(f.a.slot, 9); assert.equal(f.view.previewEnded(), null);
+}
+{
+  const f = fixture(); f.select(f.a); f.open();
+  f.command('audition', {file:'first.wav'}); f.bumpUndo();          // a knob turned during the preview
+  f.command('end'); f.tick(); f.tick();
+  const ended = f.view.previewEnded();
+  assert.ok(ended === null || f.undoAt() !== ended.to, 'the extra step keeps the preset changed');
+}
+
+// 128 emptied by the user (the Floor slots tab) while the session still held the preview: the next End or Close
+// ends it with no note (live check 2026-11-24 11:48: "Preview slot ownership changed").
+{
+  const f = fixture(); f.select(f.a); f.open(); f.command('audition', {file:'fixture.wav'});
+  f.emptyPreviewSlot();
+  const close = f.command('close'); f.tick();
+  assert.equal(f.reply(close).notice, undefined); assert.equal(f.reply(close).retained, undefined);
+  assert.ok(f.traces('preview-cleanup').some(m => m.stage === 'already-empty'));
+  assert.equal(f.traces('preview-cleanup').some(m => m.rejection === 'ownership-changed'), false);
+}
+
+// Something else in 128 now: left as it is, said in plain words, the preview ended.
+{
+  const f = fixture(); f.select(f.a); f.open(); f.command('audition', {file:'fixture.wav'});
+  f.retainForeignPreview('Someone else');
+  const end = f.command('end'); f.tick();
+  assert.equal(f.reply(end).ended, true);
+  assert.match(f.reply(end).notice, /Slot 128 holds something else now/);
+  assert.doesNotMatch(f.reply(end).notice, /ownership/);
+  assert.equal(f.slotClears.length + f.clears.length, 0);
 }
 
 // Error abandonment closes the browser session lock as well as normal close.
@@ -448,7 +542,7 @@ function fixture(options = {}) {
 // native write is sent during the wait.
 {
   const f = fixture(); f.select(f.a); f.open(); f.command('audition',{file:'first.wav'});
-  f.setDelayedRestore(true); const id=f.command('close',{reason:'window-close'}); f.tick(3600);
+  f.setDelayedRestore(true); const id=f.command('close',{reason:'window-close'}); f.tick(6100);
   assert.equal(f.reply(id).retained,true); assert.equal(f.a.slot,128); assert.equal(f.clears.length,0);
   assert.deepEqual(f.writes.filter(w => w.kind !== 'apply'), [{block:'block0',slot:9,kind:'set'}]);
   assert.ok(f.messages.some(m => m.reason === 'preview-cleanup' && m.rejection === 'restore-not-confirmed'));
@@ -655,4 +749,5 @@ function fixture(options = {}) {
   const next=f.command('audition',{file:'next.wav'});
   assert.equal(f.reply(next).slot,128);
 }
-console.log('30 navigation flow scenarios passed');
+console.log('39 navigation flow scenarios passed');
+

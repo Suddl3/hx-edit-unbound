@@ -799,6 +799,10 @@ function installFocusView(options, parts) {
       // Something to undo: HX Edit's own undo position (as tone_view reads it).
       // (undoAt: that position itself, for the Workbench's redo button)
       try { state.undoAt = editor.add(0x294).readS32(); state.undo = state.undoAt > 0; } catch (_) { state.undo = null; state.undoAt = null; }
+      // (the last preview that ended with its block back on its own capture: the undo positions before it and after
+      // its step back, so the Workbench's unsaved mark does not count the preview's own two steps; tone_view)
+      try { state.previewEnded = toneView.previewEnded ? toneView.previewEnded() : null; } catch (_) { state.previewEnded = null; }
+
       // Something to redo, as HX Edit's Edit menu asks it (target_binding canRedo); null when it cannot be read
       try { state.redo = targetBinding.canRedo(editor); } catch (_) { state.redo = null; }
       const undoWord = state.undoAt + '@' + (state.preset ? state.preset.setlist + ':' + state.preset.number : '-');
