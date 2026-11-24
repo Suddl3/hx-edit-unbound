@@ -341,11 +341,19 @@
   .modal p { margin: 0; line-height: 1.5; color: var(--ink); }
   .modal input { height: 34px; border-radius: 8px; background: #0e1014; border: 1px solid var(--line); color: var(--ink); font: inherit; padding: 0 10px; user-select: text; -webkit-user-select: text; }
   .modal .btnrow { justify-content: flex-end; }
+  .modal .guard { width: min(480px, calc(100% - 40px)); gap: 10px; }
+  .modal .guard h4 { margin: 0; font-size: 17px; font-weight: 600; font-stretch: 90%; display: flex; align-items: center; gap: 9px; }
+  .modal .guard h4 i { width: 7px; height: 7px; border-radius: 50%; background: #f0c94a; flex: none; }
+  .modal .guard p { color: var(--dim); }
+  .modal .guard .btnrow { margin-top: 8px; gap: 8px; } .modal .guard .btnrow .sp { flex: 1; }
 
   /* ---- the top bar ------------------------------------------------------------------------------------- */
   .top { position: relative; z-index: 6; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 0; border-bottom: 1px solid var(--line); background: var(--panel); min-width: 0; }
   .logo { width: 68px; height: 100%; display: grid; place-items: center; flex: none; }
-  .logo i { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg, #2b3350, #151a2c); display: grid; place-items: center; font-style: normal; font-weight: 700; color: #cfd6ff; font-size: 17px; }
+  .logo button { width: 44px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; gap: 3px; padding-left: 3px; }
+  .logo button:hover, .logo button[aria-expanded=true] { background: var(--raise); }
+  .logo .app { width: 28px; height: 28px; flex: none; }
+  .logo .caret { width: 7px; height: 7px; color: var(--faint); flex: none; }
   .now { display: flex; align-items: center; gap: 2px; min-width: 0; }
   .now .step { width: 22px; height: 34px; border-radius: 6px; color: var(--faint); display: grid; place-items: center; flex: none; }
   .now .step:hover { color: var(--ink); background: var(--raise); }
@@ -372,12 +380,10 @@
   .tempo { height: 34px; padding: 0 10px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); display: grid; place-items: center; line-height: 1; font-size: 15px; }
   .tempo small { color: var(--dim); font-size: 10.5px; }
   .view { display: flex; background: #0e1014; border: 1px solid var(--line); padding: 3px; border-radius: 9px; flex: none; }
-  .view button { height: 28px; padding: 0 14px; border-radius: 6px; color: var(--dim); }
+  .view button { height: 28px; min-width: 68px; padding: 1px 14px 0; border-radius: 6px; color: var(--dim); display: grid; place-items: center; line-height: 1; }
   .view button:hover { color: var(--ink); }
   .view button.on { background: var(--ink); color: #111; font-weight: 600; }
   .chip { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); white-space: nowrap; flex: none; }
-  .chip.unbound { color: var(--unbound); }
-  .chip.unbound:hover, .chip.unbound[aria-expanded=true] { border-color: rgb(176 112 224 / .6); }
   .chip svg { width: 15px; height: 15px; }
   .drop { position: absolute; top: 54px; z-index: 9; min-width: 240px; max-height: min(520px, 100vh - 70px); overflow-y: auto; padding: 6px; border-radius: 10px;
           background: #15171c; box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgb(0 0 0 / .75); scrollbar-width: thin; scrollbar-color: #444 transparent; }
@@ -386,9 +392,15 @@
   .drop button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .drop button:hover { background: var(--raise2); }
   .drop button.cur { background: var(--raise2); box-shadow: inset 2px 0 0 #f0c94a; }
-  .drop.menu { right: 16px; width: 300px; }
-  .drop.menu button { grid-template-columns: 1fr; height: auto; padding: 7px 10px; }
-  .drop.menu button span:first-child, .drop.menu button span:last-child { color: var(--ink); white-space: normal; }
+  .drop.menu { left: 10px; width: 290px; }
+  .drop.menu button { grid-template-columns: 1fr auto; height: auto; padding: 7px 10px; }
+  .drop.menu button > svg { width: 14px; height: 14px; color: #f0c94a; }
+  .drop.menu button:disabled { opacity: .45; cursor: default; background: none; }
+  .drop.menu button em { font-style: normal; font-size: 10.5px; color: var(--dim); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px; margin-left: 8px; }
+  .drop.menu .sw { width: 28px; height: 16px; border-radius: 8px; background: #2c303a; position: relative; }
+  .drop.menu .sw::after { content: ''; position: absolute; left: 2px; top: 2px; width: 12px; height: 12px; border-radius: 50%; background: #9aa0ac; }
+  .drop.menu .sw.on { background: rgb(176 112 224 / .55); } .drop.menu .sw.on::after { left: 14px; background: #fff; }
+  .drop.menu button span:first-child { color: var(--ink); white-space: normal; }
   .drop.menu button small { display: block; color: var(--faint); font-size: 11.5px; margin-top: 2px; }
   .drop.menu h6 { margin: 8px 10px 4px; font-size: 11px; font-weight: 500; color: var(--faint); letter-spacing: .04em; text-transform: uppercase; }
   .drop.menu hr { border: 0; border-top: 1px solid var(--line); margin: 6px 4px; }
@@ -467,7 +479,7 @@
   /* ---- the panel under the chain: the selected block --------------------------------------------------------- */
   .insp { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 0; }
   .insp.nam { grid-template-columns: 250px minmax(0, 1fr) 316px; }
-  .insp.pick { grid-template-columns: 250px 176px minmax(0, 1fr); }
+  .insp.pick { grid-template-columns: 250px 348px minmax(0, 1fr); }
   .card { padding: 18px 18px 14px; border-right: 1px solid var(--line); display: grid; align-content: start; gap: 12px; min-height: 0;
           background: linear-gradient(180deg, rgb(var(--c) / .10), transparent 55%); }
   .card .pic { width: 150px; height: 150px; margin: 0 auto; filter: drop-shadow(0 16px 14px rgb(0 0 0 / .6)); }
@@ -560,7 +572,11 @@
   .capt .later button { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
 
   /* ---- the picker: the selected block's category, its kinds as tabs (captures among them) ------------------------ */
-  .pcats { border-right: 1px solid var(--line); padding: 10px 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .pcats { border-right: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  .pcats > div { padding: 10px 0; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+  .pcats > div + div { border-left: 1px solid var(--line); }
+  .pcats h6 { margin: 2px 16px 4px; font-size: 11px; font-weight: 500; color: var(--faint); }
+  .pcats button b { margin-left: auto; font-weight: 400; color: var(--faint); font-size: 11.5px; }
   .pcats button { display: flex; width: calc(100% - 8px); align-items: center; gap: 10px; height: 22px; padding: 0 12px; margin: 0 4px; border-radius: 6px; color: var(--dim); text-align: left; }
   .pcats button:hover { color: var(--ink); }
   .pcats button.on { background: var(--raise2); color: var(--ink); box-shadow: inset 2px 0 0 rgb(var(--c)); }
@@ -599,7 +615,7 @@
 <body>
 <div class="app" id="app">
   <header class="top" id="top">
-    <div class="logo"><i>X</i></div>
+    <div class="logo"><button id="menuButton" title="HX Edit Unbound: the layout, and HX Edit's menu bar" aria-label="HX Edit Unbound menu" aria-expanded="false"><svg class="app" viewBox="0 0 32 32" fill="none"><defs><linearGradient id="ubx" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse"><stop stop-color="#9b84f6"/><stop offset=".5" stop-color="#5fa8f2"/><stop offset="1" stop-color="#3fd3c8"/></linearGradient><radialGradient id="ubt" cx=".5" cy=".45" r=".7"><stop stop-color="#231f31"/><stop offset="1" stop-color="#14121c"/></radialGradient></defs><rect x=".5" y=".5" width="31" height="31" rx="7" fill="url(#ubt)" stroke="rgb(255 255 255 / .09)"/><path d="M7.5 8l6.3 8-6.3 8M24.5 8l-6.3 8 6.3 8" stroke="url(#ubx)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="caret" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 2.5l3 3 3-3"/></svg></button></div>
     <div class="now">
       <button class="step" id="presetPrev" title="Previous preset" aria-label="Previous preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg></button>
       <button class="preset" id="presetButton" title="Choose a preset" aria-expanded="false"><small id="setlist">&nbsp;</small><strong><b class="num" id="presetNum"></b><span id="presetName">Waiting for HX Edit</span><i id="edited" title="Changed since it was loaded" hidden></i></strong></button>
@@ -614,7 +630,6 @@
     <span class="grow"></span>
     <div class="tempo num" id="tempo" title="The preset's tempo" hidden><span id="tempoValue"></span><small>bpm</small></div>
     <div class="view" role="group" aria-label="View"><button class="on" aria-pressed="true">Editor</button><button id="toFocus" aria-pressed="false" title="Focus Mode: the selected block, large, in its scene">Focus</button></div>
-    <button class="chip unbound" id="menuButton" aria-expanded="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M12.6 3.4l-1.4 1.4M4.8 11.2l-1.4 1.4" stroke-linecap="round"/></svg>Unbound</button>
     <div class="drop" id="presetList" hidden></div>
     <div class="drop menu" id="menu" hidden></div>
     <div class="toast" id="toast" role="status" hidden></div>
@@ -990,6 +1005,7 @@ function splitFormat(split) {
 
 // ---- the panel under the chain: the selected block, its controls, its capture --------------------------------------
 let picking = false, shownPanel = '', pickedCategory = '', pickedTab = '', pickQuery = '';
+let pickedKind = '';                                          // the NAM category picked in the picker's Captures column ('' = all captures)
 function controlsOf(block) {
   return model(block).params.filter(p => !(isNam(block) && p.id === 'Index'));
 }
@@ -1407,15 +1423,18 @@ function categoryOf(block) {
 let lastCategory = '';
 function openPlacePicker(dsp, lane, place) {
   picking = {empty: true, dsp, lane, place};   // (empty, not place: place 0 is a place too) pickQuery = '';
-  pickedCategory = lastCategory || ((catalog.lists || [])[0] || {}).name || ''; pickedTab = '';
+  pickedCategory = lastCategory || ((catalog.lists || [])[0] || {}).name || ''; pickedTab = ''; pickedKind = '';
   shownPanel = ''; shownChain = '';
   drawChain(true); drawPanel();
 }
 function openPicker(tab) {
   const block = current(); if (!block || !isChain(block)) return;
   picking = {block: true}; pickQuery = '';
-  pickedCategory = tab === 'captures' || isNam(block) ? (captureHome(block) || '') : categoryOf(block);
-  pickedTab = tab === 'captures' || isNam(block) ? 'captures' : '';
+  // A NAM block's picker opens on its capture's own NAM category (the Captures column), as the classic picker does.
+  const taken = isNam(block) ? capture(block) : null;
+  pickedKind = taken && 'gear' in taken ? namKind(taken) : '';
+  pickedCategory = pickedKind ? '' : tab === 'captures' || isNam(block) ? (captureHome(block) || '') : categoryOf(block);
+  pickedTab = pickedKind ? 'all' : tab === 'captures' || isNam(block) ? 'captures' : '';
   shownPanel = '';
   drawPanel();
 }
@@ -1440,39 +1459,46 @@ function room(block) {
 function drawPicker(block) {
   const panel = $('insp'), lists = catalog.lists || [], captures = state.captures || [];
   const space = room(block), namCost = costOf(catalog.nam[0]);
-  const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickQuery, space, captures.map(c => [c.slot, c.name, c.icon])]);
+  const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickedKind, pickQuery, space, captures.map(c => [c.slot, c.name, c.icon, c.gear])]);
   panel.style.setProperty('--c', tint(block).join(' '));
   if (key === shownPanel) return;
   const typing = document.activeElement && document.activeElement.id === 'pickSearch';
   const scrolled = panel.querySelector('.cards') && shownPanel.startsWith(JSON.stringify(['pick', block.dsp, block.id]).slice(0, -1)) ? panel.querySelector('.cards').scrollTop : 0;
   shownPanel = key;
   panel.className = 'insp pick';
-  // the categories, as HX Edit's own picker lists them, then every capture on the Floor
-  const cats = el('div', 'pcats');
+  // Two columns: HX Edit's own categories, as its picker lists them, and the captures on the Floor by NAM category
+  // (the classic picker's NAM Amp, NAM Amp + cab, NAM Cab, NAM Pedal, NAM Other), each with how many it holds.
+  const cats = el('div', 'pcats'), models = el('div'), caps = el('div');
+  models.append(el('h6', '', 'Models'));
   for (const group of lists) {
     const row = el('button', group.name === pickedCategory && pickedTab !== 'all' ? 'on' : '');
     row.style.setProperty('--c', group.tint.join(' '));
     row.append(el('span', 'led'), el('span', '', group.name));
-    row.onclick = () => { pickedCategory = lastCategory = group.name; pickedTab = ''; pickQuery = ''; drawPicker(block); };
-    cats.append(row);
+    row.onclick = () => { pickedCategory = lastCategory = group.name; pickedTab = ''; pickedKind = ''; pickQuery = ''; drawPicker(block); };
+    models.append(row);
   }
-  cats.append(el('hr'));
-  const all = el('button', pickedTab === 'all' ? 'on' : ''); all.style.setProperty('--c', NAM_TINT.join(' '));
-  all.append(el('span', 'led'), el('span', '', 'All captures'));
-  all.onclick = () => { pickedCategory = ''; pickedTab = 'all'; pickQuery = ''; drawPicker(block); };
-  cats.append(all);
-  if (!block.isPlace) {                                          // (as the mock-up: the last row of the list)
-    cats.append(el('hr'));
+  const capRow = (words, kind, count) => {
+    const row = el('button', pickedTab === 'all' && pickedKind === kind ? 'on' : ''); row.style.setProperty('--c', NAM_TINT.join(' '));
+    row.append(el('span', 'led'), el('span', '', words), el('b', 'num', String(count)));
+    row.onclick = () => { pickedCategory = ''; pickedTab = 'all'; pickedKind = kind; pickQuery = ''; drawPicker(block); };
+    return row;
+  };
+  if (pickedKind && !namKinds().some(kind => kind.name === pickedKind)) pickedKind = '';
+  caps.append(el('h6', '', 'Captures'), capRow('All captures', '', captures.length),
+    ...namKinds().map(kind => capRow(kind.name, kind.name, captures.filter(c => namKind(c) === kind.name).length)));
+  if (!block.isPlace) {
+    caps.append(el('hr'));
     const gone = el('button', 'remove'); gone.style.setProperty('--c', '90 96 108');
     gone.append(el('span', 'led'), el('span', '', 'Remove block'));
     gone.title = 'Remove this block. Undo puts it back.';
     gone.onclick = () => removeBlock(block);
-    cats.append(gone);
+    caps.append(gone);
   }
+  cats.append(models, caps);
   // the category's kinds as tabs, captures among them
   const group = lists.find(g => g.name === pickedCategory);
   const kinds = (catalog.captureTabs || {})[pickedCategory] || [];
-  const mine = pickedTab === 'all' ? captures : captures.filter(c => kinds.includes(namKind(c)));
+  const mine = pickedTab === 'all' ? captures.filter(c => !pickedKind || namKind(c) === pickedKind) : captures.filter(c => kinds.includes(namKind(c)));
   if (!group && pickedTab !== 'all') pickedTab = kinds.length ? 'captures' : '';
   if (block.isPlace && !group && pickedTab !== 'all' && !kinds.length) pickedTab = 'all';
   const folders = group ? group.folders : [];
@@ -1488,13 +1514,13 @@ function drawPicker(block) {
     button.onclick = () => { pickedTab = name; pickQuery = ''; drawPicker(block); };
     seg.append(button);
   };
-  if (pickedTab === 'all') tab('all', captures.length, 'Captures on the Floor', true);
+  if (pickedTab === 'all') tab('all', mine.length, pickedKind || 'Captures on the Floor', true);
   else {
     for (const folder of folders) tab(folder.name, folder.models.length, folder.name || pickedCategory, false);
     if (kinds.length) tab('captures', mine.length, 'Captures', true);
   }
   const search = el('label', 'search'); search.innerHTML = ICON.search;
-  const input = el('input'); input.id = 'pickSearch'; input.type = 'search'; input.placeholder = 'Search ' + (pickedTab === 'all' || pickedTab === 'captures' ? 'captures' : (pickedCategory || 'models').toLowerCase());
+  const input = el('input'); input.id = 'pickSearch'; input.type = 'search'; input.placeholder = 'Search ' + (pickedTab === 'all' && pickedKind ? pickedKind : pickedTab === 'all' || pickedTab === 'captures' ? 'captures' : (pickedCategory || 'models').toLowerCase());
   input.value = pickQuery; input.spellcheck = false; input.autocomplete = 'off';
   input.oninput = () => { pickQuery = input.value; drawPicker(block); };
   search.append(input);
@@ -1533,14 +1559,14 @@ function drawPicker(block) {
   };
   let shownCards = [];
   if (pickedTab === 'captures' || pickedTab === 'all') {
-    const list = (pickedTab === 'all' ? captures : mine).filter(c => !query || c.name.toLowerCase().includes(query));
-    if (pickedTab === 'all' && !query) {
+    const list = mine.filter(c => !query || c.name.toLowerCase().includes(query));
+    if (pickedTab === 'all' && !pickedKind && !query) {
       for (const kind of namKinds()) {
         const these = list.filter(c => namKind(c) === kind.name);
         if (these.length) shownCards.push(el('h6', '', kind.name), ...these.map(captureCard));
       }
     } else shownCards = list.map(captureCard);
-    if (!list.length) shownCards = [el('p', '', captures.length ? 'No capture here matches.' : 'No capture on the Floor yet. Put one there from the NAM library.')];
+    if (!list.length) shownCards = [el('p', '', mine.length ? 'No capture here matches.' : 'No ' + (pickedTab === 'all' && pickedKind ? pickedKind + ' ' : '') + 'capture on the Floor yet. Put one there from the NAM library.')];
   } else {
     const folder = folders.find(f => f.name === pickedTab);
     const symbols = query ? lists.flatMap(g => g.folders.flatMap(f => f.models)).filter((s, i, a) => a.indexOf(s) === i && catalog.models[s].name.toLowerCase().includes(query))
@@ -1563,7 +1589,7 @@ function drawBar() {
   $('presetNum').textContent = preset ? String(preset.number).padStart(3, '0') : '';
   $('presetName').textContent = preset ? preset.name || '' : 'Waiting for HX Edit';
   $('setlist').textContent = preset && Number.isInteger(preset.setlist) ? 'Setlist ' + (preset.setlist + 1) : ' ';
-  $('edited').hidden = !state.undo;
+  $('edited').hidden = !unsaved();
   const listed = !!preset && Array.isArray(state.presets) && state.presets.length > 0;
   $('presetButton').disabled = !listed;
   $('presetButton').title = listed ? 'Choose a preset' : '';
@@ -1604,7 +1630,7 @@ function fillPresets() {
     const button = el('button', (index === at ? 'cur' : '') + (pinned ? ' pinned' : ''));
     button.append(el('span', 'num', String(index).padStart(3, '0')), el('span', '', names[index]));
     if (pinned) button.title = 'Pinned';
-    button.onclick = () => { if (index !== at) ask('preset', index); closePresets(); };
+    button.onclick = () => { closePresets(); if (index !== at) loadPreset(index); };
     return button;
   };
   // (the pinned ones first, then every preset in order)
@@ -1624,21 +1650,79 @@ function centerIn(list, row) {
   list.scrollTop = Math.max(0, top - (list.clientHeight - row.offsetHeight) / 2);
 }
 function closePresets() { $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false'); }
+// ---- leaving a preset with changes that are not saved ---------------------------------------------------------------
+// "Changed" is HX Edit's own undo position (state.undoAt > 0: something was changed since the preset was loaded).
+// A Save asked for here is remembered with the position it was asked at, so a saved preset does not ask again while
+// HX Edit keeps its undo steps; the mark is dropped with the preset, and when the position is back at 0.
+// Only the Workbench's own ways to another preset ask (the top bar's list and arrows, the drawer, the grid): a
+// footswitch on the Floor and HX Edit's own screen load as they always did.
+let savedMark = {key: '', at: 0}, leaving = false;
+const presetWord = () => state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
+const unsaved = () => !!state && workbenchUnsaved(state.undoAt, presetWord(), savedMark);
+function savePreset() {
+  if (state && state.preset && typeof state.undoAt === 'number') savedMark = {key: presetWord(), at: state.undoAt};
+  ask('save');
+  drawBar();
+}
+const SAVE_WAIT_MS = 1500;                                    // what a Save gets before the next preset is asked for
+function loadPreset(target) {
+  // target: a preset's number in the loaded setlist, or 'previous' / 'next' (the top bar's arrows)
+  if (leaving) return;
+  if (!unsaved()) { ask('preset', target); return; }
+  const names = state.presets || [], three = n => String(n).padStart(3, '0'), now = state.preset;
+  const there = Number.isInteger(target) ? three(target) + ' ' + (names[target] || '') : 'the ' + target + ' preset';
+  const shade = el('div', 'modal'), box = el('div', 'guard'), row = el('div', 'btnrow'), head = el('h4');
+  const done = answer => {
+    shade.remove(); removeEventListener('keydown', keys, true); leaving = false;
+    if (answer === 'drop') ask('preset', target);
+    if (answer === 'save') {
+      // HX Edit's own Save, then the preset: once HX Edit's undo position is back at 0, or after a moment
+      savePreset();
+      const began = Date.now(), from = presetWord();
+      const go = () => {
+        if (presetWord() !== from) return;                       // (another preset meanwhile: nothing more to load)
+        if ((state && state.undoAt === 0) || Date.now() - began >= SAVE_WAIT_MS) ask('preset', target); else setTimeout(go, 100);
+      };
+      setTimeout(go, 400);
+    }
+  };
+  const stay = el('button', 'btn', 'Stay here'), drop = el('button', 'btn', 'Don\u2019t save');
+  const save = el('button', 'btn pri', 'Save, then load ' + (Number.isInteger(target) ? three(target) : 'it'));
+  save.style.setProperty('--c', '176 112 224');
+  stay.onclick = () => done(null); drop.onclick = () => done('drop'); save.onclick = () => done('save');
+  drop.title = 'Load ' + there + ' and lose what was changed here'; save.title = "HX Edit's Save Preset, then " + there;
+  const keys = e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } else if (e.key === 'Enter') { e.stopPropagation(); save.click(); } };
+  addEventListener('keydown', keys, true);
+  head.append(el('i'), three(now.number) + ' ' + (now.name || '') + ' has unsaved changes');
+  row.append(stay, el('span', 'sp'), drop, save);
+  box.append(head, el('p', '', 'You are loading ' + there + '. What you changed in this preset is lost unless you save it to the Floor first.'), row);
+  shade.append(box); shade.onclick = e => { if (e.target === shade) done(null); };
+  leaving = true;
+  document.body.append(shade);
+  save.focus();
+}
 function openMenu() {
   closePresets();
-  const menu = $('menu'), item = (words, note, choice) => {
-    const button = el('button'); button.append(el('span', '', words)); if (note) button.lastChild.append(el('small', '', note));
-    button.onclick = () => { closeMenu(); if (['look', 'level', 'library'].includes(choice)) setView('open', choice); else ask('menu', choice); };
+  const TICK = '<svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 7.5l3 3 6-7"/></svg>';
+  const menu = $('menu'), item = (words, note, mark, onclick) => {
+    const button = el('button'), text = el('span', '', words);
+    if (!onclick) { text.append(el('em', '', 'later')); button.disabled = true; }
+    if (note) text.append(el('small', '', note));
+    button.append(text);
+    if (mark) button.insertAdjacentHTML('beforeend', mark);
+    button.onclick = () => { closeMenu(); onclick(); };
     return button;
   };
+  // Layout: this screen or HX Edit's own; the other two are planned (BACKLOG, Workbench roadmap). The tools are on the
+  // rail and Focus Mode on the Editor | Focus switch, so the menu no longer repeats them.
   menu.replaceChildren(
-    el('h6', '', 'View'),
-    item('Classic screen', "HX Edit's own screen, with everything the Workbench does not have yet. Back here: Unbound menu > Workbench.", 'classic'),
-    item('Focus Mode', 'The selected block, large, in its scene', 'focus'),
-    el('hr'), el('h6', '', 'Tools'),
-    ...(options.level ? [item('Levels…', 'Under the chain; its expand button gives it the whole work area', 'level')] : []),
-    item('Floor look…', 'Under the chain; its expand button gives it the whole work area', 'look'),
-    item('NAM library…', 'Over the whole work area', 'library'));
+    el('h6', '', 'Layout'),
+    item('Workbench', 'This screen', TICK, () => {}),
+    item('Classic', "HX Edit's own screen. Back here: its Unbound menu > Workbench.", '', () => ask('menu', 'classic')),
+    item('Classic+', 'Classic, with the new look', '', null),
+    item('Rig on stage', 'Your rig as gear on a stage', '', null),
+    el('hr'),
+    item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar)));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
 }
 function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
@@ -1929,7 +2013,7 @@ function drawPresetDrawer(box) {
     button.append(el('span', 'num', number), el('span', '', name));
     if (pinned) button.firstChild.classList.add('pinmark');                    // (a pinned one's number is gold)
     button.title = number + ' ' + name + (isPinned(index) ? ' (pinned)' : '');
-    button.onclick = () => { if (index !== at) ask('preset', index); };
+    button.onclick = () => { if (index !== at) loadPreset(index); };
     list.append(button);
   };
   // (the pinned ones first, then every preset in order)
@@ -1966,7 +2050,7 @@ function drawPresetGrid() {
   if (view.full !== 'presets' || !catalog || !state) return;
   const names = state.presets || [], at = state.preset ? state.preset.number : -1, setlist = setlistOf();
   const rows = miniRows(), now = current();
-  const key = JSON.stringify([names, at, setlist, pins, gridQuery, hideBlank, state.preset && state.preset.name, state.undo, state.snapshots, state.snapshot, dsp, miniKey(rows), now && [now.dsp, now.id]]);
+  const key = JSON.stringify([names, at, setlist, pins, gridQuery, hideBlank, state.preset && state.preset.name, unsaved(), state.snapshots, state.snapshot, dsp, miniKey(rows), now && [now.dsp, now.id]]);
   if (key === shownGrid && body.querySelector('.pv')) return;
   shownGrid = key;
   // The frame is made once: the search box keeps its caret while the cards and the side are redrawn.
@@ -2002,7 +2086,7 @@ function drawPresetGrid() {
     mark.title = isPinned(number) ? 'Pinned: click to unpin' : 'Pin it (it then sits at the top of the preset lists)';
     mark.onclick = event => { event.stopPropagation(); pin(number, !isPinned(number)); };
     b.append(mark);
-    b.onclick = () => { if (number !== at) ask('preset', number); };
+    b.onclick = () => { if (number !== at) loadPreset(number); };
     return b;
   };
   const banks = el('div', 'banks'), sides = [el('div', 'bank'), el('div', 'bank')];
@@ -2017,7 +2101,7 @@ function drawPresetGrid() {
     const top = el('div'), h = el('h3');
     top.append(el('h5', '', 'Loaded now' + (setlist === null ? '' : ' · Setlist ' + (setlist + 1))));
     h.append(el('b', 'num', number3(preset.number)), el('span', '', preset.name || ''));
-    if (state.undo) { const dot = el('u'); dot.title = 'Changed since it was loaded'; h.append(dot); }
+    if (unsaved()) { const dot = el('u'); dot.title = 'Changed, and not saved to the Floor'; h.append(dot); }
     top.append(h); side.append(top);
     reusable = gather(body.querySelector('.pd'));
     try {
@@ -2036,7 +2120,7 @@ function drawPresetGrid() {
     (state.snapshots || []).forEach((name, i) => { const s = el('span', i === state.snapshot ? 'on' : ''); s.append(el('b', 'num', String(i + 1)), el('span', '', name || 'Snapshot ' + (i + 1))); list.append(s); });
     if ((state.snapshots || []).length) { snaps.append(el('h5', '', 'Snapshots'), list); side.append(snaps); }
     const acts = el('div', 'acts'), save = el('button', 'btn pri wide'), star = el('button', 'btn');
-    save.innerHTML = $('save').innerHTML; save.append('Save'); save.title = $('save').title; save.onclick = () => ask('save');
+    save.innerHTML = $('save').innerHTML; save.append('Save'); save.title = $('save').title; save.onclick = savePreset;
     const pinned = isPinned(preset.number);
     star.innerHTML = STAR; star.append(pinned ? 'Unpin' : 'Pin'); star.title = pinned ? 'Take it off the top of the preset lists' : 'Keep it at the top of the preset lists';
     star.onclick = () => pin(preset.number, !pinned);
@@ -2802,10 +2886,10 @@ function libSide(row) {
   const floorBox = libFloorActions(row);
   const versBox = libVersions(row);
   body.append(h, kv, floorBox, versBox);
-  const foot = el('div', 'foot'), exp = el('button', 'btn', 'Export…'), remove = el('button', 'btn danger', 'Remove…'), sp = el('span', 'sp');
+  const foot = el('div', 'foot'), exp = el('button', 'btn', 'Export…'), remove = el('button', 'btn danger', 'Delete from this PC…'), sp = el('span', 'sp');
   exp.title = 'Copy the capture’s .nam file to a folder of your choice'; exp.onclick = () => ask('choose', {kind: 'export', id: row.id});
-  remove.title = 'Remove it from the library on this PC (the Floor keeps what it has)';
-  remove.onclick = async () => { if (await confirmBox('Remove “' + row.name + '” from the library on this PC? Its file and its versions are deleted here. ' + (slots.length ? 'The Floor keeps it in slot ' + slots.join(', ') + '.' : ''), 'Remove')) libAsk('remove', row); };
+  remove.title = 'Delete it from the library on this PC. The Floor keeps what it has: its slot is not cleared.';
+  remove.onclick = async () => { if (await confirmBox('Delete “' + row.name + '” from the library on this PC? Its file and its versions are deleted here. ' + (slots.length ? 'The Floor keeps it in slot ' + slots.join(', ') + ': that slot is not cleared.' : 'It is not on the Floor.'), 'Delete')) libAsk('remove', row); };
   foot.append(sp, exp, remove);
   side.append(hero, body, foot);
   return side;
@@ -3028,6 +3112,7 @@ function receive(message) {
     state = message.state;
     const after = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
     if (before !== after) snapGroup = null;
+    if (before !== after || state.undoAt === 0) savedMark = {key: '', at: 0};   // (another preset, or nothing left to undo: no Save to remember)
     // (values set in other snapshots are shown as set until HX Edit's own record agrees: forgotten on another preset
     // or an undo)
     if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();
@@ -3065,10 +3150,10 @@ document.body.insertAdjacentHTML('beforeend', '<svg width="0" height="0" style="
 
 $('undo').onclick = () => ask('undo');
 $('redo').onclick = () => { redoAskedAt = Date.now(); ask('redo'); };
-$('save').onclick = () => ask('save');
+$('save').onclick = savePreset;
 $('toFocus').onclick = () => ask('menu', 'focus');
-$('presetPrev').onclick = () => { closePresets(); ask('preset', 'previous'); };
-$('presetNext').onclick = () => { closePresets(); ask('preset', 'next'); };
+$('presetPrev').onclick = () => { closePresets(); loadPreset('previous'); };
+$('presetNext').onclick = () => { closePresets(); loadPreset('next'); };
 $('presetButton').onclick = () => $('presetList').hidden ? openPresets() : closePresets();
 $('menuButton').onclick = () => $('menu').hidden ? openMenu() : closeMenu();
 addEventListener('pointerdown', e => {

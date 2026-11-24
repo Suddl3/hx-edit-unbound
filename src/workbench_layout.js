@@ -182,7 +182,7 @@ function workbenchRedo(track, at, preset, redoing) {
 // a job of its own gets the full screen; an expand button switches between a thing's two sizes. The first size is the
 // one the rail opens.
 //   drawer: beside the chain (left of it); half: the lower half, in place of the block panel; full: the whole work
-//   area, the chain shrunk to small tiles in the view's header.
+//   area, the chain shrunk to small tiles in the view's header. A drawer and a lower-half tool are never open together.
 const WORKBENCH_SIZES = Object.freeze({
   presets: ['drawer', 'full'], captures: ['drawer'], irs: ['drawer'],
   look: ['half', 'full'], level: ['half', 'full'], library: ['full'], tone: ['full']});
@@ -196,10 +196,13 @@ function workbenchView(view, action, name) {
   const v = {drawer: '', half: '', full: '', ...(view || {})};
   const sizes = WORKBENCH_SIZES[name] || [];
   const openFull = () => { v.full = name; if (v.half && v.half !== name) v.half = ''; };
+  // One thing open at a time beside or under the chain (Nick, 2026-11-23: a side list and a lower-half tool open
+  // together read as confusing): a side list closes the tool under the chain, and the other way round.
+  const place = (size, thing) => { v[size] = thing; if (thing) v[size === 'drawer' ? 'half' : 'drawer'] = ''; };
   if (action === 'rail' || action === 'open') {
     const size = sizes[0], toggle = action === 'rail';
     if (size === 'drawer' || size === 'half') {
-      if (v.full) { v.full = ''; v[size] = name; } else v[size] = toggle && v[size] === name ? '' : name;
+      if (v.full) { v.full = ''; place(size, name); } else place(size, toggle && v[size] === name ? '' : name);
     } else if (size === 'full') {
       if (toggle && v.full === name) v.full = ''; else openFull();
     }
@@ -208,7 +211,7 @@ function workbenchView(view, action, name) {
   } else if (action === 'shrink') {
     const was = v.full, size = (WORKBENCH_SIZES[was] || [])[0];
     v.full = '';
-    if (size === 'drawer' || size === 'half') v[size] = was;
+    if (size === 'drawer' || size === 'half') place(size, was);
   } else if (action === 'back') {
     v.full = '';
   } else if (action === 'close') {
@@ -290,8 +293,17 @@ function workbenchLevelChanges(plan) {
   return changes;
 }
 
+// ---- changes that are not saved ------------------------------------------------------------------------------------
+// The loaded preset has changes that were not saved while HX Edit's undo position is above 0 (something changed since
+// the preset was loaded), unless a Save was asked for here at exactly this position of this preset (mark: {key, at};
+// preset: "setlist:number"). The page drops the mark with the preset and when the position is back at 0.
+function workbenchUnsaved(undoAt, preset, mark) {
+  if (!preset || typeof undoAt !== 'number' || undoAt <= 0) return false;
+  return !(mark && mark.key === preset && mark.at === undoAt);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
-                     WORKBENCH_SIZES, workbenchView, workbenchRailOn,
+                     WORKBENCH_SIZES, workbenchView, workbenchRailOn, workbenchUnsaved,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

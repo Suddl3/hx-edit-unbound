@@ -370,8 +370,14 @@ class SizeTests(unittest.TestCase):
                          [['', 'look', ''], ['', 'level', ''], ['', '', '']])
         self.assertEqual(self.run_view([['rail', 'tone'], ['rail', 'library'], ['rail', 'library']]),
                          [['', '', 'tone'], ['', '', 'library'], ['', '', '']])
-        # a drawer and a tool under the chain are open together
-        self.assertEqual(self.run_view([['rail', 'captures'], ['rail', 'look']])[-1], ['captures', 'look', ''])
+        # one thing at a time beside or under the chain (Nick, 2026-11-23): a tool under the chain closes the side
+        # list, a side list closes the tool, and a full view shrinking to either does the same
+        self.assertEqual(self.run_view([['rail', 'captures'], ['rail', 'look']])[-1], ['', 'look', ''])
+        self.assertEqual(self.run_view([['rail', 'level'], ['rail', 'presets']])[-1], ['presets', '', ''])
+        self.assertEqual(self.run_view([['open', 'look']], {'drawer': 'irs'})[-1], ['', 'look', ''])
+        self.assertEqual(self.run_view([['rail', 'captures'], ['rail', 'tone'], ['rail', 'look']])[-1], ['', 'look', ''])
+        self.assertEqual(self.run_view([['shrink', None]], {'drawer': 'captures', 'half': '', 'full': 'look'})[-1], ['', 'look', ''])
+        self.assertEqual(self.run_view([['shrink', None]], {'drawer': '', 'half': 'look', 'full': 'presets'})[-1], ['presets', '', ''])
         # "open" (the Unbound menu, a link) never closes what is open
         self.assertEqual(self.run_view([['open', 'look'], ['open', 'look']])[-1], ['', 'look', ''])
 
@@ -397,7 +403,8 @@ class SizeTests(unittest.TestCase):
         self.assertEqual(self.run_view([['rail', 'level'], ['select', None]])[-1], ['', '', ''])
         self.assertEqual(self.run_view([['rail', 'look'], ['select', None]])[-1], ['', 'look', ''])
         # a small tile in a full view's header: back to the chain, with nothing over it
-        self.assertEqual(self.run_view([['rail', 'look'], ['expand', 'look'], ['goto', None]], {'drawer': 'irs'})[-1], ['irs', '', ''])
+        self.assertEqual(self.run_view([['expand', 'look'], ['goto', None]], {'drawer': 'irs'})[-1], ['irs', '', ''])
+        self.assertEqual(self.run_view([['rail', 'look'], ['expand', 'look'], ['goto', None]], {'drawer': 'irs'})[-1], ['', '', ''])
         # the tool's window closed by itself: its frame closes, wherever it was
         self.assertEqual(self.run_view([['rail', 'look'], ['expand', 'look'], ['close', 'look']])[-1], ['', '', ''])
 
@@ -446,9 +453,42 @@ class PresetTests(unittest.TestCase):
         self.assertNotIn('localStorage', page)
         self.assertNotIn('sessionStorage', page)
         self.assertIn("ask('pin', {setlist: setlistOf(), number, on});", page)
-        # a preset is loaded the way the top bar's list loads it
-        self.assertEqual(page.count("if (index !== at) ask('preset', index);"), 2)       # the top bar's list and the drawer
-        self.assertIn("b.onclick = () => { if (number !== at) ask('preset', number); };", page)   # the grid
+        # a preset is loaded the way the top bar's list loads it: through loadPreset, which asks first when the
+        # loaded preset has changes that are not saved
+        self.assertEqual(page.count("if (index !== at) loadPreset(index);"), 2)          # the top bar's list and the drawer
+        self.assertIn("b.onclick = () => { if (number !== at) loadPreset(number); };", page)      # the grid
+        self.assertIn("loadPreset('previous');", page)                                    # the top bar's arrows
+        self.assertIn("loadPreset('next');", page)
+        self.assertEqual(page.count("ask('preset', target)"), 3)        # nothing unsaved; Don't save; after the Save
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_unsaved_is_hx_edits_undo_position_unless_a_save_was_asked_there(self):
+        unsaved = lambda *args: run_js(['workbench_layout.js'], 'workbenchUnsaved(%s)' % ', '.join(json.dumps(a) for a in args))
+        self.assertFalse(unsaved(0, '3:33', {'key': '', 'at': 0}))                 # as loaded
+        self.assertTrue(unsaved(2, '3:33', {'key': '', 'at': 0}))                  # two changes
+        self.assertFalse(unsaved(2, '3:33', {'key': '3:33', 'at': 2}))             # saved right there
+        self.assertTrue(unsaved(3, '3:33', {'key': '3:33', 'at': 2}))              # changed again after the Save
+        self.assertTrue(unsaved(1, '3:33', {'key': '3:33', 'at': 2}))              # undone to before it
+        self.assertTrue(unsaved(2, '3:34', {'key': '3:33', 'at': 2}))              # another preset's Save
+        self.assertFalse(unsaved(None, '3:33', None))                              # HX Edit's position could not be read
+        self.assertFalse(unsaved(4, '', None))                                     # no preset
+
+    def test_leaving_a_changed_preset_asks_and_save_is_hx_edits_own(self):
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        guard = page[page.index('function loadPreset(target) {'):page.index('function openMenu() {')]
+        self.assertIn("if (!unsaved()) { ask('preset', target); return; }", guard)
+        for words in ("'Stay here'", "'Save, then load '", "has unsaved changes"):
+            self.assertIn(words, guard)
+        self.assertIn("if (answer === 'drop') ask('preset', target);", guard)
+        # Save, then the preset: HX Edit's own Save (the top bar's), then the load once HX Edit's undo position is
+        # back at 0 or after a moment; never when another preset was loaded meanwhile
+        self.assertLess(guard.index('savePreset();'), guard.index("Date.now() - began >= SAVE_WAIT_MS) ask('preset', target)"))
+        self.assertIn('if (presetWord() !== from) return;', guard)
+        self.assertEqual(page.count("ask('save')"), 1)                                    # only savePreset asks it
+        self.assertIn("$('save').onclick = savePreset;", page)
+        self.assertIn("$('edited').hidden = !unsaved();", page)
+        # the mark of a Save goes with the preset, and when nothing is left to undo
+        self.assertIn("if (before !== after || state.undoAt === 0) savedMark = {key: '', at: 0};", page)
         # two banks of four a row: a preset's bank (number / 4) alternates between the two columns
         self.assertIn("if (item) sides[Math.floor(number / 4) % 2].append(item);", page)
 
@@ -1390,7 +1430,50 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar'})
+
+    def test_the_menu_is_the_logo_and_holds_the_layout_and_hx_edits_menu_bar(self):
+        # Batch 1 (Nick, 2026-11-23): the app icon top left opens the menu, the "Unbound" button is gone, and the menu
+        # no longer repeats the rail's tools or Focus Mode.
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn('<div class="logo"><button id="menuButton"', page)
+        self.assertEqual(page.count('id="menuButton"'), 1)
+        self.assertNotIn('chip unbound', page)
+        menu = page[page.index('function openMenu() {'):page.index('function closeMenu() {')]
+        for words in ("el('h6', '', 'Layout')", "item('Workbench', 'This screen', TICK", "() => ask('menu', 'classic')",
+                      "item('Classic+', 'Classic, with the new look', '', null)", "item('Rig on stage',",
+                      "() => ask('menuBar', !options.menuBar)"):
+            self.assertIn(words, menu)
+        for gone in ("'focus'", "'level'", "'look'", "'library'", "setView("):
+            self.assertNotIn(gone, menu)
+        self.assertIn("$('toFocus').onclick = () => ask('menu', 'focus');", page)      # Focus Mode: the Editor | Focus switch
+        launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
+        for piece in ("if name == 'menuBar':", 'nam_catalog.save_setting(MENU_BAR, value)',
+                      "workbench.show_options({'level': bool(preview.level), 'menuBar': value})",
+                      "frame.apply(focus_on[0] or workbench_on[0], nam_catalog.load_settings().get(MENU_BAR) is True)",
+                      "frame.set_window(payload.get('window'))", 'frame.restore()'):
+            self.assertIn(piece, launcher)
+        show = launcher[launcher.index('            def workbench_show():'):launcher.index('            def workbench_mode(')]
+        self.assertIn('frame_show()', show)                                            # either pane on or off: the frame follows
+
+    def test_the_picker_lists_the_nam_categories_beside_hx_edits_own(self):
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        picker = page[page.index('function drawPicker(block) {'):page.index('// ---- the top bar')]
+        self.assertIn("models.append(el('h6', '', 'Models'));", picker)
+        self.assertIn("caps.append(el('h6', '', 'Captures'), capRow('All captures', '', captures.length),", picker)
+        self.assertIn("...namKinds().map(kind => capRow(kind.name, kind.name, captures.filter(c => namKind(c) === kind.name).length)));", picker)
+        self.assertIn("captures.filter(c => !pickedKind || namKind(c) === pickedKind)", picker)
+        self.assertIn('cats.append(models, caps);', picker)
+        # a NAM block's picker opens on its capture's own NAM category
+        opener = page[page.index('function openPicker(tab) {'):page.index('function closePicker() {')]
+        self.assertIn("pickedKind = taken && 'gear' in taken ? namKind(taken) : '';", opener)
+        self.assertIn("pickedTab = pickedKind ? 'all' :", opener)
+
+    def test_the_librarys_delete_says_the_floor_keeps_its_slot(self):
+        page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
+        self.assertIn("'Delete from this PC…'", page)
+        self.assertIn("that slot is not cleared.", page)
+        self.assertNotIn("'Remove…'", page)
 
 
 if __name__ == '__main__':
