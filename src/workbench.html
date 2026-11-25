@@ -983,7 +983,8 @@
   .lay-stage > .insp .card { background: none; border-right: 1px solid rgb(255 255 255 / .08); padding: 18px 20px; align-content: center; overflow-y: auto; }
   .lay-stage > .insp .card > .pic { display: none; }
   .lay-stage > .insp .card { grid-template-columns: minmax(0, 1fr); }
-  .lay-stage > .insp .card > div:not(.btnrow) { display: flex; flex-direction: column-reverse; gap: 2px; min-width: 0; }
+  /* (the title block only: its line above the name; the boxes after a pick keep the Workbench's order, R8) */
+  .lay-stage > .insp .card > div:not(.btnrow):not(.swapbox):not(.swapnote) { display: flex; flex-direction: column-reverse; gap: 2px; min-width: 0; }
   .lay-stage > .insp .card h4 { font-size: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .lay-stage > .insp .card p { margin: 0; font-size: 12.5px; }
   .lay-stage > .insp .btn { background: rgb(255 255 255 / .06); border-color: rgb(255 255 255 / .14); }

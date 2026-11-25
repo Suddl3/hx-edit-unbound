@@ -639,5 +639,16 @@ class EndpointTests(unittest.TestCase):
         self.assertIn("'The split and the mixer keep their model'", page)
 
 
+class StageCardTests(unittest.TestCase):
+    def test_r8_the_stage_docks_card_keeps_the_workbenchs_order(self):
+        page = text('workbench.html')
+        # the stage reverses its card's title block (the line above the name); that rule caught the lined-up box (its
+        # picture went under its words) and the note (its two lines swapped)
+        self.assertIn('.lay-stage > .insp .card > div:not(.btnrow):not(.swapbox):not(.swapnote) { display: flex; flex-direction: column-reverse;', page)
+        self.assertNotIn('.lay-stage > .insp .card > div:not(.btnrow) {', page)
+        self.assertIn('.swapbox { display: flex; align-items: center;', page)
+        self.assertIn('.swapnote { display: grid;', page)
+
+
 if __name__ == '__main__':
     unittest.main()
