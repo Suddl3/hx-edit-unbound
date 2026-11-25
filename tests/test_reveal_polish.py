@@ -171,5 +171,25 @@ class NewBlockTests(unittest.TestCase):
         self.assertEqual(run(dict(added, selected={'dsp': 1, 'id': 'block0'}), 1000), {'select': None, 'done': True})
 
 
+class SnapshotBarTests(unittest.TestCase):
+    def test_a6_the_snapshot_pencil_has_its_room_kept_and_nothing_moves_on_hover(self):
+        # (it was display: none until hover, then display: grid: the hovered button grew 80 -> 101 px and pushed the
+        # others aside; preview, 1600 px wide)
+        page = text('workbench.html')
+        self.assertNotIn('.snaps button:hover .pen { display: grid; }', page)
+        self.assertIn('.snaps button { position: relative; padding-right: 24px; }', page)
+        self.assertIn('.snaps button .pen { position: absolute; right: 5px;', page)
+        self.assertIn('display: grid; visibility: hidden;', between(page, '.snaps button .pen { position: absolute;', '}'))
+        self.assertIn('.snaps button:hover .pen { visibility: visible; }', page)
+        # (the 1-4 / 5-8 button has no pencil, so no room kept)
+        self.assertIn(".snaps button.grp { padding-right: 12px; }", page)
+        self.assertIn("const other = el('button', 'grp');", page)
+        # the rules hold in every layout: no layout gives a snapshot button its own padding or shows the pencil otherwise
+        for rule in page.split('}'):
+            if '.snaps button' in rule and ('.lay-' in rule.split('{')[0]):
+                self.assertNotIn('padding', rule)
+                self.assertNotIn('.pen', rule.split('{')[0])
+
+
 if __name__ == '__main__':
     unittest.main()

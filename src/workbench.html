@@ -423,10 +423,14 @@
   .pencil:hover { color: var(--ink); background: var(--raise); }
   .pencil svg { width: 14px; height: 14px; }
   .now:hover .pencil:not(:disabled) { visibility: visible; }
-  .snaps button .pen { display: none; width: 16px; height: 16px; place-items: center; color: var(--faint); margin-left: -2px; }
+  /* the rename pencil has its room kept at the button's end and shows there on hover, as the preset name's pencil
+     does: nothing moves (Nick, 2026-11-25: it made room by pushing the other buttons aside) */
+  .snaps button { position: relative; padding-right: 24px; }
+  .snaps button.grp { padding-right: 12px; }                     /* (1-4 / 5-8: no pencil) */
+  .snaps button .pen { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); display: grid; visibility: hidden; width: 16px; height: 16px; place-items: center; color: var(--faint); }
   .snaps button .pen svg { width: 12px; height: 12px; }
   .snaps button .pen:hover { color: var(--ink); }
-  .snaps button:hover .pen { display: grid; }
+  .snaps button:hover .pen { visibility: visible; }
   .snaps button.naming { padding: 0 4px 0 10px; max-width: none; background: var(--raise2); }
   .snaps button.naming input { height: 22px; width: 104px; border-radius: 5px; background: #0e1014; border: 1px solid #b070e0; box-shadow: 0 0 0 3px rgb(176 112 224 / .22); color: var(--ink); font: inherit; padding: 0 6px; outline: none; user-select: text; -webkit-user-select: text; }
   .snaps button.naming em { font-style: normal; font-size: 11px; color: var(--faint); margin: 0 4px 0 2px; }
@@ -2317,7 +2321,7 @@ function drawBar() {
     return button;
   });
   if (names.length > 4) {
-    const other = el('button'); other.append(el('b', '', group ? '1–4' : '5–' + Math.min(8, names.length)));
+    const other = el('button', 'grp'); other.append(el('b', '', group ? '1–4' : '5–' + Math.min(8, names.length)));
     other.title = 'Show snapshots ' + (group ? '1 to 4' : '5 to ' + Math.min(8, names.length));
     other.onclick = () => { snapGroup = group ? 0 : 1; drawBar(); };
     buttons.push(other);
