@@ -315,14 +315,14 @@ sealed class ToneBrowser : Form
         popOut.Click += (sender, args) => ChangePresentation(
             windowMode == WindowMode.Embedded ? WindowMode.Floating : WindowMode.Embedded, true);
         // The banner over the site, in the Workbench's own colours (its panel and line): which block a preview
-        // plays on, in plain words, and Pop out.
+        // plays on, in plain words, and Pop out. No logo of its own (Nick, 2026-11-25: with the window's icon and the
+        // layout chooser's logo it made three on a diagonal); popped out, the window's title bar carries the name
+        // and HX Edit Unbound's icon.
         targetBar.BackColor = Color.FromArgb(20, 22, 27);
         targetLabel.ForeColor = Color.FromArgb(201, 205, 214);
+        targetLabel.Padding = new Padding(12, 0, 4, 0);
         targetBar.Controls.Add(targetLabel);
         targetBar.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = Color.FromArgb(42, 46, 56) });
-        if (Icon != null)
-            targetBar.Controls.Add(new PictureBox { Dock = DockStyle.Left, Width = 32,
-                Image = Icon.ToBitmap(), SizeMode = PictureBoxSizeMode.CenterImage });
         targetBar.Controls.Add(targetActions);
         Controls.Add(targetBar);
         browser.PreviewKeyDown += MarkPreviewEscape;
