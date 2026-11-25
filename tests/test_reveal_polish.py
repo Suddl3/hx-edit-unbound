@@ -411,5 +411,74 @@ class ScenePinTests(unittest.TestCase):
         self.assertNotIn('scenePin', text('focus_view.html'))
 
 
+class ClassicChooserTests(unittest.TestCase):
+    """B12: Classic's UNBOUND button has the logo and opens Classic's own chooser (a native menu: the layouts, Classic
+    ticked; Chain pictures: HX Edit's icons (the default) | 3D gear; the tools). reveal-classic-chooser.png."""
+
+    def test_b12_the_menu(self):
+        helper = text('NamLibrary.cs')
+        layouts = between(helper, 'public static readonly Tuple<string,string>[] Layouts = {', '};')
+        self.assertEqual([line.strip() for line in layouts.strip().splitlines()[1:]],
+                         ['Tuple.Create("Workbench", "layout:workbench"),', 'Tuple.Create("Classic+", "layout:classicplus"),',
+                          'Tuple.Create("Rig on stage", "layout:stage"),', 'Tuple.Create("Classic", ""),'])
+        self.assertNotIn('Workbench (the modern screen)', helper)
+        build = between(helper, 'Heading(tools,"LAYOUT");', 'Heading(options,"SIGNAL CHAIN");')
+        self.assertIn('Item(tools,Tick(0,choice.Item2=="",choice.Item1),choice.Item2);', build)     # (Classic ticked)
+        self.assertLess(build.index('Heading(tools,"CHAIN PICTURES");'), build.index('Heading(tools,"TOOLS");'))
+        self.assertIn('chainIcons=Item(tools,"","chainIcons");', build)
+        self.assertIn('chainGear=Item(tools,"","chainGear");', build)
+        self.assertIn('chainIcons.Text=Tick(0,!art,"HX Edit\\u2019s icons"); chainGear.Text=Tick(0,art,"3D gear");', helper)
+        self.assertIn('Tuple.Create("Level presets…", "level"),', helper)
+        self.assertIn('if(output.Length==0)return;', helper)                    # (Classic itself: nothing to do)
+        self.assertIn("HX Edit Unbound's logo", helper)
+        from dsp_meter import DspMeter
+        for name in ('layout:workbench', 'layout:classicplus', 'layout:stage', 'chainIcons', 'chainGear'):
+            self.assertIn(name, DspMeter.CHOICES)
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("elif name.startswith('layout:'):", launcher)
+        self.assertIn('nam_catalog.save_setting(LAYOUT_KEY, choice)', launcher)
+        self.assertIn("elif name in ('chainIcons', 'chainGear') and (name == 'chainGear') != chain_art[0]:", launcher)
+        self.assertIn("nam_catalog.choose_model_art(exe.parent / 'res', on)", launcher)
+        self.assertIn("chainArt=nam_catalog.load_settings().get('chainModelArt') is True,", launcher)
+        # (the trial build calls run_editor without main(): the set is chosen there, before HX Edit is started)
+        run = between(launcher, 'def run_editor(', "    pid = device.spawn([str(exe)], cwd=str(exe.parent))")
+        self.assertIn("nam_catalog.choose_model_art(exe.parent / 'res', nam_catalog.load_settings().get('chainModelArt') is True)", run)
+
+    def test_b12_both_picture_sets_are_kept_and_either_put_in_place(self):
+        import tempfile
+        import nam_catalog
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder:
+            res, art = Path(folder) / 'res', Path(folder) / 'art'
+            (res / 'icons_models').mkdir(parents=True); art.mkdir()
+            (res / 'icons_models' / 'A.png').write_bytes(b'stock A')
+            (res / 'icons_models' / 'B.png').write_bytes(b'stock B')                # (no render: stays stock)
+            (res / 'icons_models' / 'CHAIN_A.png').write_bytes(b'chain')
+            (art / 'A.png').write_bytes(b'gear A')
+            old = nam_catalog.MODEL_ART
+            nam_catalog.MODEL_ART = art
+            try:
+                self.assertEqual(nam_catalog.patch_model_art(res), 1)
+                self.assertEqual(nam_catalog.patch_model_art(res), 1)                 # (again: the stock copy is not lost)
+            finally:
+                nam_catalog.MODEL_ART = old
+            self.assertEqual((res / 'icons_models_stock' / 'A.png').read_bytes(), b'stock A')
+            self.assertEqual((res / 'icons_models_3d' / 'A.png').read_bytes(), b'gear A')
+            self.assertEqual((res / 'icons_models_3d' / 'B.png').read_bytes(), b'stock B')
+            self.assertFalse((res / 'icons_models_3d' / 'CHAIN_A.png').exists())
+            self.assertEqual(nam_catalog.choose_model_art(res, False), 1)
+            self.assertEqual((res / 'icons_models' / 'A.png').read_bytes(), b'stock A')
+            self.assertEqual(nam_catalog.choose_model_art(res, True), 1)
+            self.assertEqual((res / 'icons_models' / 'A.png').read_bytes(), b'gear A')
+            self.assertEqual(nam_catalog.choose_model_art(res, True), 0)
+            # the panes (the Workbench, Focus Mode) take their model pictures from the 3D set
+            import focus_view
+            self.assertEqual(Path(focus_view.art_folders(res, {})['models']), res / 'icons_models_3d')
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'icons_models').mkdir()
+            import focus_view
+            self.assertEqual(Path(focus_view.art_folders(Path(folder), {})['models']), Path(folder) / 'icons_models')
+
+
 if __name__ == '__main__':
     unittest.main()

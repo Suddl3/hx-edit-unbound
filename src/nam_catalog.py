@@ -271,18 +271,51 @@ def add_capture_pictures(resources):
 MODEL_ART = ROOT / 'helix_model_icons' / 'hxedit'   # helix_model_icons/README.md
 
 
+MODEL_STOCK, MODEL_GEAR = 'icons_models_stock', 'icons_models_3d'
+
+
 def patch_model_art(resources):
     """Optional: HX Edit's own model pictures (res/icons_models) replaced by the matching 3D renders
     of helix_model_icons, each made at its stock picture's size and named after it. Pictures with no
-    replacement (the input/output frame strips) stay stock. Returns how many were replaced."""
+    replacement (the input/output frame strips) stay stock. Returns how many were replaced.
+
+    Both sets are kept beside them (Reveal B12): res/icons_models_stock (HX Edit's own, saved before the first
+    replacement; a picture already replaced is never saved as stock) and res/icons_models_3d (every model picture as
+    the Workbench and Focus Mode show them: the renders, the stock ones where there is no render), so the launch can
+    put either in place (choose_model_art) and the panes keep the 3D gear whichever HX Edit shows."""
     models = resources / 'icons_models'
+    stock, gear = resources / MODEL_STOCK, resources / MODEL_GEAR
     replaced = 0
     for picture in sorted(MODEL_ART.glob('*.png')):
         target = models / picture.name
         if target.is_file():
+            kept = stock / picture.name
+            if not kept.is_file() and target.read_bytes() != picture.read_bytes():
+                stock.mkdir(exist_ok=True)
+                shutil.copyfile(target, kept)
             shutil.copyfile(picture, target)
             replaced += 1
+    if replaced:
+        gear.mkdir(exist_ok=True)
+        for picture in models.glob('*.png'):
+            if not picture.name.startswith('CHAIN'):
+                shutil.copyfile(picture, gear / picture.name)
     return replaced
+
+
+def choose_model_art(resources, gear):
+    """HX Edit's model pictures as "Chain pictures" chooses them (Reveal B12): its own (gear False: the saved stock
+    ones back in res/icons_models) or the 3D renders (gear True). Only pictures a set holds are copied; a copy that
+    never saved its stock pictures keeps what it has. Returns how many were copied."""
+    source = Path(resources) / (MODEL_GEAR if gear else MODEL_STOCK)
+    models = Path(resources) / 'icons_models'
+    copied = 0
+    for picture in sorted(source.glob('*.png')) if source.is_dir() else []:
+        target = models / picture.name
+        if target.is_file() and target.read_bytes() != picture.read_bytes():
+            shutil.copyfile(picture, target)
+            copied += 1
+    return copied
 
 
 CHAIN_MODELS = ROOT / 'helix_model_icons' / 'chain'      # make_chain_pictures.py

@@ -154,7 +154,10 @@ def art_folders(resources, settings=None):
     except ValueError:
         pass
     look = (settings or {}).get('floorLook') if isinstance((settings or {}).get('floorLook'), dict) else {}
-    folders = {'app': ROOT, 'models': Path(resources) / 'icons_models', 'captures': ROOT / 'nam_capture_icons',
+    # (the model pictures as the panes show them: the 3D set kept beside HX Edit's own (nam_catalog.patch_model_art),
+    # whichever set HX Edit itself shows (Classic's "Chain pictures", Reveal B12); HX Edit's own folder without it)
+    gear = Path(resources) / 'icons_models_3d'
+    folders = {'app': ROOT, 'models': gear if gear.is_dir() else Path(resources) / 'icons_models', 'captures': ROOT / 'nam_capture_icons',
                'scenes': ROOT / 'focus_backgrounds' / 'backgrounds'}
     for name, choices in (('full', (art.get('models'),)),
                           ('capturesfull', (art.get('captures'), look.get('gearArt'))),

@@ -1507,8 +1507,10 @@ class WiringTests(unittest.TestCase):
     def test_the_classic_screens_menu_has_the_way_back(self):
         self.assertIn('workbench', DspMeter.CHOICES)
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
-        tools = helper[helper.index('public static readonly Tuple<string,string>[] Choices'):helper.index('static readonly string[] Tips')]
-        self.assertIn('Tuple.Create("Workbench (the modern screen)", "workbench")', tools)
+        tools = helper[helper.index('public static readonly Tuple<string,string>[] Layouts'):helper.index('static readonly string[] Tips')]
+        # (Reveal B12: the way back is the layouts at the menu's top, Classic ticked)
+        self.assertIn('Tuple.Create("Workbench", "layout:workbench")', tools)
+        self.assertIn('layout:workbench', DspMeter.CHOICES)
 
     def test_save_is_hx_edits_own_key(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')

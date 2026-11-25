@@ -167,6 +167,14 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     workbench = None
     frame = None
     after_resume = []           # what runs once HX Edit is running (the Workbench, when it was left on)
+    if navigation:
+        # Classic's "Chain pictures" (Reveal B12): HX Edit's own model pictures unless "3D gear" was chosen, put in place
+        # before HX Edit reads them (both sets are kept in the copy: nam_catalog.patch_model_art); the trial build's
+        # launch comes here without main()
+        try:
+            nam_catalog.choose_model_art(exe.parent / 'res', nam_catalog.load_settings().get('chainModelArt') is True)
+        except OSError as error:
+            print(f'Chain pictures not changed: {error}')
     pid = device.spawn([str(exe)], cwd=str(exe.parent))
     try:
         session = device.attach(pid)
@@ -199,9 +207,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                            dragFavorite=str(drag_favorite_path()))
             # HX Unbound menu: "Mark NAM slots in the IR list" (on unless turned off).
             options.update(irDots=nam_catalog.load_settings().get('irNamDots') is not False)
-            # HX Unbound options, as a first launch has them: 3D pictures on, large, with block names, no glow. A choice
-            # made in the menu is kept in settings.json and wins from then on.
-            options.update(chainArt=nam_catalog.load_settings().get('chainModelArt') is not False,
+            # HX Unbound options, as a first launch has them: HX Edit's own icons in Classic's chain (Reveal B12: Classic
+            # feels like stock; "3D gear" is the other choice), large, with block names, no glow. A choice made in the
+            # menu is kept in settings.json and wins from then on.
+            options.update(chainArt=nam_catalog.load_settings().get('chainModelArt') is True,
                            chainArtFiles=nam_catalog.chain_art_files(exe.parent / 'res'),
                            # HX Unbound menu: "Large pictures in the signal chain" (off unless turned on).
                            chainLarge=nam_catalog.load_settings().get('chainLarge') is not False,
@@ -315,10 +324,25 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     focus_mode(not focus_on[0])
                 elif name == 'workbench':
                     workbench_mode(True)
+                elif name.startswith('layout:'):
+                    # Classic's chooser (Reveal B12): that layout, kept as the page's own chooser keeps it, and shown
+                    from workbench import LAYOUT as LAYOUT_KEY, checked_layout as layout_choice
+                    choice = layout_choice(name.split(':', 1)[1])
+                    if choice:
+                        nam_catalog.save_setting(LAYOUT_KEY, choice)
+                        workbench_mode(True)
+                        if workbench is not None:
+                            workbench.show_options(menu_options())
+                elif name in ('chainIcons', 'chainGear') and (name == 'chainGear') != chain_art[0]:
+                    unbound_choice('chainArt')           # (the pair: one of the two, the same switch as the option)
                 elif name == 'chainArt':
                     on = not chain_art[0]
                     chain_art[0] = on
                     nam_catalog.save_setting('chainModelArt', on)
+                    try:                                 # (HX Edit's block list follows at the next launch; the chain at once)
+                        nam_catalog.choose_model_art(exe.parent / 'res', on)
+                    except OSError as error:
+                        trace({'type': 'chainArt', 'event': 'pictures-failed', 'error': str(error)})
                     meter.set_chain_art(on)
                     if not detached.is_set():
                         script.post({'type': 'chainArt', 'payload': {'on': on}})
@@ -985,13 +1009,15 @@ def main():
             patch_navigation_resources(exe.parent)
             patch_library_navigation(exe.parent)
         if args.nam_category:
-            from nam_catalog import load_settings, patch_model_art, patch_nam_category
+            from nam_catalog import choose_model_art, load_settings, patch_model_art, patch_nam_category
             patch_nam_category(exe.parent / 'res')
-            # "3D pictures of the gear" (on unless turned off): HX Edit's block list and grid show the renders too. HX Edit
-            # reads those from its own picture files, so they go into this launch's copy; turning the option on or off
-            # changes the signal chain at once and the block list at the next start.
-            if load_settings().get('chainModelArt') is not False:
-                patch_model_art(exe.parent / 'res')
+            # "Chain pictures" (Classic's chooser, Reveal B12): HX Edit's own icons unless "3D gear" was chosen
+            # (settings.json "chainModelArt": true). HX Edit's block list and grid show the same set: it reads them from
+            # its own picture files, so the chosen set goes into this launch's copy (both are kept there,
+            # patch_model_art); a choice made while HX Edit runs changes the signal chain at once and the block list at
+            # the next start. The Workbench and Focus Mode keep the 3D set either way (icons_models_3d).
+            patch_model_art(exe.parent / 'res')
+            choose_model_art(exe.parent / 'res', load_settings().get('chainModelArt') is True)
         run_editor(exe, workspace, device, profiles, firmware, floor_reference=args.floor_reference,
                    tone_window=args.tone_window, navigation=args.navigation)
 
