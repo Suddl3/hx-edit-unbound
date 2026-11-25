@@ -1127,7 +1127,7 @@ class SplitMoveTests(unittest.TestCase):
         self.assertLess(select.index('targetBinding.selectNode(editor, block.dsp, block.id);'), select.index('focusChainPoint('))
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         for which in ('split', 'join'):
-            self.assertIn(f"node.onclick = () => {{ if (!dragDone) ask('select', {{dsp: p.dsp, id: '{which}'}}); }};", page)
+            self.assertIn(f"node.onclick = () => {{ if (!dragDone) pickBlock({{dsp: p.dsp, id: '{which}'}}); }};", page)
             self.assertIn(f"el('span', 'node movable' + (same(p.{which}, now) ? ' on' : ''))", page)
 
 class AssignReadTests(unittest.TestCase):

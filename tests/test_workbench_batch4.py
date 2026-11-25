@@ -580,7 +580,8 @@ class AddPicksTheNewBlockTests(unittest.TestCase):
         self.assertIn('if (next.done) addFollow = null;', receive)
         self.assertIn('if (next.select) pickBlock(next.select);', receive)
         self.assertNotIn('layout', between(receive, 'if (addFollow && catalog)', 'pickBlock(next.select);'))
-        self.assertIn("function pickBlock(block) {\n  ask('select', {dsp: block.dsp, id: block.id});", text)
+        pick = between(text, 'function pickBlock(block', '\n}')
+        self.assertEqual(pick.count("ask('select', {dsp: block.dsp, id: block.id});"), 1)
 
     def test_undo_or_a_refusal_ends_the_wait_and_selecting_adds_no_step(self):
         text = page()

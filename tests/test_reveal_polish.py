@@ -119,5 +119,22 @@ class FloorSlotsIrTests(unittest.TestCase):
         self.assertNotIn('.irpic', page)
 
 
+class NewBlockTests(unittest.TestCase):
+    def test_a4_a_click_on_a_block_ends_the_add_in_every_layout(self):
+        page = text('workbench.html')
+        pick = between(page, 'function pickBlock(block', '\n}')
+        # (a "+" open: a click on any block ends it as Cancel would, then picks that block)
+        self.assertIn("if (picking && picking.empty) { picking = false; shownPanel = '';", pick)
+        self.assertLess(pick.index('picking = false'), pick.index("ask('select'"))
+        # every way to click a block goes through pickBlock: a tile, an input or an output, the split, the mixer, a
+        # small tile of a full view's header (the stage and Classic+ draw their chain with the same drawPath)
+        self.assertEqual(page.count("ask('select',"), 1)
+        for line in ("button.onclick = () => { if (!dragDone) pickBlock(block); };", "button.onclick = () => pickBlock(block);",
+                     "pickBlock({dsp: p.dsp, id: 'split'})", "pickBlock({dsp: p.dsp, id: 'join'})", "setView('goto'); pickBlock(block);"):
+            self.assertIn(line, page)
+        # another "+" moves the add there
+        self.assertIn('plus.onclick = () => openPlacePicker(p.dsp, lane, place);', page)
+        self.assertIn('picking = {empty: true, dsp, lane, place};', page)
+
 if __name__ == '__main__':
     unittest.main()
