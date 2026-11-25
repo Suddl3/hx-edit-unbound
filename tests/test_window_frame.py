@@ -1,7 +1,9 @@
 """HX Edit's window frame while a pane covers its screen (window_frame.py): a dark title bar, the menu row away and
 back. A made-up Windows: no window is touched."""
+import ctypes
 from pathlib import Path
 import sys
+import threading
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1] / 'src'
@@ -249,6 +251,44 @@ class WindowFrameTests(unittest.TestCase):
         self.api.windows.add(200)
         frame.set_window(200)
         self.assertEqual((frame.window, frame.dark, frame.kept), (200, False, 0))
+
+    def test_a_callback_may_ask_the_frame_again(self):
+        # (apply calls on_dark / on_kept holding its lock; one that asks the frame something must not wait for itself)
+        frame = self.frame()
+        frame.on_dark = lambda window, on: frame.allow_menu(True)
+        frame.on_kept = lambda handle: frame.set_window(7)
+        done = []
+        worker = threading.Thread(target=lambda: done.append(frame.apply(True, False)), daemon=True)
+        worker.start()
+        worker.join(5)
+        self.assertEqual(done, [True])
+
+    def test_the_launcher_gives_the_frame_back_even_when_a_pane_fails_to_close(self):
+        text = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8').replace('\r\n', '\n')
+        closing = text[text.index('                if workbench:\n                    workbench.close()\n'):]
+        closing = closing[:closing.index('def main():')]
+        self.assertTrue(closing.startswith('                if workbench:\n                    workbench.close()\n'
+                                           '            finally:\n                try:\n'), closing[:300])
+        self.assertIn('                    if frame is not None:\n                        frame.restore()\n'
+                      '                finally:\n                    if preview:\n', closing)
+
+
+@unittest.skipUnless(sys.platform == 'win32', 'Windows only')
+class Win32Tests(unittest.TestCase):
+    def test_the_frames_signatures_stay_in_its_own_copies_of_the_dlls(self):
+        # (ctypes.windll is shared by the whole launcher: its functions' restype / argtypes are left as they were)
+        shared = ctypes.windll.user32, ctypes.windll.dwmapi
+        names = ('IsWindow', 'GetAncestor', 'GetMenu', 'SetMenu', 'IsMenu', 'SetWindowPos', 'GetWindowRect', 'IsZoomed')
+        before = [(getattr(shared[0], name).restype, getattr(shared[0], name).argtypes) for name in names]
+        dwm_before = (shared[1].DwmSetWindowAttribute.restype, shared[1].DwmSetWindowAttribute.argtypes)
+        api = window_frame.Win32()
+        self.assertIsNot(api.user, shared[0])
+        self.assertIsNot(api.dwm, shared[1])
+        self.assertEqual([(getattr(shared[0], name).restype, getattr(shared[0], name).argtypes) for name in names], before)
+        self.assertEqual((shared[1].DwmSetWindowAttribute.restype, shared[1].DwmSetWindowAttribute.argtypes), dwm_before)
+        self.assertIsNotNone(api.user.SetMenu.argtypes)
+        self.assertFalse(api.is_window(0))
+        self.assertFalse(api.is_window(1))            # (no such window: nothing on the screen is touched)
 
 
 if __name__ == '__main__':

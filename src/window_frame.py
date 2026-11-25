@@ -31,7 +31,7 @@ that is exactly one menu row taller than it was, at the same place and width, ge
 size as the user has it is what is kept. A maximized window is left alone.
 """
 import ctypes
-from threading import Lock
+from threading import RLock
 import time
 
 MENU_BAR = 'workbenchMenuBar'          # settings.json: False takes HX Edit's menu row away while a pane is shown
@@ -52,7 +52,10 @@ class Win32:
 
     def __init__(self):
         from ctypes import wintypes
-        user, dwm = ctypes.windll.user32, ctypes.windll.dwmapi
+        # Private copies of the two DLLs: the signatures set below stay here. ctypes.windll is shared by the whole
+        # launcher, and setting restype / argtypes on its functions changed them for every other caller (review of
+        # PR #7).
+        user, dwm = ctypes.WinDLL('user32', use_last_error=True), ctypes.WinDLL('dwmapi')
         for name, result, arguments in (
                 ('IsWindow', wintypes.BOOL, [wintypes.HWND]), ('GetAncestor', wintypes.HWND, [wintypes.HWND, wintypes.UINT]),
                 ('GetMenu', wintypes.HMENU, [wintypes.HWND]), ('SetMenu', wintypes.BOOL, [wintypes.HWND, wintypes.HMENU]),
@@ -129,7 +132,9 @@ class WindowFrame:
         self.dark = False
         self.kept = 0                  # HX Edit's own menu handle while its row is away
         self.menu_ok = False           # menu_row.js is in place: HX Edit finds its commands without the row
-        self.lock = Lock()
+        # (re-entrant: apply calls on_dark / on_kept while it holds the lock, and a callback that asks the frame
+        # something again must not wait for itself; review of PR #7)
+        self.lock = RLock()
 
     def set_window(self, window):
         """HX Edit's window as its script reports it (any window of it: the frame is its top one's)."""

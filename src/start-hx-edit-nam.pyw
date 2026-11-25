@@ -883,11 +883,15 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     focus.close()
                 if workbench:
                     workbench.close()
-                if frame is not None:
-                    frame.restore()                      # (HX Edit still open: its title bar and menu row as it made them)
             finally:
-                if preview:
-                    preview.close_diagnostics()
+                try:
+                    # (HX Edit still open: its title bar and menu row as it made them, even when a pane's close above
+                    # failed; review of PR #7)
+                    if frame is not None:
+                        frame.restore()
+                finally:
+                    if preview:
+                        preview.close_diagnostics()
 
 
 def main():
