@@ -70,6 +70,9 @@ class OwnStepsTests(unittest.TestCase):
         self.assertIn('state.undo = targetBinding.canUndo ? targetBinding.canUndo(editor) : null;', script)
         self.assertIn("const size = editor.add(0x290).readS32();", script)
         self.assertIn("stage: 'undo-can', undo: state.undo, redo: state.redo, at: undoWord", script)
+        # (a capture add traces HX Edit's undo index before it, after it and after the refresh write: one live add made
+        # two records once, 2026-11-25 00:47:20)
+        self.assertIn("stage: 'add-capture-one-step', slot: command.slot, undo: [before, added, undoIndex()]", script)
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         self.assertIn("return !entry(editor, 0).isNull();", binding)
         self.assertIn('canRedo, canUndo,', binding)

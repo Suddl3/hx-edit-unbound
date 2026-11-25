@@ -496,10 +496,15 @@ function installFocusView(options, parts) {
       if (command.slot) {
         // a capture: the block and its slot as one undo step (target_binding addCapture); its slot set later, as a
         // step of its own, only when the new block could not be found at once
+        // (HX Edit's undo index before the add, after it and after finish: one live add once made two records, sweep
+        // fixes check 2026-11-25 00:47:20, 0 -> 2; these say whether the second is ours or HX Edit's afterwards)
+        const undoIndex = () => { try { return editor.add(0x294).readS32(); } catch (_) { return null; } };
+        const before = undoIndex();
         const made = targetBinding.addCapture(editor, command.dsp, command.lane, command.place, next, command.slot);   // (or an IR)
         if (made) {
+          const added = undoIndex();
           finish(editor, command.dsp, made, 'Index', command.slot);
-          send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-one-step', slot: command.slot});
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-one-step', slot: command.slot, undo: [before, added, undoIndex()]});
         } else addFollow = {dsp: command.dsp, lane: command.lane, place: command.place, slot: command.slot, model: next, until: Date.now() + ADD_FOLLOW_MS};
       } else targetBinding.addModel(editor, command.dsp, command.lane, command.place, next);
     } else if (command.action === 'moveSplit') {
