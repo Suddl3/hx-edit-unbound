@@ -320,7 +320,7 @@ class NavigationNativeTests(unittest.TestCase):
           const selectedTarget=()=>selected,atTarget=()=>matches;
           const namView={stopPreview(){}},releaseTarget=()=>{},reply=()=>{},resume=()=>{};
           const autoBindSelected=()=>{},refreshBounds=()=>{},allowForeground=()=>{};
-          const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600});
+          const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600}),dockPanelFor=p=>p;
           const targets=()=>sent.filter(value=>value.type==='toneTarget');
         const boundModel=()=>null,boundSlot=()=>null;
         ''' + function('publishTarget') + function('observeController') + function('invalidate') + \
@@ -676,7 +676,7 @@ class NavigationNativeTests(unittest.TestCase):
           const profile={navigation:true},NULL={isNull:()=>true},tiles=[{block:'NAM A2 Lite'}],events=[];
           const send=e=>events.push(e), publishTarget=()=>{}, window={isNull:()=>false,toUInt32:()=>77};
           const namView={},autoBindSelected=()=>{},refreshBounds=()=>{},allowForeground=()=>{};
-          const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600});
+          const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600}),dockPanelFor=p=>p;
           let active=null,nextSession=0,targetVersion=0,contextVersion=3;
         ''' + function('openBrowser') + '''
           openBrowser(window,{dockPanel}); const first={...active}; openBrowser(window,{library:true,dockPanel});

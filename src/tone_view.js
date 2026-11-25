@@ -560,7 +560,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (active.headless) return false; // finish the sidebar operation before opening a helper
       // If the supervisor answers that this session is gone, this click opens a new one instead.
       active.reopen = {window, options, at: Date.now()};
-      if (options.dockPanel && !options.dockPanel.isNull()) active.panel = options.dockPanel;
+      if (options.dockPanel && !options.dockPanel.isNull()) active.panel = dockPanelFor(options.dockPanel);
       refreshBounds();
       autoBindSelected();
       publishTarget(undefined, true); // Explicit reopen gets a fresh target snapshot.
@@ -568,7 +568,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       send({ type: 'toneFocus', session: active.id, page: options.level ? 'level' : options.look ? 'look' : options.library ? 'library' : 'catalog' });
       return true;
     }
-    const panel = options.dockPanel || NULL;
+    const panel = options.headless ? (options.dockPanel || NULL) : dockPanelFor(options.dockPanel || NULL);
     let bounds;
     try { bounds = panel.isNull() ? null : panelBounds(panel); } catch (_) { bounds = null; }
     if (!options.headless && (!bounds?.visible || bounds.w < 60 || bounds.h < 60)) {
@@ -645,6 +645,24 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       widget = widget.add(0x54).readPointer().add(0x14).readPointer();
     }
     return NULL;
+  }
+
+  // The parameter pane a navigation window docks in: the one asked with (nav_banner dockPanel: the FIRST PRVW in HX
+  // Edit's editor), else the selected block's own edit view's. HX Edit builds a second edit view, with its own PRVW,
+  // the first time an input or an output is selected (editView.xml is the one template); the first PRVW found is then
+  // the hidden one whenever a block is selected. Live 2026-11-25 12:31:34: inputA and outputA picked at 12:31:19-22,
+  // then every open "navigation-panel-unavailable"; no earlier trace selected an input or output before an open.
+  function usablePanel(panel) {
+    try { const b = panel && !panel.isNull() ? panelBounds(panel) : null; return !!b && b.visible && b.w >= 60 && b.h >= 60; }
+    catch (_) { return false; }
+  }
+  function dockPanelFor(given) {
+    if (usablePanel(given)) return given;
+    let own = NULL;
+    try { const controller = cursorController(); if (!controller.isNull()) own = parameterPanel(controller.add(0x58).readPointer()); }
+    catch (_) { own = NULL; }
+    if (usablePanel(own)) { send({type:'toneTrace',reason:'navigation-panel',stage:'own-view'}); return own; }
+    return given || NULL;
   }
 
   function panelBounds(panel) {

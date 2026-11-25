@@ -714,7 +714,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     return
                 if name == 'toolClose':
                     # The Workbench closed the frame a tool sat in (Close, Back to the chain, Esc, another tool's
-                    # place): its window closes as its own Close does.
+                    # place): its window closes as its own Close does. (why: the view gave up waiting for it, R1)
+                    if isinstance(value, dict) and value.get('why') == 'tone-not-open':
+                        trace({'type': 'workbench', 'event': 'tool-not-open', 'name': 'tone'})
                     if preview is not None and preview.bounds_override is not None:
                         preview.close_window('workbench')
                     return

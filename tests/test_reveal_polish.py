@@ -480,5 +480,36 @@ class ClassicChooserTests(unittest.TestCase):
             self.assertEqual(Path(focus_view.art_folders(Path(folder), {})['models']), Path(folder) / 'icons_models')
 
 
+class ToneOpensTests(unittest.TestCase):
+    """R1: TONE3000 did not open after an input or an output had been selected (live 2026-11-25 12:31:34, 12:31:42,
+    12:38:28: "navigation-panel-unavailable"; in every earlier trace no input or output was selected before an open)."""
+
+    def test_r1_the_window_docks_in_a_parameter_pane_that_shows(self):
+        tone = text('tone_view.js')
+        pick = between(tone, 'function dockPanelFor(given) {', '\n  }')
+        self.assertIn('if (usablePanel(given)) return given;', pick)
+        self.assertIn('own = parameterPanel(controller.add(0x58).readPointer());', pick)
+        self.assertIn("send({type:'toneTrace',reason:'navigation-panel',stage:'own-view'}); return own;", pick)
+        self.assertIn('const panel = options.headless ? (options.dockPanel || NULL) : dockPanelFor(options.dockPanel || NULL);', tone)
+        self.assertIn('active.panel = dockPanelFor(options.dockPanel);', tone)
+        # (the refusal itself stays: with no pane at all, nothing is opened)
+        self.assertIn("send({type:'toneTrace',reason:'navigation-panel-unavailable'});", tone)
+
+    def test_r1_the_view_never_waits_for_ever(self):
+        page = text('workbench.html')
+        self.assertIn('const TOOL_WAIT_MS = 6000;', page)
+        self.assertIn("ask('tool', {name, ...rect}); waitForTool(); }", page)
+        fail = between(page, 'function send2page(why) {', '\n}')
+        self.assertIn("el('b', '', 'TONE3000 did not open.')", fail)
+        self.assertIn("again = el('button', 'btn', 'Try again');", fail)
+        self.assertIn("ask('toolClose', {why});", fail)
+        self.assertIn("message.kind === 'toolOpen') { toolArrived(); return; }", page)
+        self.assertIn("message.kind === 'tone') { toolArrived();", page)
+        preview = text('tone_preview.py')
+        self.assertIn("self._to_workbench('toolOpen', {'ready': True})", preview)
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("trace({'type': 'workbench', 'event': 'tool-not-open', 'name': 'tone'})", launcher)
+
+
 if __name__ == '__main__':
     unittest.main()

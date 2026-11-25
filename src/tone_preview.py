@@ -520,6 +520,8 @@ class TonePreview:
                 self.script.post({'type': 'toneBrowserProcess', 'payload': {'session': session, 'pid': browser_pid}})
             if browser.wait_ready():
                 self._trace('browser', 'ready', session, started=started)
+                if not self.workbench and self.bounds_override is not None:
+                    self._to_workbench('toolOpen', {'ready': True})   # (the Workbench's view stops waiting for it)
                 if not (self.library and (self.initial_library or not client_id)):  # browse() sends the library card
                     browser.send('card', html=render_card(library=bool(self.library)), has_tone=False)
                 if self.navigation:

@@ -109,6 +109,10 @@
   .vbody { position: relative; min-width: 0; min-height: 0; }
   /* (behind a tool's own window until it is there, or if it does not come) */
   .waiting { position: absolute; inset: 0; display: grid; place-items: center; color: var(--faint); font-size: 14px; text-align: center; line-height: 1.5; padding: 20px; }
+  .waiting .notopen { display: grid; gap: 8px; justify-items: center; max-width: 420px; }
+  .waiting .notopen b { color: var(--ink); font-size: 16px; font-weight: 600; }
+  .waiting .notopen span { color: var(--dim); }
+  .waiting .notopen .btn { margin-top: 6px; color: var(--ink); }
   /* the chain as small tiles in a full view's header: a click goes back to the chain with that block picked */
   .mini { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
   .mini small { color: var(--faint); font-size: 11px; margin: 0 5px 0 10px; }
@@ -3059,6 +3063,31 @@ let toolShown = '', toolAskedAt = 0, toolPlaced = '';
 // closing does not close it; the rail's TONE3000 button brings it back in (with the tray: the preview playing, Heard
 // this session); its own Dock opens the view again around it; closed, it ends its preview as before (toolClosed).
 let toolPopped = false;
+// Its window coming: the view waits TOOL_WAIT_MS for the session's word that it is up (session "toolOpen", or its tray);
+// without it, the view says so in plain words and offers Try again (live 2026-11-25 12:31: "Opening TONE3000..." for
+// ever after HX Edit refused the open). A late window still takes the view back.
+const TOOL_WAIT_MS = 6000;
+let toolWaitTimer = 0, toolUp = false;
+function waitForTool() {
+  toolUp = false; clearTimeout(toolWaitTimer);
+  toolWaitTimer = setTimeout(() => {
+    if (toolUp || !toolShown || view.full !== toolShown) return;
+    send2page('tone-not-open');
+  }, TOOL_WAIT_MS);
+}
+function toolArrived() { toolUp = true; clearTimeout(toolWaitTimer); const box = $('vbody').querySelector('.t3web .waiting'); if (box) box.replaceChildren('Opening TONE3000\u2026'); }
+function send2page(why) {
+  // (the TONE3000 view's waiting line becomes what happened and a way on)
+  const box = $('vbody').querySelector('.t3web .waiting');
+  if (!box) return;
+  const again = el('button', 'btn', 'Try again');
+  again.onclick = () => { const name = toolShown; toolShown = ''; box.replaceChildren('Opening TONE3000\u2026'); if (name) syncTool(); };
+  const words = el('div', 'notopen');
+  words.append(el('b', '', 'TONE3000 did not open.'),
+    el('span', '', 'HX Edit had no place to open it. Pick a block in the chain, then try again.'), again);
+  box.replaceChildren(words);
+  ask('toolClose', {why});                                        // (nothing left half open; the launcher traces it)
+}
 function frameRect() {
   const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody'), r = body.getBoundingClientRect(), k = window.devicePixelRatio || 1;
   return {x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k)};
@@ -3068,7 +3097,7 @@ function syncTool() {
   if (!name) { if (toolShown && !toolPopped) { toolShown = ''; ask('toolClose'); } return; }
   const rect = frameRect(), key = JSON.stringify(rect);
   if (toolShown && toolShown !== name && toolPopped) { toolPopped = false; shownRail = ''; drawRail(); }   // (another tool: the launcher closes the one out)
-  if (toolShown !== name) { toolShown = name; toolPlaced = key; toolAskedAt = Date.now(); ask('tool', {name, ...rect}); }
+  if (toolShown !== name) { toolShown = name; toolPlaced = key; toolAskedAt = Date.now(); ask('tool', {name, ...rect}); waitForTool(); }
   else if (toolPopped) { toolPlaced = key; toolPopped = false; shownRail = ''; drawRail(); ask('toolDock', rect); }   // (back in)
   else if (key !== toolPlaced) { toolPlaced = key; ask('toolPlace', rect); }
 }
@@ -4786,7 +4815,8 @@ function receive(message) {
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
   else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
-  else if (message.type === 'session' && message.kind === 'tone') { toneTray = message.data || null; shownTray = ''; drawTray(); return; }
+  else if (message.type === 'session' && message.kind === 'tone') { toolArrived(); toneTray = message.data || null; shownTray = ''; drawTray(); return; }
+  else if (message.type === 'session' && message.kind === 'toolOpen') { toolArrived(); return; }
   else if (message.type === 'session' && message.kind === 'presentation') { toolPresentation(message.data && message.data.mode); return; }
   else if (message.type === 'session' && message.kind === 'notice') { stickyNote(message.data && message.data.text); return; }
   else if (message.type === 'session') { levelSessionMessage(message.kind, message.data || {}); return; }
