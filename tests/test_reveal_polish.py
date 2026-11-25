@@ -534,7 +534,8 @@ class ReplaceNoteTests(unittest.TestCase):
         page = text('workbench.html')
         settle = between(page, 'function settleReplaced() {', '\n}')
         # the block still holds what Replace put there ...
-        self.assertIn('const holds = replaced.symbol ? block.model === replaced.symbol : isNam(block) && block.slot === replaced.slot;', settle)
+        self.assertIn('const holds = replaced.route !== undefined ? endpointNow(block) === replaced.route', settle)
+        self.assertIn(': replaced.symbol ? block.model === replaced.symbol : isNam(block) && block.slot === replaced.slot;', settle)
         # ... and that step is HX Edit's last one: the undo position the reading that showed it had
         self.assertIn('if (holds) replaced.at = state.undoAt;', settle)
         self.assertIn('if (!holds || state.undoAt !== replaced.at) replaced = null;', settle)
@@ -582,6 +583,60 @@ class OneMenuTests(unittest.TestCase):
         self.assertIn('chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;', button)
         self.assertIn('chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;', button)
         self.assertIn('chainGlow.Text=Tick(2,glow,"Glow behind them"); chainGlow.Enabled=art&&large;', button)
+
+
+class EndpointTests(unittest.TestCase):
+    """R7: an input's or an output's card offers "Change input" / "Change output": HX Edit's own list for that place,
+    by the click rule (a click lines one up, Replace sets it), one write of @input / @output, one undo step."""
+
+    @staticmethod
+    def view(blocks):
+        from focus_view import FocusView
+        view = FocusView.__new__(FocusView)
+        view.state = {'blocks': blocks}
+        return view
+
+    def test_r7_the_launcher_checks_the_place_and_the_number(self):
+        blocks = [{'dsp': 0, 'id': 'inputA', 'model': 'HD2_AppDSPFlow1Input'}, {'dsp': 1, 'id': 'outputA', 'model': 'HD2_AppDSPFlowOutput'},
+                  {'dsp': 0, 'id': 'outputA', 'model': 'HD2_AppDSPFlowOutput'}, {'dsp': 0, 'id': 'block1', 'model': 'HD2_DistMinotaur'}]
+        view = self.view(blocks)
+        if not hasattr(view, '_block'):
+            self.skipTest('no _block')
+        self.assertEqual(view.checked_endpoint({'dsp': 0, 'id': 'inputA', 'value': 2}),
+                         {'action': 'endpoint', 'dsp': 0, 'id': 'inputA', 'key': '@input', 'value': 2})
+        self.assertEqual(view.checked_endpoint({'dsp': 0, 'id': 'outputA', 'value': 3})['key'], '@output')   # path 1 -> Path 2B
+        self.assertIsNone(view.checked_endpoint({'dsp': 1, 'id': 'outputA', 'value': 3}))     # path 2 cannot go to path 2
+        self.assertIsNone(view.checked_endpoint({'dsp': 0, 'id': 'inputA', 'value': 17}))     # past HX Edit's list
+        self.assertIsNone(view.checked_endpoint({'dsp': 0, 'id': 'inputA', 'value': True}))
+        self.assertIsNone(view.checked_endpoint({'dsp': 0, 'id': 'block1', 'value': 1}))     # not an input or an output
+        self.assertIsNone(view.checked_endpoint({'dsp': 1, 'id': 'inputB', 'value': 1}))     # not there
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("'endpoint': view.checked_endpoint,", launcher)
+
+    def test_r7_the_script_writes_it_as_hx_edits_list_does(self):
+        script = text('focus_view.js')
+        body = between(script, "} else if (command.action === 'endpoint') {", "} else if (command.action === 'route') {")
+        self.assertIn("targetBinding.setValue(editor, command.dsp, command.id, command.key, command.value, 'single');", body)
+        self.assertIn('finish(editor, command.dsp, command.id, command.key, command.value);', body)
+        self.assertIn("value.key === '@' + (value.id.startsWith('input') ? 'input' : 'output')", script)
+
+    def test_r7_the_page(self):
+        page = text('workbench.html')
+        self.assertIn("(end ? (block.id.startsWith('input') ? 'Change input' : 'Change output') : 'Change model')", page)
+        self.assertIn("change.onclick = () => end ? openEndpointPicker() : openPicker();", page)
+        choices = between(page, 'function endpointChoices(block) {', '\n}')
+        self.assertIn('.filter(c => input || block.dsp === 0 || ![2, 3, 4].includes(c.route));', choices)
+        rule = between(page, 'function endpointRule(block, choice, how) {', '\n}')
+        self.assertIn("if (how === 'click') { lined = {dsp: block.dsp, id: block.id, route: choice.route};", rule)
+        self.assertIn('replaceEndpoint(block, choice.route);', rule)
+        self.assertIn("ask('endpoint', {dsp: block.dsp, id: block.id, value: route});", page)
+        self.assertIn("if (lined && lined.route !== undefined) { const block = current(); if (block && same(lined, block)) replaceEndpoint(block, lined.route); return; }", page)
+        # every layout: drawPanel sends it there before Classic+'s Edit area
+        panel = between(page, 'function drawPanel() {', '\n}')
+        self.assertLess(panel.index('drawEndpointPicker(block)'), panel.index("if (layout === 'classicplus')"))
+        self.assertIn('.lay-stage > .insp.pick.endpoint { grid-template-columns: 250px minmax(0, 1fr); }', page)
+        # the split and the mixer keep their buttons
+        self.assertIn("'The split and the mixer keep their model'", page)
 
 
 if __name__ == '__main__':

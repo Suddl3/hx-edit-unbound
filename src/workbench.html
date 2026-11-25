@@ -785,6 +785,12 @@
   .swapbox b, .swapline b { color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .swapbox span, .swapline span { color: var(--dim); font-size: 12px; }
   .swapgo { width: 100%; justify-content: center; }
+  /* an input's or an output's chooser (R7): the card and a grid of jack tiles */
+  .insp.pick.endpoint { grid-template-columns: 250px minmax(0, 1fr); }
+  .cards.ends .mc .pic.io { width: 100%; height: 58px; display: grid; place-items: center; color: var(--dim); }
+  .cards.ends .mc .pic.io svg { width: 40px; height: 40px; }
+  .cards.ends .mc.on .pic.io { color: var(--ink); }
+  .swapbox .swappic.io { display: grid; place-items: center; color: var(--ink); } .swapbox .swappic.io svg { width: 30px; height: 30px; }
   .swapnote { display: grid; gap: 2px; padding: 9px 10px; border-radius: 10px; background: #101216; border: 1px solid var(--line); }
   .swapnote b { color: var(--ink); font-weight: 600; }
   .swapnote span { color: var(--dim); font-size: 12px; }
@@ -973,6 +979,7 @@
   .lay-stage > .insp.nam { grid-template-columns: 290px minmax(0, 1fr) 300px; }
   .lay-stage > .insp.pick, .lay-stage > .insp.tabbed { height: min(58vh, 540px); }
   .lay-stage > .insp.pick { grid-template-columns: 250px 212px minmax(0, 1fr); }
+  .lay-stage > .insp.pick.endpoint { grid-template-columns: 250px minmax(0, 1fr); }   /* (an input's or output's chooser: no category list) */
   .lay-stage > .insp .card { background: none; border-right: 1px solid rgb(255 255 255 / .08); padding: 18px 20px; align-content: center; overflow-y: auto; }
   .lay-stage > .insp .card > .pic { display: none; }
   .lay-stage > .insp .card { grid-template-columns: minmax(0, 1fr); }
@@ -1064,7 +1071,7 @@ const costKey = block => {
 };
 // (the page's own changes to the loaded preset, for the unsaved mark: what HX Edit does by itself right after a load
 // is not one of them; see receive)
-const EDIT_ASKS = new Set(['set', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'rename', 'undo', 'redo', 'snapshot']);
+const EDIT_ASKS = new Set(['set', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'endpoint', 'assign', 'snapValue', 'splitType', 'ir', 'rename', 'undo', 'redo', 'snapshot']);
 let editAskedAt = 0;
 const ask = (name, value) => {
   if (EDIT_ASKS.has(name)) editAskedAt = Date.now();
@@ -1537,6 +1544,77 @@ function fill(item, p) {
   item.querySelector('.dial').setAttribute('aria-valuetext', text(p));
   const sync = item.querySelector('.sync'); if (sync) sync.classList.toggle('on', synced(p));
 }
+// ---- an input's or an output's chooser (R7) -------------------------------------------------------------------------
+// HX Edit's own list for that place (HelixControls.json input_type / output_type, catalog.inputs / outputs), by the
+// number the preset keeps (@input / @output); path 2's outputs cannot go to Path 2A / 2B / 2A+B. The same rule as the
+// picker's (pickRule): a click lines one up on the card, Replace (or a double-click, or Enter) sets it: one write of
+// @input / @output with the single-change flag, one undo step (as HX Edit's own list and Levels' own output change).
+function endpointChoices(block) {
+  const input = block.id.startsWith('input'), list = (input ? catalog.inputs : catalog.outputs) || [];
+  return list.map((name, route) => ({route, name: workbenchName(list, route), full: name}))
+    .filter(c => input || block.dsp === 0 || ![2, 3, 4].includes(c.route));
+}
+const endpointNow = block => block.id.startsWith('input') ? block.input : block.output;
+function openEndpointPicker() {
+  const block = current(); if (!block || !isEnd(block)) return;
+  lined = replaced = null; picking = {endpoint: true}; shownPanel = ''; drawPanel();
+}
+function endpointRule(block, choice, how) {
+  if (choice.route === endpointNow(block)) { if (lined) { lined = null; redrawPick(); } return; }
+  if (how === 'click') { lined = {dsp: block.dsp, id: block.id, route: choice.route}; replaced = null; redrawPick(); return; }
+  replaceEndpoint(block, choice.route);
+}
+function replaceEndpoint(block, route) {
+  if (!Number.isInteger(route) || route === endpointNow(block)) return;
+  replaced = {dsp: block.dsp, id: block.id, was: endName(block) || 'None', route, until: Date.now() + 4000}; lined = null;
+  ask('endpoint', {dsp: block.dsp, id: block.id, value: route});
+  redrawPick();
+}
+function drawEndpointPicker(block) {
+  const panel = $('insp'), choices = endpointChoices(block), input = block.id.startsWith('input');
+  const key = JSON.stringify(['endpoint', block.dsp, block.id, endpointNow(block), lined, replaced]);
+  if (key === shownPanel) return;
+  shownPanel = key;
+  panel.className = 'insp pick endpoint'; panel.style.setProperty('--c', '152 152 152');
+  const box = el('div', 'card'), pic = el('div', 'pic io'), head = el('div'), side = input ? 'Input' : 'Output';
+  pic.innerHTML = ICON.jack; if (!input) pic.firstChild.style.transform = 'scaleX(-1)';
+  head.append(el('h4', '', side + ' ' + (block.id.endsWith('B') ? 'B' : 'A') + ': ' + (endName(block) || 'None')),
+    el('p', '', 'Path ' + (block.dsp + 1) + (block.id.endsWith('B') ? ' · lane B' : '')));
+  head.lastChild.style.color = 'var(--dim)';
+  box.append(pic, head);
+  let hint = 'Click one to line it up here. Double-click it, or press Enter, to set it at once.';
+  const choice = lined && same(lined, block) ? choices.find(c => c.route === lined.route) : null;
+  if (choice) {
+    const swap = el('div', 'swapbox'), words = el('div'), mark = el('span', 'swappic io'); mark.innerHTML = ICON.jack;
+    if (!input) mark.firstChild.style.transform = 'scaleX(-1)';
+    words.append(el('small', '', 'Replace with'), el('b', '', choice.name),
+      el('span', '', choice.full !== choice.name ? choice.full : side + ' of path ' + (block.dsp + 1)));
+    swap.append(mark, words);
+    const go = el('button', 'btn pri swapgo', 'Replace'); go.title = 'Set ' + side.toLowerCase() + ' to ' + choice.full + ' (Enter)';
+    go.onclick = () => replaceEndpoint(block, choice.route);
+    box.append(swap, go);
+  } else if (replaced && same(replaced, block)) {
+    const note = el('div', 'swapnote'); note.append(el('b', '', 'Replaced ' + replaced.was + '.'), el('span', '', 'Undo in the top bar puts it back.'));
+    box.append(note); hint = 'Click another to line it up, or close.';
+  }
+  box.append(el('span', 'hint', hint));
+  const row = el('div', 'btnrow'), close = el('button', 'btn', 'Close'); close.onclick = closePicker; close.title = 'Close (Esc)';
+  row.append(close); box.append(row);
+  const grid = el('div', 'pgrid'), top = el('div', 'phead'), cards = el('div', 'cards ends');
+  top.append(el('span', 'room', (input ? 'Where path ' : 'Where path ') + (block.dsp + 1) + (input ? ' takes its signal from' : ' sends its signal')));
+  for (const c of choices) {
+    const on = c.route === endpointNow(block), sel = !!choice && choice.route === c.route;
+    const tile = el('button', 'mc' + (on ? ' on' : '') + (sel ? ' sel' : ''));
+    const icon = el('span', 'pic io'); icon.innerHTML = ICON.jack; if (!input) icon.firstChild.style.transform = 'scaleX(-1)';
+    tile.append(icon, el('i', 'num', on ? 'in use' : ''), el('span', '', c.name));
+    tile.title = c.full + (on ? '' : '\nClick to line it up, double-click to set it at once');
+    tile.onclick = () => endpointRule(block, c, 'click');
+    tile.ondblclick = () => endpointRule(block, c, 'double');
+    cards.append(tile);
+  }
+  grid.append(top, cards);
+  panel.replaceChildren(box, grid);
+}
 // What is lined up and its Replace (the picker's card, Classic+'s Edit area header): the same words in both
 function swapBox(block, item, shape) {
   const f = choiceFacts(block, room(block), item), box = el('div', shape === 'card' ? 'swapbox' : 'swapline'), words = el('div');
@@ -1584,11 +1662,13 @@ function card(block, picker) {
     row.append(close); box.append(row);
     return box;
   }
-  const row = el('div', 'btnrow'), change = el('button', 'btn pri');
-  change.innerHTML = ICON.swap + 'Change model';
-  change.disabled = !isChain(block);
-  change.title = isChain(block) ? 'Choose another model or a capture for this block' : 'An input, an output, the split and the mixer keep their model';
-  change.onclick = () => openPicker();
+  const row = el('div', 'btnrow'), change = el('button', 'btn pri'), end = isEnd(block);
+  // (an input or an output: its source or destination, as HX Edit's own list offers it: R7)
+  change.innerHTML = ICON.swap + (end ? (block.id.startsWith('input') ? 'Change input' : 'Change output') : 'Change model');
+  change.disabled = !isChain(block) && !end;
+  change.title = isChain(block) ? 'Choose another model or a capture for this block' : end ? 'Choose where this ' + (block.id.startsWith('input') ? 'input takes its signal from' : 'output sends its signal')
+    : 'The split and the mixer keep their model';
+  change.onclick = () => end ? openEndpointPicker() : openPicker();
   row.append(change);
   if (m.bypass) {
     const power = el('button', 'btn power'); power.innerHTML = ICON.power;
@@ -1675,6 +1755,7 @@ function placeTarget() {
 function drawPanel() {
   const panel = $('insp'), block = current();
   if (picking && picking.empty && picking.adding) { editFor = ''; drawAdding(placeTarget()); return; }   // (every layout)
+  if (picking && picking.endpoint) { if (block && isEnd(block)) { editFor = ''; drawEndpointPicker(block); return; } picking = false; }
   if (layout === 'classicplus') { drawEdit(block); return; }        // (Batch 4: the Edit area with its lists in place)
   if (picking && picking.empty) { drawPicker(placeTarget()); return; }
   if (!block) {
@@ -2148,6 +2229,7 @@ function pickRule(block, item, how) {
   replaceWith(block, item, f);
 }
 function replaceLined() {
+  if (lined && lined.route !== undefined) { const block = current(); if (block && same(lined, block)) replaceEndpoint(block, lined.route); return; }
   const block = current(), item = linedItem();
   if (!block || !item || !same(lined, block)) return;
   replaceWith(block, item, choiceFacts(block, room(block), item));
@@ -2175,7 +2257,8 @@ function settleReplaced() {
   if (!replaced || !state) return;
   const block = state.blocks.find(b => same(b, replaced)), now = current();
   if (!block || !now || !same(now, replaced)) { replaced = null; return; }
-  const holds = replaced.symbol ? block.model === replaced.symbol : isNam(block) && block.slot === replaced.slot;
+  const holds = replaced.route !== undefined ? endpointNow(block) === replaced.route
+    : replaced.symbol ? block.model === replaced.symbol : isNam(block) && block.slot === replaced.slot;
   if (replaced.at === undefined) {                                // (waiting for HX Edit's reading to show it)
     if (holds) replaced.at = state.undoAt;
     else if (Date.now() > replaced.until) replaced = null;

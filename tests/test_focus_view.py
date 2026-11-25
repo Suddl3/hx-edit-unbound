@@ -718,7 +718,7 @@ class ScriptTests(unittest.TestCase):
         for write in ('write', 'selectRow', 'clearSelection', 'appendRow', 'postMessage'):   # reading only
             self.assertNotIn(write, names)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) change(command);")]
+        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit', 'route', 'endpoint', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) change(command);")]
         self.assertLess(load.index("endDrag('a preset change')"), load.index("send({type: 'focusPreset', number: command.number})"))
         self.assertNotIn('targetBinding', load)                                      # nothing is written to load it
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
@@ -828,7 +828,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.setValue(target, dsp, id, key, value, 'refresh')", script)
-        self.assertEqual(script.count('finish('), 9)   # (and a value in another snapshot, a capture added in one step, an IR)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
+        self.assertEqual(script.count('finish('), 10)   # (R7: and an input's or an output's place)   # (and a value in another snapshot, a capture added in one step, an IR)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
 
     def test_the_pane_never_outlives_hx_edit(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
@@ -897,7 +897,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn('!chainBlock.test(block.id)', swap)
         # Every write is a value of a block the pane shows, one of its model's controls or its bypass.
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
-        self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)      # the write, a drag closed for the pane (twice), the refresh
+        self.assertEqual(script.count('targetBinding.setValue('), 6)   # (R7: and an input's or an output's place)   # (and a value in another snapshot)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
         self.assertIn('onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs);', script)   # the captures are listed whatever the preset holds
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')

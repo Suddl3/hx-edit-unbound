@@ -568,6 +568,11 @@ function installFocusView(options, parts) {
       } finally {
         if (away) targetBinding.recallSnapshot(editor, now);
       }
+    } else if (command.action === 'endpoint') {
+      // An input's source or an output's destination (R7): HX Edit's own value for it, written as its list writes it
+      // (the single-change flag: one undo step; Levels writes @output / @input the same way)
+      targetBinding.setValue(editor, command.dsp, command.id, command.key, command.value, 'single');
+      finish(editor, command.dsp, command.id, command.key, command.value);
     } else if (command.action === 'route') {
       // Lane B's own input or output in place of the split or the mixer (HX Edit's Create Input: removeNode), or the
       // split or the mixer back (its Restore Split: restoreNode).
@@ -748,13 +753,13 @@ function installFocusView(options, parts) {
           changed = true;
           send({type: 'focusPreset', number: command.number});
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
-        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) change(command);
+        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'endpoint', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) change(command);
         else if (command.action) swap(command); else write(command);
       }
       catch (error) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
-        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        if (['add', 'remove', 'move', 'moveSplit', 'route', 'endpoint', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
         // (a look that could not be asked: the page says that setlist could not be read; a load: said at once)
         if (command.action === 'look') looking = {setlist: command.setlist, at: Date.now(), state: 'failed'};
         if (command.action === 'presetIn') { loadingIn = null; send({type: 'dspNotice', text: 'HX Edit did not load that preset: ' + String(error.message)}); }
@@ -1059,6 +1064,11 @@ function installFocusView(options, parts) {
                  Number.isInteger(value.snapshot) && value.snapshot >= 0 && value.snapshot <= 7 && typeof value.key === 'string' && value.key.length < 49 &&
                  (typeof value.value === 'boolean' || Number.isFinite(value.value)) && writes.length < 32) {
         writes.push({action: 'snapValue', dsp: value.dsp, id: value.id, snapshot: value.snapshot, key: value.key, value: value.value});
+        queued = false; ask();
+      } else if (on && value.action === 'endpoint' && [0, 1].includes(value.dsp) && ['inputA', 'inputB', 'outputA', 'outputB'].includes(value.id) &&
+                 value.key === '@' + (value.id.startsWith('input') ? 'input' : 'output') && Number.isInteger(value.value) && value.value >= 0 && value.value < 32 &&
+                 writes.length < 32) {
+        writes.push({action: 'endpoint', dsp: value.dsp, id: value.id, key: value.key, value: value.value});
         queued = false; ask();
       } else if (on && value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id) && writes.length < 32) {
         writes.push({action: 'route', dsp: value.dsp, id: value.id, back: value.back === true});

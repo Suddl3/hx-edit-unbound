@@ -1470,7 +1470,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("value.pane === 'workbench' ? 'workbench' : 'focus'", script)   # Focus Mode's own messages carry no pane
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@tempo')", script)
         # Still only values, a model, a capture, a snapshot and a click on the chain are ever written.
-        self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)
+        self.assertEqual(script.count('targetBinding.setValue('), 6)   # (and a value in another snapshot)
         self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 3))   # (a swap, the split's type; a capture added, an IR)
 
 
@@ -1534,7 +1534,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'toolDock', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist', 'clear', 'layout', 'scenePin'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'toolDock', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist', 'clear', 'layout', 'scenePin', 'endpoint'})
 
     def test_the_menu_is_the_logo_and_holds_the_layout_and_hx_edits_menu_bar(self):
         # Batch 1 (Nick, 2026-11-23): the app icon top left opens the menu, the "Unbound" button is gone, and the menu

@@ -970,6 +970,25 @@ class FocusView:
             return None
         return {'action': 'splitType', 'dsp': node['dsp'], 'symbol': symbol}
 
+    # An input's or an output's place in HX Edit's own lists (HelixControls.json input_type: 17 names, output_type: 13);
+    # path 2's outputs cannot go to Path 2A / 2B / 2A+B (2, 3, 4). (R7)
+    ROUTES = {'input': 17, 'output': 13}
+
+    def checked_endpoint(self, value):
+        """The Workbench's request to set where an input takes its signal or an output sends it ({dsp, id, value}: the
+        number the preset keeps as @input / @output), or None: only an input or output that is there, a number of HX
+        Edit's own list for it."""
+        node = self._block(value)
+        new = value.get('value') if isinstance(value, dict) else None
+        if not node or node.get('id') not in ('inputA', 'inputB', 'outputA', 'outputB') or node.get('dsp') not in (0, 1):
+            return None
+        kind = 'input' if node['id'].startswith('input') else 'output'
+        if isinstance(new, bool) or not isinstance(new, int) or not 0 <= new < self.ROUTES[kind]:
+            return None
+        if kind == 'output' and node['dsp'] == 1 and new in (2, 3, 4):
+            return None
+        return {'action': 'endpoint', 'dsp': node['dsp'], 'id': node['id'], 'key': '@' + kind, 'value': new}
+
     def checked_route(self, value):
         """The Workbench's request to give lane B its own input or output in place of the split or the mixer (HX Edit's
         "Create Input" / "Create Output"), or to put the split or the mixer back, or None: only what the path's shape
