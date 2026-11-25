@@ -152,7 +152,7 @@ class NewBlockTests(unittest.TestCase):
         settle = between(page, 'function settleAdding() {', '\n}')
         self.assertIn('if (a.picked ? !(same(on, a.picked) || now > a.picked.until) : !!addFollow && now <= a.until) return false;', settle)
         self.assertIn('settleAdding();', between(page, 'function render() {', '\n}'))
-        self.assertIn("addFollow = null; swapAsked = null; toast(message.text);", page)               # (a refusal)
+        self.assertIn("addFollow = null; swapAsked = null; replaced = null; toast(message.text);", page)               # (a refusal)
         self.assertIn("if (name === 'undo' || name === 'redo') addFollow = null;", page)              # (an undo)
         # the chain lights the coming tile, not the block picked before
         self.assertIn("const now = picking && picking.adding ? state.blocks.find(", page)
@@ -339,7 +339,7 @@ class ClickRuleTests(unittest.TestCase):
         swap = between(page, 'function replaceWith(block, item, f) {', '\n}')
         self.assertIn('if (f.full || f.inUse) return;', swap)
         self.assertIn('item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);', swap)
-        self.assertIn("replaced = {dsp: block.dsp, id: block.id, was: title(block)}; lined = null;", swap)
+        self.assertIn('replaced = {dsp: block.dsp, id: block.id, was: title(block),', swap)
         # Enter replaces with what is lined up
         self.assertIn("if (e.key === 'Enter' && visible && lined && !naming && !e.target.closest('input, textarea, select')) { e.preventDefault(); replaceLined(); return; }", page)
 
@@ -527,6 +527,25 @@ class SceneFadeTests(unittest.TestCase):
         self.assertIn("next.classList.add('on'); last.classList.remove('on');", sync)
         # (the first scene shows at once, not faded in)
         self.assertIn("if (first) { next.classList.add('now'); setTimeout(() => next.classList.remove('now'), 60); }", sync)
+
+
+class ReplaceNoteTests(unittest.TestCase):
+    def test_r4_the_note_shows_only_while_it_is_true(self):
+        page = text('workbench.html')
+        settle = between(page, 'function settleReplaced() {', '\n}')
+        # the block still holds what Replace put there ...
+        self.assertIn('const holds = replaced.symbol ? block.model === replaced.symbol : isNam(block) && block.slot === replaced.slot;', settle)
+        # ... and that step is HX Edit's last one: the undo position the reading that showed it had
+        self.assertIn('if (holds) replaced.at = state.undoAt;', settle)
+        self.assertIn('if (!holds || state.undoAt !== replaced.at) replaced = null;', settle)
+        # another block, a refusal, or no reading showing it within 4 s: gone
+        self.assertIn('if (!block || !now || !same(now, replaced)) { replaced = null; return; }', settle)
+        self.assertIn('addFollow = null; swapAsked = null; replaced = null; toast(message.text);', page)
+        self.assertIn('settleReplaced();\n    if (addFollow && catalog) {', page)
+        swap = between(page, 'function replaceWith(block, item, f) {', '\n}')
+        self.assertIn('symbol: item.symbol || null, slot: item.capture ? item.capture.slot : null', swap)
+        # (it never tells the player to press Undo when Redo is what would do it: after an Undo it is gone for good)
+        self.assertNotIn("'Undo in the top bar", settle)
 
 
 if __name__ == '__main__':

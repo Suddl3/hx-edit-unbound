@@ -589,7 +589,7 @@ class AddPicksTheNewBlockTests(unittest.TestCase):
         ask_line = between(text, 'const ask = (name, value) => {', '};')
         self.assertIn("if (name === 'undo' || name === 'redo') addFollow = null;", ask_line)       # every undo the page asks
         self.assertIn("else if (message.type === 'notice') {", text)                                 # a refused add (no room, ...)
-        self.assertIn("addFollow = null; swapAsked = null; toast(message.text);", text)
+        self.assertIn("addFollow = null; swapAsked = null; replaced = null; toast(message.text);", text)
         # the page's select is not an edit: no unsaved mark and no undo step of the page's own
         self.assertNotIn("'select'", between(text, 'const EDIT_ASKS = new Set(', ');'))
         # after Undo the block is gone from HX Edit's reading: the panel is drawn from that reading (no block kept here)

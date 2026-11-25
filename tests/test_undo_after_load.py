@@ -131,7 +131,7 @@ class OneStepPerChoiceTests(unittest.TestCase):
         self.assertIn("!workbenchSwapRepeat(swapAsked, block, {slot: c.slot}, Date.now())) {", page)
         # (the row clicked shows as in use at once; a refusal redraws the list as it was)
         self.assertIn("choice.classList.add('on'); choice.querySelector('i').textContent = 'in use';", page)
-        self.assertIn("addFollow = null; swapAsked = null; toast(message.text);", page)
+        self.assertIn("addFollow = null; swapAsked = null; replaced = null; toast(message.text);", page)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn('fresh = targetBinding.peekModel(editor, block.dsp, block.id);', script)
         self.assertIn("stage: 'swap-same', action: command.action, to: next", script)

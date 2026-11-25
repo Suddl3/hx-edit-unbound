@@ -2154,7 +2154,9 @@ function replaceLined() {
 }
 function replaceWith(block, item, f) {
   if (f.full || f.inUse) return;
-  replaced = {dsp: block.dsp, id: block.id, was: title(block)}; lined = null;
+  replaced = {dsp: block.dsp, id: block.id, was: title(block), symbol: item.symbol || null, slot: item.capture ? item.capture.slot : null,
+              until: Date.now() + 4000};
+  lined = null;
   item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);
   redrawPick();
   // (the choice shows as in use at once, until HX Edit's reading redraws the list; refused, the notice redraws it)
@@ -2165,6 +2167,22 @@ function replaceWith(block, item, f) {
   }
 }
 function redrawPick() { shownPanel = ''; if (catalog && state) drawPanel(); }
+// The note after a Replace says only what is true (R4; live 2026-11-25 12:32-12:34: after Undo it still said
+// "Replaced Tilt. Undo in the top bar puts it back." while Simple EQ was back): it shows while the block holds what
+// Replace put there and that step is HX Edit's last one (its undo position as the reading that showed it had it).
+// An Undo, a Redo, another edit, another block or a refusal ends it for good.
+function settleReplaced() {
+  if (!replaced || !state) return;
+  const block = state.blocks.find(b => same(b, replaced)), now = current();
+  if (!block || !now || !same(now, replaced)) { replaced = null; return; }
+  const holds = replaced.symbol ? block.model === replaced.symbol : isNam(block) && block.slot === replaced.slot;
+  if (replaced.at === undefined) {                                // (waiting for HX Edit's reading to show it)
+    if (holds) replaced.at = state.undoAt;
+    else if (Date.now() > replaced.until) replaced = null;
+    return;
+  }
+  if (!holds || state.undoAt !== replaced.at) replaced = null;
+}
 function drawPicker(block) {
   const panel = $('insp'), s = pickChoices(block);
   const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear]), lined, replaced]);
@@ -4807,6 +4825,7 @@ function receive(message) {
     if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();
     if (picking && picking.block && !(current() && isChain(current()))) picking = false;
     if (picking && picking.empty && !picking.adding && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
+    settleReplaced();
     if (addFollow && catalog) {                                    // (the block just added: picked once it is there)
       const next = workbenchAddSelect(addFollow, state, catalog.nam[0], Date.now());
       if (next.done) addFollow = null;
@@ -4822,7 +4841,7 @@ function receive(message) {
     drawRail(); return;
   }
   else if (message.type === 'notice') {                         // (a change refused: shown as it is)
-    addFollow = null; swapAsked = null; toast(message.text);
+    addFollow = null; swapAsked = null; replaced = null; toast(message.text);
     snapHeld.clear(); shownPanel = ''; render(); return;
   }
   else if (message.type === 'shown') {
