@@ -419,7 +419,7 @@ class SizeTests(unittest.TestCase):
     def test_the_page_places_an_old_tools_window_over_its_frame_and_closes_it_with_the_frame(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody')", page)
-        self.assertIn("if (!name) { if (toolShown) { toolShown = ''; ask('toolClose'); } return; }", page)
+        self.assertIn("if (!name) { if (toolShown && !toolPopped) { toolShown = ''; ask('toolClose'); } return; }", page)
         self.assertIn("else if (message.type === 'toolClosed') { toolClosed(); return; }", page)
         self.assertIn("else if (view.full || view.half) setView('escape');", page)
         self.assertIn("if (view.half === 'level' && !view.full) setView('select');", page)
@@ -1532,7 +1532,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist', 'clear', 'layout'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'toolDock', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist', 'clear', 'layout'})
 
     def test_the_menu_is_the_logo_and_holds_the_layout_and_hx_edits_menu_bar(self):
         # Batch 1 (Nick, 2026-11-23): the app icon top left opens the menu, the "Unbound" button is gone, and the menu

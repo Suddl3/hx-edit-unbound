@@ -175,6 +175,9 @@ class TonePreview:
         # the launcher while a tool is opened from the Workbench's rail (place_over), cleared when the window closes.
         self.bounds_override = None
         self.on_browser_closed = None
+        # The window's own Pop out / Dock while it sits in the Workbench: on_presentation('floating' | 'embedded'),
+        # so the Workbench goes back to the chain while the window is out (dock_tool brings it back in).
+        self.on_presentation = None
         # The Workbench's own session (its Levels page, WorkbenchSession): what it shows goes to workbench_sink(kind,
         # data); on_workbench_closed() when it ends.
         self.workbench = False
@@ -300,6 +303,21 @@ class TonePreview:
         self.bounds_override = dict(bounds) if isinstance(bounds, dict) else None
         if self.browser and isinstance(self.placed(), dict):
             self.browser.send('bounds', **self.placed())
+
+    def _presentation(self, mode):
+        """The window's own Pop out or Dock (tone_browser on_presentation): told to the Workbench while the window is
+        one the Workbench placed (bounds_override)."""
+        if self.bounds_override is not None and self.on_presentation:
+            self.on_presentation(mode)
+
+    def dock_tool(self):
+        """The Workbench's TONE3000 button while the window it placed is popped out: the window goes back into its
+        frame (the window's own Dock). True when asked."""
+        browser = self.browser
+        if (not self.workbench and self.bounds_override is not None and browser is not None
+                and getattr(browser, 'window_mode', None) == 'floating'):
+            return browser.send('presentation', mode='embedded', focus=True) is not False
+        return False
 
     def _to_workbench(self, kind, data):
         if self.workbench_sink:
@@ -490,6 +508,11 @@ class TonePreview:
             browser = self.browser = (WorkbenchSession(self.detached, self._to_workbench) if self.workbench else
                                       _LibraryActionSession(self.initial_action, self.detached, self.sidebar_status)
                                       if self.headless else self.browser_factory(window, self.placed(), self.detached))
+            if not self.workbench and not self.headless:
+                try:
+                    browser.on_presentation = self._presentation
+                except AttributeError:
+                    pass
             # Native HX Edit grants foreground permission only on an explicit
             # Browse click. This carries identity; it never focuses a window.
             browser_pid = getattr(getattr(browser, 'process', None), 'pid', None)

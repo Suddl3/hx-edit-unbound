@@ -515,8 +515,16 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     then()
                 Thread(target=wait, daemon=True).start()
             def workbench_tool_closed():
+                preview.on_presentation = None
                 workbench.set_raise(True)
                 workbench.tool_closed()                      # (the page closes the frame it sat in)
+            def workbench_tool_presentation(mode):
+                # TONE3000's own Pop out / Dock while it sits in the Workbench: popped out, the Workbench goes back to
+                # the chain (the window plays on in its own window; the pane raises itself again, no child window
+                # over it); docked, the page opens its view again around it.
+                trace({'type': 'workbench', 'event': 'tool-presentation', 'mode': mode})
+                workbench.set_raise(mode == 'floating')
+                workbench.show_session('presentation', {'mode': mode})
             def workbench_action(name, value):
                 if name == 'tool' and isinstance(value, dict) and value.get('name') in ('look', 'level', 'library', 'tone'):
                     # A tool from the Workbench's rail, over its lower panel (the Workbench stays): its window is placed
@@ -532,6 +540,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         return
                     def open_tool():
                         preview.on_browser_closed = workbench_tool_closed
+                        preview.on_presentation = workbench_tool_presentation if value['name'] == 'tone' else None
                         preview.place_over(place)
                         workbench.set_raise(False)
                         if value['name'] == 'tone':
@@ -676,6 +685,14 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # place): its window closes as its own Close does.
                     if preview is not None and preview.bounds_override is not None:
                         preview.close_window('workbench')
+                    return
+                if name == 'toolDock':
+                    # The Workbench's TONE3000 button while its window is popped out: back into the view's frame.
+                    place = workbench_panel(value)
+                    if place is not None and preview is not None and preview.bounds_override is not None:
+                        preview.place_over(place)
+                        if preview.dock_tool():
+                            workbench.set_raise(False)
                     return
                 if name == 'toolPlace':
                     # The Workbench was resized while a tool sits over its lower panel: the tool follows.

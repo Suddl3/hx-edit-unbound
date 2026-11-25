@@ -176,6 +176,9 @@ class ToneBrowser:
         if mode not in WINDOW_MODES:
             raise ValueError('Unknown TONE3000 window mode.')
         self.window_mode = mode
+        # (called with the new mode when the window's own Pop out / Dock changes it: the Workbench follows; set by
+        # TonePreview before the player can press either)
+        self.on_presentation = None
         exe = prepare_browser()
         profile = Path(os.environ['LOCALAPPDATA']) / 'HX Edit NAM' / 'TONE3000 WebView'
         profile.mkdir(parents=True, exist_ok=True)
@@ -320,7 +323,13 @@ class ToneBrowser:
                         mode = event.get('mode')
                         if mode not in WINDOW_MODES:
                             raise ValueError('Invalid browser presentation mode')
-                        self.window_mode = mode
+                        changed, self.window_mode = mode != self.window_mode, mode
+                        notify = getattr(self, 'on_presentation', None)
+                        if changed and notify:
+                            try:
+                                notify(mode)
+                            except Exception:    # (the Workbench's own bookkeeping: never the window's events)
+                                pass
                     elif event['type'] == 'error':
                         self._fail(event['text'])
             except (OSError, ValueError, KeyError):

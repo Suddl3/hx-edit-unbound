@@ -48,6 +48,9 @@
   .rail button.on { background: var(--raise2); color: var(--ink); }
   .rail button.un { color: var(--unbound); }
   .rail .sep { height: 1px; background: var(--line); margin: 6px 8px; }
+  /* TONE3000 popped out into its own window: a small mark on its button (a click brings it back) */
+  button.out { position: relative; color: var(--ink); }
+  button.out::after { content: ''; position: absolute; top: 5px; right: 7px; width: 7px; height: 7px; border-radius: 50%; background: #2fbf9f; box-shadow: 0 0 6px #2fbf9f; }
   .drawer { grid-column: 2; grid-row: 2 / 4; width: 268px; border-right: 1px solid var(--line); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; min-height: 0; padding-top: 12px; }
   .drawer h3 { margin: 0 14px 8px; font-size: 17px; font-weight: 600; font-stretch: 86%; display: flex; justify-content: space-between; align-items: baseline; }
   .drawer h3 span { font-size: 12px; color: var(--dim); font-weight: 400; font-stretch: 100%; }
@@ -2874,33 +2877,50 @@ function drawMini() {
 // the page's own pixels; the launcher closes it again when the frame closes ("toolClose"), and says so when it was
 // closed from the window itself ({type: "toolClosed"}).
 let toolShown = '', toolAskedAt = 0, toolPlaced = '';
+// TONE3000 popped out (its own Pop out): its window plays on by itself and the Workbench is back on the chain. Its frame
+// closing does not close it; the rail's TONE3000 button brings it back in (with the tray: the preview playing, Heard
+// this session); its own Dock opens the view again around it; closed, it ends its preview as before (toolClosed).
+let toolPopped = false;
 function frameRect() {
   const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody'), r = body.getBoundingClientRect(), k = window.devicePixelRatio || 1;
   return {x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k)};
 }
 function syncTool() {
   const want = view.full || view.half, name = visible && OLD_PAGES.has(want) ? want : '';
-  if (!name) { if (toolShown) { toolShown = ''; ask('toolClose'); } return; }
+  if (!name) { if (toolShown && !toolPopped) { toolShown = ''; ask('toolClose'); } return; }
   const rect = frameRect(), key = JSON.stringify(rect);
+  if (toolShown && toolShown !== name && toolPopped) { toolPopped = false; shownRail = ''; drawRail(); }   // (another tool: the launcher closes the one out)
   if (toolShown !== name) { toolShown = name; toolPlaced = key; toolAskedAt = Date.now(); ask('tool', {name, ...rect}); }
+  else if (toolPopped) { toolPlaced = key; toolPopped = false; shownRail = ''; drawRail(); ask('toolDock', rect); }   // (back in)
   else if (key !== toolPlaced) { toolPlaced = key; ask('toolPlace', rect); }
+}
+function toolPresentation(mode) {
+  // The window's own Pop out ("floating") or Dock ("embedded"), as the launcher saw it (session "presentation")
+  if (!toolShown) return;
+  const out = mode === 'floating';
+  if (out === toolPopped) return;
+  toolPopped = out; shownRail = '';
+  if (out && view.full === toolShown) setView('back');              // (Back to the chain; the window stays open)
+  else if (!out && view.full !== toolShown) setView('open', toolShown);   // (docked again: its view around it)
+  drawRail();
 }
 function toolClosed() {
   // The tool's window closed. Just after asking for one (a close and an open crossing): ask again. Else it was closed
   // from the window itself (its Close, Esc): its frame closes too.
   const was = toolShown;
-  toolShown = '';
+  toolShown = ''; toolPopped = false; shownRail = ''; drawRail();
   if (Date.now() - toolAskedAt < 2500) { syncTool(); return; }
   if (was) setView('close', was);
 }
 function drawRail() {
-  const key = JSON.stringify([view, !!options.level, layout]);
+  const key = JSON.stringify([view, !!options.level, layout, toolPopped]);
   if (key === shownRail) return;
   shownRail = key;
   const button = (name, words, icon, cls, title) => {
     const on = workbenchRailOn(view, name, layout), b = el('button', [cls, on ? 'on' : ''].join(' ').trim());
     b.innerHTML = RAIL_ICON[icon]; b.append(words); b.title = title; b.setAttribute('aria-pressed', on);
     b.onclick = () => setView('rail', name);
+    if (name === 'tone' && toolPopped) { b.classList.add('out'); b.title = 'TONE3000 is in its own window. Click to bring it back here, with what you heard.'; }
     return b;
   };
   $('toolbox').hidden = layout !== 'classicplus';
@@ -4578,6 +4598,7 @@ function receive(message) {
   else if (message.type === 'toolClosed') { toolClosed(); return; }
   else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
   else if (message.type === 'session' && message.kind === 'tone') { toneTray = message.data || null; shownTray = ''; drawTray(); return; }
+  else if (message.type === 'session' && message.kind === 'presentation') { toolPresentation(message.data && message.data.mode); return; }
   else if (message.type === 'session' && message.kind === 'notice') { stickyNote(message.data && message.data.text); return; }
   else if (message.type === 'session') { levelSessionMessage(message.kind, message.data || {}); return; }
 
