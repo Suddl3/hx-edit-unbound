@@ -732,9 +732,14 @@ class TonePreview:
                                for identity,entry in entries.items()}, sort_keys=True)
 
         def library_visibility():
-            if self.navigation and not self.headless:
+            # Whether the library is what the player sees: the slot check then reads back a changed slot while it is
+            # open (nam_view setLibraryBrowsing). The Workbench's session is headless (the Workbench draws the page):
+            # it says so too, for its Library view only, not Levels or Floor look (live check 2026-11-25 00:53: never
+            # said, so Put on the Floor stayed at "verifying" until the Library was closed).
+            if self.navigation and (not self.headless or self.workbench):
+                shown = bool(library) and not (self.workbench and (level_page or look_page))
                 self.script.post({'type': 'toneLibraryVisibility',
-                                  'payload': {'session': session, 'visible': library}})
+                                  'payload': {'session': session, 'visible': shown}})
 
         def play(prepare, capture, replace=None, again=None):
             """Audition a converted profile; return the status text, or None when already reported.
@@ -940,7 +945,9 @@ class TonePreview:
         if self.library and (not client_id or self.initial_library):
             library = True
             show_card()
-        library_visibility()
+        # (a Workbench session opened on Levels or Floor look says so when that page opens, below: never "shown" first)
+        if not (self.workbench and ((self.initial_level and self.level) or (self.initial_look and self.library))):
+            library_visibility()
         def start_light(identity, layers, quality):
             nonlocal light, light_job
             entry = self.library.entries()[identity]
@@ -1148,6 +1155,7 @@ class TonePreview:
             if not library:
                 library = True
                 show_card()          # the page's library rows: a capture's picture is chosen on its library row
+            library_visibility()
             status('Floor look: the pictures and backgrounds Focus View shows. Save writes the file for the Floor.')
 
         def look_assign(choice):
@@ -1183,6 +1191,7 @@ class TonePreview:
                 # (its own window; over the Workbench's lower panel when the Workbench placed it there: place_over)
                 browser.send('presentation', mode='embedded' if self.bounds_override is not None else 'floating', focus=True)
             level_page, look_page = True, False
+            library_visibility()
             from nam_level_flow import LevelFlow
             if leveling is None:
                 leveling = LevelFlow(level_command, lambda: browser.actions.put({'levelChanged': True}),

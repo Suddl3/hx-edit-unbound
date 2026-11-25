@@ -330,6 +330,14 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       entries: slotLedger.displayEntries(), verified: slotLedger.entries() });
   }
 
+  function slotCheckTrace(why, resumed) {
+    // Where the slot check's pause is lifted or kept while a session is open (why: slot-changed, workflow-ended,
+    // library-shown / -hidden): with the Library flag and the workflow flag it was decided on. At most a few lines per
+    // slot written or cleared.
+    send({type: 'toneTrace', reason: 'slot-check', stage: resumed === true ? 'resumed' : resumed === false ? 'held' : why,
+          why, library: libraryBrowsing, workflow: workflowBusy});
+  }
+
   function requestLibraryVerification() {
     discoveryControls?.requestVerification({allowWhileBrowsing:true});
   }
@@ -2062,7 +2070,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const wasBusy = workflowBusy;
       if (busy && !workflowBusy && discoveryPause) discoveryPause();
       workflowBusy = busy;
-      if (!busy && wasBusy && libraryBrowsing) discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true});
+      if (!busy && wasBusy) {
+        const resumed = libraryBrowsing ? discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true}) === true : false;
+        slotCheckTrace('workflow-ended', resumed);
+      }
     },
     resumeLibraryCheck() {
       // A permanent slot changed (the slot check's invalidate, which pauses it again while a session is open): checked
@@ -2071,7 +2082,8 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       // (live sweep 2026-11-24 23:38:14: IR changed, renamed, then the profile registered, each after the
       // resume), so the check stayed paused until the Library was closed. A TONE3000 session (not the Library) and a
       // running load still pause it.
-      if (libraryBrowsing && !workflowBusy) discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true});
+      const resumed = libraryBrowsing && !workflowBusy ? discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true}) === true : false;
+      slotCheckTrace('slot-changed', resumed);
     },
     setDiscoveryPause(callback) { discoveryPause = typeof callback === 'function' ? callback : null; },
     setDiscoveryControls(controls) { discoveryControls = controls; },
@@ -2082,6 +2094,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     setLibraryBrowsing(value) {
       if (libraryBrowsing === value) return;
       libraryBrowsing = value;
+      slotCheckTrace('library-' + (value ? 'shown' : 'hidden'), null);
       if (value) requestLibraryVerification();
       else discoveryControls?.setSessionActive(true);
     },

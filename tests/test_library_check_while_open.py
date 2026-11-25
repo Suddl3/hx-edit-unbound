@@ -71,8 +71,9 @@ assert.equal(plans.at(-1).slot,29);assert.deepEqual(exports,[9,29]);assert.equal
         self.assertIn('if(Array.isArray(slots))namView.resumeLibraryCheck?.();', state)
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         self.assertIn('resumeLibraryCheck() {', view)
-        self.assertIn('if (libraryBrowsing && !workflowBusy) discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true});', view)
-        self.assertIn('if (!busy && wasBusy && libraryBrowsing) discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true});', view)
+        self.assertIn('const resumed = libraryBrowsing && !workflowBusy ? discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true}) === true : false;', view)
+        self.assertIn('const resumed = libraryBrowsing ? discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true}) === true : false;', view)
+        # (libraryBrowsing comes from the session: the Workbench's says it too, test_library_visibility_workbench)
 
 
 if __name__ == '__main__':
