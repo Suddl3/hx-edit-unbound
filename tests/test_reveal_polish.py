@@ -278,5 +278,43 @@ class PickerCardTests(unittest.TestCase):
         self.assertIn("ask('model', {dsp: block.dsp, id: block.id, symbol});", page)
 
 
+class OneCategoryListTests(unittest.TestCase):
+    """B9: the captures are one category of their own, "NAM captures", after HX Edit's own categories (ending with
+    Looper); its kinds are the head row's tabs. Mock-ups: research/modern-ui/reveal-picker-one-list.png, -nam.png."""
+
+    def test_b9_one_list_with_nam_captures_after_the_stock_categories(self):
+        page = text('workbench.html')
+        rows = between(page, 'function pickCategoryRows(block, s, redraw, cls) {', '\n}')
+        self.assertIn("nam.append(el('span', 'led'), el('span', '', 'NAM captures'), el('b', 'num', String(s.captures.length)));", rows)
+        self.assertIn('const caps = [nam];', rows)
+        self.assertNotIn("'All captures'", rows)
+        # the picker dialog (Workbench, the stage's dock): one column; Classic+'s Edit area: the same rows, no tabs
+        picker = between(page, 'function drawPicker(block) {', '\n}')
+        self.assertIn("models.append(el('h6', '', 'Models'), ...rows.models, el('hr'), ...rows.caps);", picker)
+        self.assertIn('if (rows.remove) models.append(el(\'hr\'), rows.remove);', picker)
+        edit = between(page, 'function drawEdit(block) {', 'function editTabs(enabled) {')
+        self.assertIn("rows.append(...found.models, el('hr'), ...found.caps);", edit)
+        self.assertNotIn('kindtabs', page)
+        self.assertIn('.pcats { border-right: 1px solid var(--line); display: grid; grid-template-columns: 1fr; min-height: 0; }', page)
+        self.assertIn('.insp.pick { grid-template-columns: 250px 212px minmax(0, 1fr); }', page)
+
+    def test_b9_its_kinds_are_tabs_and_stock_categories_carry_no_captures(self):
+        page = text('workbench.html')
+        head = between(page, 'function pickHead(block, s, redraw, inputId) {', '\n}')
+        self.assertIn("kindTab('', 'All');", head)
+        self.assertIn("for (const kind of namKinds()) kindTab(kind.name, kind.name.replace(/^NAM /, ''));", head)
+        self.assertNotIn("tab('captures'", head)
+        choices = between(page, 'function pickChoices(block) {', '\n}')
+        self.assertIn('const kinds = [];', choices)
+        self.assertIn("const mine = pickedTab === 'all' ? captures.filter(c => !pickedKind || namKind(c) === pickedKind) : [];", choices)
+        self.assertNotIn('captureTabs', choices)
+        # a NAM block (and Change capture) opens on NAM captures with its own capture's kind
+        home = between(page, 'function pickHome(block, tab) {', '\n}')
+        self.assertIn("pickedCategory = tab === 'captures' || isNam(block) ? '' : categoryOf(block);", home)
+        self.assertIn("pickedTab = tab === 'captures' || isNam(block) ? 'all' : '';", home)
+        # the search box there searches captures (of the kind picked)
+        self.assertIn("input.placeholder = 'Search ' + (pickedTab === 'all' && pickedKind ? pickedKind : pickedTab === 'all' || pickedTab === 'captures' ? 'captures'", head)
+
+
 if __name__ == '__main__':
     unittest.main()

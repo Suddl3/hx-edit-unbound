@@ -1566,14 +1566,15 @@ class WiringTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         # (Batch 4: the choices are shared with Classic+'s lists, pickChoices ... pickChoice)
         picker = page[page.index('function pickChoices(block) {'):page.index("// ---- Classic+'s Edit area")]
-        self.assertIn("models.append(el('h6', '', 'Models'), ...rows.models);", picker)
-        self.assertIn("const caps = [capRow('All captures', '', s.captures.length), ...namKinds().map(kind => capRow(kind.name, kind.name, s.captures.filter(c => namKind(c) === kind.name).length))];", picker)
+        # (Reveal B9: one category list, "NAM captures" after the stock ones; its kinds are the head row's tabs:
+        # test_reveal_polish)
+        self.assertIn("models.append(el('h6', '', 'Models'), ...rows.models, el('hr'), ...rows.caps);", picker)
         self.assertIn("captures.filter(c => !pickedKind || namKind(c) === pickedKind)", picker)
-        self.assertIn('cats.append(models, caps);', picker)
+        self.assertIn('cats.append(models);', picker)
         # a NAM block's picker opens on its capture's own NAM category
         opener = page[page.index('function pickHome(block, tab) {'):page.index('function closePicker() {')]
         self.assertIn("pickedKind = taken && 'gear' in taken ? namKind(taken) : '';", opener)
-        self.assertIn("pickedTab = pickedKind ? 'all' :", opener)
+        self.assertIn("pickedTab = tab === 'captures' || isNam(block) ? 'all' : '';", opener)
 
     def test_the_librarys_delete_says_the_floor_keeps_its_slot(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
