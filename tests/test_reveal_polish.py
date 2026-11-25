@@ -264,8 +264,8 @@ class PickerCardTests(unittest.TestCase):
         # ("Put it back" was HX Edit's plain Undo: live 2026-11-25 it undid a compressor change on another path)
         page = text('workbench.html')
         self.assertNotIn('Put it back', page)
-        self.assertEqual(page.count("ask('undo')"), 1)                       # (the top bar's Undo only)
-        self.assertIn("$('undo').onclick = () => ask('undo');", page)
+        self.assertEqual(page.count("ask('undo')"), 0)                       # (the top bar's Undo only: askUndo, S5)
+        self.assertIn("$('undo').onclick = () => askUndo('undo');", page)
         card = between(page, '  if (picker) {', '    return box;')
         self.assertIn("close = el('button', 'btn', 'Close');", card)
         self.assertIn('close.onclick = closePicker;', card)
@@ -730,6 +730,31 @@ class StageCaptureArtTests(unittest.TestCase):
         # the large one first when big: catalog.captures.pictures lists the art pack's (capturesfull) before the 128 px
         self.assertIn("for host in ('capturesfull', 'captures') if host in folders]", text('focus_view.py'))
         self.assertIn('return big ? urls.concat(own) : urls.slice().reverse().concat(own.slice().reverse());', pics)
+
+
+class UndoAtOnceTests(unittest.TestCase):
+    def test_s5_where_an_undos_time_goes_is_traced(self):
+        script = text('focus_view.js')
+        self.assertIn("undoAsked = {action: value.action, at: Date.now(), from: lastUndoAt, call: null};", script)
+        self.assertIn('if (undoAsked) undoAsked.call = Date.now() - began;', script)
+        self.assertIn("stage: 'undo-shown', action: undoAsked.action, ms: Date.now() - undoAsked.at, call: undoAsked.call,", script)
+
+    def test_s5_the_bar_and_the_block_answer_at_once(self):
+        page = text('workbench.html')
+        self.assertIn("$('undo').onclick = () => askUndo('undo');", page)
+        self.assertIn("$('redo').onclick = () => askUndo('redo');", page)
+        ask = between(page, 'function askUndo(action) {', '\n}')
+        # the page's own last Replace, still HX Edit's last step: shown undone at once, Redo lit
+        self.assertIn("if (action === 'undo' && lastStep && lastStep.at !== undefined && state && state.undoAt === lastStep.at) {", ask)
+        self.assertIn('Object.assign(b, lastStep.before); state.redo = true; state.values = {};', ask)
+        self.assertLess(ask.index('Object.assign(b, lastStep.before)'), ask.index('ask(action);'))
+        settle = between(page, 'function settleUndo() {', '\n}')
+        self.assertIn('if (state.undoAt !== undoShow.from || Date.now() > undoShow.until) { undoShow = null; return; }', settle)
+        # what the Replace and the input/output chooser note as the last step
+        self.assertIn('noteStep(block, item.symbol ? {model: block.model} : {model: block.model, slot: block.slot ?? null},', page)
+        self.assertIn('noteStep(block, {[key]: endpointNow(block) ?? null}, {[key]: route});', page)
+        self.assertIn("$('undo').classList.toggle('busy', !!undoBusy && undoBusy.action === 'undo');", page)
+        self.assertIn('@media (prefers-reduced-motion: reduce) { .icon.busy { animation: none; } }', page)
 
 
 if __name__ == '__main__':

@@ -490,6 +490,9 @@ function installFocusView(options, parts) {
   let plainIrs = [];          // the Floor's plain IRs, read with each full reading (readIrs)
   let otherCaptures = [];     // the slots holding a capture the library does not list (readOthers)
   let lastUndoWord = '';      // HX Edit's undo position and the preset, as last traced (the Workbench's redo button)
+  // An Undo or Redo the page asked, until a reading shows HX Edit's undo position moved: {action, at, from, call}; trace
+  // "undo-shown" {action, ms from the ask, call: HX Edit's own undo, read, full} (S5)
+  let undoAsked = null, lastUndoAt = null;
   let lastCanWord = '';       // HX Edit's own can-undo / can-redo, as last traced
   const ADD_FOLLOW_MS = 3000;
   const occupied = (dsp, lane, place) => (known || []).some(block => block.dsp === dsp && chainBlock.test(block.id) && block.position === place && block.path === lane);
@@ -547,7 +550,9 @@ function installFocusView(options, parts) {
       targetBinding.renameSnapshot(editor, command.index, command.name);
     } else if (command.action === 'redo' || command.action === 'undo') {
       // HX Edit's own Undo / Redo (target_binding undo, redo: the Edit menu's entries), as the page's buttons ask
+      const began = Date.now();
       if (command.action === 'undo') targetBinding.undo(editor); else targetBinding.redo(editor);
+      if (undoAsked) undoAsked.call = Date.now() - began;
     } else if (command.action === 'splitType') {
       // The split's type (Split Y, A/B, Crossover, Dynamic): its model, written as HX Edit's panel writes a model.
       const node = (known || []).find(item => item.dsp === command.dsp && item.id === 'split');
@@ -862,6 +867,13 @@ function installFocusView(options, parts) {
       try { state.redo = targetBinding.canRedo(editor); } catch (_) { state.redo = null; }
       const undoWord = state.undoAt + '@' + (state.preset ? state.preset.setlist + ':' + state.preset.number : '-');
       if (undoWord !== lastUndoWord) { lastUndoWord = undoWord; send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-at', at: undoWord}); }
+      if (undoAsked && Date.now() - undoAsked.at > 5000) undoAsked = null;
+      if (undoAsked && Number.isInteger(state.undoAt) && state.undoAt !== undoAsked.from) {
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-shown', action: undoAsked.action, ms: Date.now() - undoAsked.at, call: undoAsked.call,
+              read: Date.now() - began, full});
+        undoAsked = null;
+      }
+      if (Number.isInteger(state.undoAt)) lastUndoAt = state.undoAt;
       // (what HX Edit's Edit menu would offer, on each change: after a preset load it says whether HX Edit cleared its
       // history; one line per change)
       const canWord = state.undo + '/' + state.redo;
@@ -1055,6 +1067,7 @@ function installFocusView(options, parts) {
         queued = false; ask();
       } else if (on && ['undo', 'redo'].includes(value.action) && writes.length < 32) {
         writes.push({action: value.action});
+        undoAsked = {action: value.action, at: Date.now(), from: lastUndoAt, call: null};
         queued = false; ask();
       } else if (on && value.action === 'splitType' && [0, 1].includes(value.dsp) && typeof value.symbol === 'string' &&
                  /^HD2_AppDSPFlowSplit(Y|AB|XOver|Dyn)$/.test(value.symbol) && writes.length < 32) {

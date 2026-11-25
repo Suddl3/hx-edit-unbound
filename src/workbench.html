@@ -442,6 +442,10 @@
   .grow { flex: 1; }
   .tempo { height: 34px; padding: 0 10px; border-radius: 8px; background: var(--raise); border: 1px solid var(--line); display: grid; place-items: center; line-height: 1; font-size: 15px; }
   .tempo small { color: var(--dim); font-size: 10.5px; }
+  /* an Undo or Redo on its way to HX Edit (S5) */
+  .icon.busy { color: var(--ink); background: var(--raise2); animation: undobusy .9s ease-in-out infinite; }
+  @keyframes undobusy { 50% { opacity: .55; } }
+  @media (prefers-reduced-motion: reduce) { .icon.busy { animation: none; } }
   .view { display: flex; background: #0e1014; border: 1px solid var(--line); padding: 3px; border-radius: 9px; flex: none; }
   .view button { height: 28px; min-width: 68px; padding: 1px 14px 0; border-radius: 6px; color: var(--dim); display: grid; place-items: center; line-height: 1; }
   .view button:hover { color: var(--ink); }
@@ -1568,6 +1572,8 @@ function endpointRule(block, choice, how) {
 function replaceEndpoint(block, route) {
   if (!Number.isInteger(route) || route === endpointNow(block)) return;
   replaced = {dsp: block.dsp, id: block.id, was: endName(block) || 'None', route, until: Date.now() + 4000}; lined = null;
+  const key = block.id.startsWith('input') ? 'input' : 'output';
+  noteStep(block, {[key]: endpointNow(block) ?? null}, {[key]: route});
   ask('endpoint', {dsp: block.dsp, id: block.id, value: route});
   redrawPick();
 }
@@ -2239,6 +2245,8 @@ function replaceWith(block, item, f) {
   if (f.full || f.inUse) return;
   replaced = {dsp: block.dsp, id: block.id, was: title(block), symbol: item.symbol || null, slot: item.capture ? item.capture.slot : null,
               until: Date.now() + 4000};
+  noteStep(block, item.symbol ? {model: block.model} : {model: block.model, slot: block.slot ?? null},
+           item.symbol ? {model: item.symbol} : {model: isNam(block) ? block.model : catalog.nam[0], slot: item.capture.slot});
   lined = null;
   item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);
   redrawPick();
@@ -2250,6 +2258,46 @@ function replaceWith(block, item, f) {
   }
 }
 function redrawPick() { shownPanel = ''; if (catalog && state) drawPanel(); }
+// An Undo answers at once (S5), as a pick does (A7): the button shows it is working until HX Edit's reading moves its
+// undo position (undoBusy); and when the last step is the page's own Replace (a model, a capture, an input's or an
+// output's place: lastStep) and it is still HX Edit's last one, the block shows what it had before at once and Redo
+// lights (undoShow, held over readings that do not show the undo yet; HX Edit's reading confirms or corrects it).
+let lastStep = null, undoShow = null, undoBusy = null;
+const holdsAll = (b, values) => Object.keys(values).every(k => (b[k] ?? null) === values[k]);
+function noteStep(block, before, after) {
+  lastStep = {dsp: block.dsp, id: block.id, before, after, until: Date.now() + 4000};
+}
+function settleStep() {
+  if (!lastStep || !state) return;
+  const b = state.blocks.find(x => same(x, lastStep));
+  if (!b) { lastStep = null; return; }
+  if (lastStep.at === undefined) {
+    if (holdsAll(b, lastStep.after)) lastStep.at = state.undoAt; else if (Date.now() > lastStep.until) lastStep = null;
+    return;
+  }
+  if (!holdsAll(b, lastStep.after) || state.undoAt !== lastStep.at) lastStep = null;
+}
+function askUndo(action) {
+  undoBusy = {action, from: state ? state.undoAt : null, until: Date.now() + 3000};
+  if (action === 'undo' && lastStep && lastStep.at !== undefined && state && state.undoAt === lastStep.at) {
+    const b = state.blocks.find(x => same(x, lastStep));
+    if (b && holdsAll(b, lastStep.after)) {
+      undoShow = {dsp: b.dsp, id: b.id, values: lastStep.before, from: state.undoAt, until: Date.now() + 3000};
+      Object.assign(b, lastStep.before); state.redo = true; state.values = {};
+      lastStep = null; replaced = null; lined = null; shownPanel = ''; shownChain = '';
+    }
+  }
+  if (action === 'redo') redoAskedAt = Date.now();
+  ask(action);
+  if (catalog && state) render();
+}
+function settleUndo() {
+  if (undoBusy && (!state || state.undoAt !== undoBusy.from || Date.now() > undoBusy.until)) undoBusy = null;
+  if (!undoShow || !state) return;
+  if (state.undoAt !== undoShow.from || Date.now() > undoShow.until) { undoShow = null; return; }
+  const b = state.blocks.find(x => same(x, undoShow));
+  if (b) { Object.assign(b, undoShow.values); state.redo = true; state.values = {}; }
+}
 // The note after a Replace says only what is true (R4; live 2026-11-25 12:32-12:34: after Undo it still said
 // "Replaced Tilt. Undo in the top bar puts it back." while Simple EQ was back): it shows while the block holds what
 // Replace put there and that step is HX Edit's last one (its undo position as the reading that showed it had it).
@@ -2498,6 +2546,9 @@ function drawBar() {
   const can = workbenchUndoRedo(state.undo, state.redo, ownSteps, redoTrack);
   $('undo').disabled = !can.undo;
   $('redo').disabled = !can.redo;
+  // (an Undo or Redo asked: its button shows it until HX Edit's reading moves, S5)
+  $('undo').classList.toggle('busy', !!undoBusy && undoBusy.action === 'undo');
+  $('redo').classList.toggle('busy', !!undoBusy && undoBusy.action === 'redo');
   $('tempo').hidden = typeof state.tempo !== 'number';
   if (typeof state.tempo === 'number') $('tempoValue').textContent = state.tempo.toFixed(1);
   // the snapshots as buttons: four at a time, the other four behind one more
@@ -4913,6 +4964,7 @@ function receive(message) {
     if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();
     if (picking && picking.block && !(current() && isChain(current()))) picking = false;
     if (picking && picking.empty && !picking.adding && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
+    settleUndo(); settleStep();
     settleReplaced();
     if (addFollow && catalog) {                                    // (the block just added: picked once it is there)
       const next = workbenchAddSelect(addFollow, state, catalog.nam[0], Date.now());
@@ -4963,8 +5015,8 @@ addEventListener('dragstart', event => event.preventDefault());
 window.workbenchReceive = receive;                              // (tests and the preview feed the page through this)
 document.body.insertAdjacentHTML('beforeend', '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><radialGradient id="kg" cx="35%" cy="28%" r="80%"><stop offset="0" stop-color="#4a4f5b"/><stop offset=".55" stop-color="#23262e"/><stop offset="1" stop-color="#15171c"/></radialGradient></defs></svg>');
 
-$('undo').onclick = () => ask('undo');
-$('redo').onclick = () => { redoAskedAt = Date.now(); ask('redo'); };
+$('undo').onclick = () => askUndo('undo');
+$('redo').onclick = () => askUndo('redo');
 $('save').onclick = savePreset;
 $('toFocus').onclick = () => ask('menu', 'focus');
 $('presetPrev').onclick = () => { closePresets(); loadPreset('previous'); };
