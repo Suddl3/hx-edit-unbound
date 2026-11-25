@@ -372,6 +372,7 @@ function installFocusView(options, parts) {
   // changed, and every two seconds in any case.
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
+  let selectAsked = null;   // the page's last pick, until a reading has it selected (trace "select-shown")
   let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [], assign = null, assignTraced = '';
   let header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null], setlists: null};   // the top bar's preset, snapshot names and preset list (full readings)
   // The Workbench's look at another setlist (focusLookStep), and a preset of another setlist asked of HX Edit's list.
@@ -761,6 +762,12 @@ function installFocusView(options, parts) {
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
+    // A block the page picked: clicked before this reading rather than after it, so the reading itself carries HX
+    // Edit's new selection (its click fires HX Edit's own events, which make it a full reading): one turn of HX Edit's
+    // UI thread less between the click and the page's panel. (The first block of a preset is still picked after.)
+    if (wanted && known && !editor.isNull()) {
+      try { select(wanted); } catch (error) { wanted = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'select-failed', error: String(error.message)}); }
+    }
     try {
       const bounds = paneBounds();
       const place = JSON.stringify(bounds);
@@ -879,6 +886,12 @@ function installFocusView(options, parts) {
           if (first) { pickTries++; wanted = first; send({type: 'toneTrace', reason: 'focus-view', stage: 'first-block', dsp: first.dsp, block: first.id, attempt: pickTries}); }
         }
       }
+      // (how long from the page's pick to the reading that has it selected: one line per pick)
+      if (selectAsked && Date.now() - selectAsked.at > 4000) selectAsked = null;
+      if (selectAsked && state.selected && state.selected.dsp === selectAsked.dsp && state.selected.id === selectAsked.id) {
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'select-shown', block: selectAsked.id, ms: Date.now() - selectAsked.at, read: Date.now() - began, full});
+        selectAsked = null;
+      }
       publish(state);
       if (wanted) select(wanted);
     } catch (error) {
@@ -972,6 +985,7 @@ function installFocusView(options, parts) {
       if (value.action === 'costs') measured = focusMeasured(value.costs);
       else if (on && value.action === 'select' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16) {
         wanted = {dsp: value.dsp, id: value.id};
+        selectAsked = {dsp: value.dsp, id: value.id, at: Date.now()};
         queued = false; ask();
       } else if (on && value.action === 'set' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16 &&
                  typeof value.key === 'string' && value.key.length < 49 && ['single', 'begin', 'move', 'end'].includes(value.phase) &&

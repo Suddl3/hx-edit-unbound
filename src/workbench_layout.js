@@ -237,6 +237,27 @@ function workbenchUndoRedo(undo, redo, own, redoTrack) {
           redo: typeof redo === 'boolean' ? redo : !!(redoTrack && redoTrack.redo)};
 }
 
+// A block picked here shows as the picked one at once (Nick, 2026-11-25: "picking a block is not snappy"), drawn from
+// what the page knows (its model, the catalog), before HX Edit's reading says it is selected. The page's pick holds
+// until that reading comes (the pick is dropped then), and is dropped, showing HX Edit's own selection, when the block
+// is gone, the time runs out, or HX Edit shows a block that is neither the one picked nor one it was on since (from:
+// HX Edit's selection when the first of quick picks was made, and the picks made after it): the player picked
+// elsewhere, on the Floor or in HX Edit. -> {pick (kept, or null), selected (what the page shows)}
+const WORKBENCH_PICK_HOLD_MS = 2500;
+function workbenchPicked(pick, selected, blocks, now) {
+  if (!pick) return {pick: null, selected};
+  const is = (a, b) => !!a && !!b && a.dsp === b.dsp && a.id === b.id;
+  const there = (Array.isArray(blocks) ? blocks : []).some(b => is(b, pick));
+  const before = (pick.from || []).some(f => is(f, selected));
+  if (is(selected, pick) || !there || now > pick.until || (selected && !before)) return {pick: null, selected};
+  return {pick, selected: {dsp: pick.dsp, id: pick.id}};
+}
+// The pick made now, over the one still held (quick clicks): what HX Edit may still show meanwhile is kept in from.
+function workbenchPick(block, held, hxSelected, now) {
+  const from = held ? held.from.concat([{dsp: held.dsp, id: held.id}]) : [hxSelected || null];
+  return {dsp: block.dsp, id: block.id, from: from.filter(Boolean).slice(-6), until: now + WORKBENCH_PICK_HOLD_MS};
+}
+
 // A model or a capture asked for a block that is asked again before a reading shows the first (a double-click on a row,
 // Nick's habit from Classic, where a double-click replaces): the same choice for the same block within
 // WORKBENCH_SWAP_REPEAT_MS. Asked twice, HX Edit made it twice: two undo steps, and the first Undo seemed to do nothing.
@@ -590,7 +611,7 @@ function workbenchSlotUsers(usage, slot, loaded) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchPicked, workbenchPick, WORKBENCH_PICK_HOLD_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
                      workbenchAdded, WORKBENCH_ADD_SELECT_MS, workbenchPresetKey, workbenchAddFollow, workbenchAddSelect, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,

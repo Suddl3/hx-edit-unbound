@@ -637,6 +637,8 @@
 
   /* ---- the panel under the chain: the selected block --------------------------------------------------------- */
   .insp { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: 0; }
+  /* a block picked here, its values not read yet: its controls wait (pickBlock, markComing) */
+  .insp.coming .knobs, .insp.coming .sliders, .insp.coming .tabview { opacity: .45; pointer-events: none; transition: opacity .12s; }
   .insp.nam { grid-template-columns: 250px minmax(0, 1fr) 316px; }
   .insp.pick { grid-template-columns: 250px 348px minmax(0, 1fr); }
   .card { padding: 18px 18px 14px; border-right: 1px solid var(--line); display: grid; align-content: start; gap: 12px; min-height: 0;
@@ -2845,13 +2847,36 @@ function commitView(next, relaid) {
 // the block's panel, Floor look stays. A "+" open for a new block ends, as its Cancel would (Nick, 2026-11-25: a
 // click on another block did nothing useful until Cancel), in every layout; another "+" moves the add there instead
 // (openPlacePicker).
+// The block is the picked one here at once (localPick, workbenchPicked): lit in the chain, its panel drawn from its
+// model, its controls dimmed until HX Edit's reading brings their values; HX Edit's own selection follows.
+let localPick = null, hxSelected = null, hxShown = null, pickTimer = 0;
 function pickBlock(block, added) {
   // (added: the block just added, picked once HX Edit has it: its "Adding ..." card stays until it shows; settleAdding)
   if (picking && picking.empty && added && picking.adding) picking.adding.picked = {dsp: block.dsp, id: block.id, until: Date.now() + 2000};
   else if (picking && picking.empty) { picking = false; shownPanel = ''; if (catalog && state) drawChain(true); }
+  if (state && state.blocks.some(b => same(b, block)) && !same(state.selected, block)) {
+    if (!localPick) hxShown = {selected: state.selected, values: state.values, assign: state.assign};
+    localPick = workbenchPick(block, localPick, hxSelected, Date.now());
+    state.selected = {dsp: block.dsp, id: block.id}; state.values = {}; state.assign = null;
+    // (HX Edit never followed, and no reading came to say so: its own selection again, as it last read it)
+    clearTimeout(pickTimer);
+    pickTimer = setTimeout(() => {
+      if (!localPick || Date.now() <= localPick.until || !state) return;
+      localPick = null;
+      if (hxShown) Object.assign(state, hxShown);
+      shownPanel = ''; render();
+    }, WORKBENCH_PICK_HOLD_MS + 100);
+  }
   ask('select', {dsp: block.dsp, id: block.id});
+  settleAdding();
   if (view.half === 'level' && !view.full) setView('select');
-  else if (catalog && state && !view.full) drawPanel();
+  else if (catalog && state && !view.full) { if (layout === 'stage') { drawPanel(); drawChain(); } else { drawChain(); drawPanel(); } }
+  else if (catalog && state && view.full) drawMini();
+  markComing();
+}
+function markComing() {
+  // (a block picked here whose values HX Edit has not read yet: its controls wait, dimmed, and take no hand)
+  $('insp').classList.toggle('coming', !!localPick);
 }
 let shownFrame = '';
 function drawFrames() {
@@ -4572,6 +4597,7 @@ function render() {
   // (the stage's chain is sized to the room its dock leaves: the dock first)
   if (!view.full) { if (layout === 'stage') { drawPanel(); drawChain(); } else { drawChain(); drawPanel(); } } else { drawMini(); if (view.full === 'presets') drawPresetGrid(); }
   drawLook(); drawLevels(); drawLibrary(); drawTray();
+  markComing();
   // (Batch 3: nothing shows another setlist any more, the list under the name, the drawer and the view all closed or
   // back: HX Edit's list goes back to the loaded preset's setlist)
   letLookGo();
@@ -4583,6 +4609,15 @@ function receive(message) {
   else if (message.type === 'state') {
     const before = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '', undoBefore = state && state.undoAt;
     state = message.state;
+    // (a block picked here: shown picked until HX Edit's reading has it too; the values read meanwhile are the old
+    // block's and wait; workbenchPicked)
+    hxSelected = state && state.selected ? {dsp: state.selected.dsp, id: state.selected.id} : null;
+    hxShown = state ? {selected: state.selected, values: state.values, assign: state.assign} : null;
+    if (localPick && state) {
+      const seen = workbenchPicked(localPick, state.selected, state.blocks, Date.now());
+      localPick = seen.pick;
+      if (localPick) { state.selected = seen.selected; state.values = {}; state.assign = null; }
+    }
     const after = state && state.preset ? state.preset.setlist + ':' + state.preset.number : '';
     if (before !== after) snapGroup = null;
     // (a pending preset name is for that preset only: leaving it unsaved drops it; the outcome of a rename asked after

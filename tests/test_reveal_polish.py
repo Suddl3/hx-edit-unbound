@@ -191,5 +191,73 @@ class SnapshotBarTests(unittest.TestCase):
                 self.assertNotIn('.pen', rule.split('{')[0])
 
 
+class ImmediatePickTests(unittest.TestCase):
+    """A7: a block picked here is lit and its panel drawn at once, from what the page knows; HX Edit's reading fills in
+    its values. Preview: 2-9 ms from the click to the drawn panel (was: HX Edit's round trip first)."""
+
+    @staticmethod
+    def picked(pick, selected, blocks, now):
+        return run_js(['workbench_layout.js'], 'workbenchPicked(%s, %s, %s, %d)' % (json.dumps(pick), json.dumps(selected), json.dumps(blocks), now))
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_the_pick_holds_until_hx_edit_has_it_or_moves_elsewhere(self):
+        blocks = [{'dsp': 0, 'id': 'block1'}, {'dsp': 0, 'id': 'block2'}, {'dsp': 0, 'id': 'block4'}, {'dsp': 1, 'id': 'block0'}]
+        old, new = {'dsp': 0, 'id': 'block4'}, {'dsp': 0, 'id': 'block2'}
+        pick = {'dsp': 0, 'id': 'block2', 'from': [old], 'until': 5000}
+        # a reading made before HX Edit followed: still the old block there; the page shows the pick
+        self.assertEqual(self.picked(pick, old, blocks, 1000), {'pick': pick, 'selected': new})
+        # (a reading with nothing selected, as during an undo: held too)
+        self.assertEqual(self.picked(pick, None, blocks, 1000)['pick'], pick)
+        # HX Edit has it: the pick is done, the reading is shown as it is (its values are the block's)
+        self.assertEqual(self.picked(pick, new, blocks, 1000), {'pick': None, 'selected': new})
+        # HX Edit on a third block (the Floor, HX Edit itself): that one; the block gone; the time out
+        self.assertEqual(self.picked(pick, {'dsp': 1, 'id': 'block0'}, blocks, 1000), {'pick': None, 'selected': {'dsp': 1, 'id': 'block0'}})
+        self.assertIsNone(self.picked(pick, old, [b for b in blocks if b['id'] != 'block2'], 1000)['pick'])
+        self.assertEqual(self.picked(pick, old, blocks, 6000), {'pick': None, 'selected': old})
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_quick_picks_keep_what_hx_edit_may_show_meanwhile(self):
+        code = '''(() => { const a = workbenchPick({dsp: 0, id: 'block1'}, null, {dsp: 0, id: 'block4'}, 1000);
+          const b = workbenchPick({dsp: 0, id: 'block2'}, a, {dsp: 0, id: 'block4'}, 1100);
+          const blocks = [{dsp: 0, id: 'block1'}, {dsp: 0, id: 'block2'}, {dsp: 0, id: 'block4'}];
+          return [a.from, b.from, b.until, workbenchPicked(b, {dsp: 0, id: 'block1'}, blocks, 1200).selected]; })()'''
+        a_from, b_from, until, shown = run_js(['workbench_layout.js'], code)
+        self.assertEqual(a_from, [{'dsp': 0, 'id': 'block4'}])
+        self.assertEqual(b_from, [{'dsp': 0, 'id': 'block4'}, {'dsp': 0, 'id': 'block1'}])
+        self.assertEqual(until, 1100 + 2500)
+        self.assertEqual(shown, {'dsp': 0, 'id': 'block2'})          # (HX Edit on the first click's block: no flash)
+
+    def test_the_page_draws_the_pick_at_once_and_keeps_the_old_values_out(self):
+        page = text('workbench.html')
+        pick = between(page, 'function pickBlock(block, added) {', '\nfunction markComing() {')
+        self.assertIn('localPick = workbenchPick(block, localPick, hxSelected, Date.now());', pick)
+        self.assertIn('state.selected = {dsp: block.dsp, id: block.id}; state.values = {}; state.assign = null;', pick)
+        self.assertLess(pick.index('state.selected = {dsp: block.dsp'), pick.index("ask('select'"))
+        self.assertIn('drawChain(); drawPanel();', pick)
+        self.assertIn('if (hxShown) Object.assign(state, hxShown);', pick)                 # (never followed: back)
+        receive = between(page, "else if (message.type === 'state') {", "else if (message.type === 'dsp')")
+        self.assertIn('const seen = workbenchPicked(localPick, state.selected, state.blocks, Date.now());', receive)
+        self.assertIn('if (localPick) { state.selected = seen.selected; state.values = {}; state.assign = null; }', receive)
+        # the overlay comes before everything else in the reading's handling (the add's wait sees the player's pick)
+        self.assertLess(receive.index('workbenchPicked('), receive.index('workbenchAddSelect('))
+        self.assertIn(".insp.coming .knobs, .insp.coming .sliders, .insp.coming .tabview { opacity: .45; pointer-events: none;", page)
+        self.assertIn('markComing();', between(page, 'function render() {', '\n}'))
+
+    def test_focus_view_clicks_before_its_reading_and_traces_the_time(self):
+        script = text('focus_view.js')
+        refresh = between(script, 'function refresh(window) {', '  function select(target) {')
+        early = refresh.index('if (wanted && known && !editor.isNull()) {')
+        self.assertLess(early, refresh.index('const bounds = paneBounds();'))
+        self.assertGreater(early, refresh.index('while (writes.length) {'))
+        self.assertIn("stage: 'select-failed'", refresh)
+        self.assertIn('publish(state);\n      if (wanted) select(wanted);', refresh)              # (the first block: after)
+        self.assertIn("stage: 'select-shown', block: selectAsked.id, ms: Date.now() - selectAsked.at, read: Date.now() - began, full", refresh)
+        self.assertIn('selectAsked = {dsp: value.dsp, id: value.id, at: Date.now()};', script)
+        # the rules already in place are untouched: one select per click (select()), the split and mixer by selectNode
+        sel = between(script, '  function select(target) {', '  function publish(state) {')
+        self.assertIn('targetBinding.selectNode(editor, block.dsp, block.id);', sel)
+        self.assertIn('namView.clickChainPoint(spot.x, spot.y)', sel)
+
+
 if __name__ == '__main__':
     unittest.main()
