@@ -3484,7 +3484,7 @@ let levelScope = 'current', levelFrom = null, levelTo = null, shownLevels = '';
 const levelSkipped = new Set();
 const wantsLevels = () => levelsIn(view);
 // The session serves Levels or the NAM library (its Floor actions), whichever is open: the same one changes page.
-let sessionPage = '', floorStatus = null;
+let sessionPage = '', floorStatus = null, statusOwner = null;   // (statusOwner: whose view the status text is, workbenchStatusOwner)
 const sessionWanted = () => levelsIn(view) ? 'level' : view.full === 'library' ? 'library' : '';
 function syncLevels() {
   // (opened only while the Workbench is shown; it stays open while it is hidden, so a scan goes on)
@@ -3493,17 +3493,19 @@ function syncLevels() {
     if (!levelSession) { levelSession = 'asking'; levelAskedAt = Date.now(); }
     sessionPage = want; ask('levels', {do: 'open', page: want});
     if (want === 'library') { shownLib = ''; drawLibrary(); }           // ("Connecting to HX Edit…" until it answers)
-  } else if (!want && levelSession) { levelSession = ''; sessionPage = ''; leveling = null; levelText = ''; floorStatus = null; ask('levels', {do: 'close'}); }
+  } else if (!want && levelSession) { levelSession = ''; sessionPage = ''; leveling = null; levelText = ''; floorStatus = null; statusOwner = null; ask('levels', {do: 'close'}); }
 }
 function levelSessionMessage(kind, data) {
   if (kind === 'status') {
     if (!levelSession) return;                                // (a late word from a session already closed)
-    levelSession = 'open'; leveling = data.level || leveling; levelText = data.text || ''; levelBusy = !!data.busy;
-    floorStatus = data;
+    // (the session's page as it says it, else the one the page asked for: its text shows only in that view)
+    statusOwner = workbenchStatusOwner(statusOwner, data.text, typeof data.levelPage === 'boolean' ? (data.levelPage ? 'level' : 'library') : sessionPage);
+    levelSession = 'open'; leveling = data.level || leveling; levelText = workbenchStatusFor(statusOwner, 'level'); levelBusy = !!data.busy;
+    floorStatus = {...data, text: workbenchStatusFor(statusOwner, 'library')};
     shownLevels = ''; drawLevels(); shownLib = ''; drawLibrary();
   } else if (kind === 'closed') {
     const was = levelSession;
-    levelSession = ''; leveling = null; floorStatus = null; sessionPage = '';
+    levelSession = ''; leveling = null; floorStatus = null; sessionPage = ''; statusOwner = null;
     if (view.full === 'library') {
       // (the library works without it; its Floor actions say so)
       if (was === 'asking' && Date.now() - levelAskedAt < 4000) { syncLevels(); return; }

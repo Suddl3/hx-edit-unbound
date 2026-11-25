@@ -529,6 +529,18 @@ function workbenchSetlistCount(names) {
 // ---- the Floor's slots (Batch 3) -------------------------------------------------------------------------------------
 // Every used slot of 1..127 (captures and plain IRs share them; 128 is the preview slot, shown apart), in order:
 // {slot, name, kind: 'capture' | 'ir', icon, gear}. A slot listed twice keeps its capture.
+// ---- the session's status line: each view its own --------------------------------------------------------------------
+// Levels and the NAM library share one session, whose status text stays the last one said until another is: after
+// Levels' "Undone: 1 preset(s) are back as they were." the Library showed it under Put on the Floor (sweep 2026-11-24).
+// A text belongs to the page the session was on when it first came (page: 'level' or 'library'); the same text sent
+// again later keeps its page. track: {text, page}.
+function workbenchStatusOwner(track, text, page) {
+  text = typeof text === 'string' ? text : '';
+  return track && track.text === text ? track : {text, page};
+}
+// What one view shows of it: the text when it is that view's, else nothing.
+const workbenchStatusFor = (track, page) => (track && track.page === page ? track.text : '');
+
 // others: the slots holding a capture that is not one of the library's listed ones (state.otherCaptures): used too.
 function workbenchSlotRows(captures, irs, others) {
   const rows = new Map();
@@ -564,6 +576,6 @@ if (typeof module !== 'undefined' && module.exports) {
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
                      workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, workbenchPreviewOn, WORKBENCH_PREVIEW_END_WAIT_MS, WORKBENCH_PREVIEW_STEP_MS, workbenchSaveHold, WORKBENCH_BACK_MS,
 
- WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
+ WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers, workbenchStatusOwner, workbenchStatusFor,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }
