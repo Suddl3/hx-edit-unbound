@@ -46,10 +46,14 @@
   .bar { position: relative; z-index: 5; padding: 8px 22px 6px; background: #000; }
   .row1 { display: flex; align-items: center; justify-content: space-between; gap: 24px; height: 40px; }
   .bar-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
-  .back { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 10px; border-radius: 18px;
-          background: rgb(255 255 255 / .07); font-size: 15px; white-space: nowrap; transition: background .15s; }
-  .back:hover { background: rgb(255 255 255 / .14); }
-  .back svg { width: 14px; height: 14px; }
+  /* the Editor | Focus switch: the editor's own (workbench.html .view), in its place: its top bar is 58 px high with
+     16 px on the right, the switch centred in it (S2) */
+  .bar .row1 { padding-right: 168px; }
+  .viewsw { position: absolute; top: 10.5px; right: 16px; z-index: 6; display: flex; background: #0e1014; border: 1px solid #2a2e38; padding: 3px; border-radius: 9px;
+            font: 13px/1.25 Bahnschrift, 'DIN Alternate', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; }
+  .viewsw button { height: 28px; min-width: 68px; padding: 1px 14px 0; border-radius: 6px; color: #8d93a0; display: grid; place-items: center; line-height: 1; }
+  .viewsw button:hover { color: #eceef2; }
+  .viewsw button.on { background: #eceef2; color: #111; font-weight: 600; cursor: default; }
   .switch { display: flex; align-items: center; height: 36px; border-radius: 18px; background: rgb(255 255 255 / .07); min-width: 0; }
   .switch[hidden] { display: none; }
   .switch .step { width: 32px; height: 36px; display: grid; place-items: center; color: var(--dim); border-radius: 18px; flex: none; }
@@ -412,10 +416,6 @@
   <header class="bar">
     <div class="row1">
       <div class="bar-left">
-        <button class="back" id="back" title="Back to the normal editor (Esc)">
-          <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg>
-          Editor
-        </button>
         <div class="switch" id="preset" hidden>
           <button class="step" id="presetPrev" title="Previous preset" aria-label="Previous preset"><svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 4 7l5 5"/></svg></button>
           <button class="name" id="presetButton" title="Choose a preset" aria-expanded="false"><span class="num" id="presetNum"></span><span id="presetName"></span>
@@ -439,6 +439,8 @@
         </div>
       </div>
     </div>
+    <!-- the editor's own Editor | Focus switch, where the editor has it (top right), Focus lit (S2) -->
+    <div class="viewsw" role="group" aria-label="View"><button id="back" aria-pressed="false" title="Back to the editor (Esc)">Editor</button><button class="on" aria-pressed="true" tabindex="-1">Focus</button></div>
     <nav class="chain" id="chain" aria-label="Signal chain"></nav>
     <div class="drop presets" id="presetList" hidden></div>
     <div class="drop" id="snapList" hidden></div>

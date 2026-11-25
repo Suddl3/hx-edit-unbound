@@ -677,5 +677,19 @@ class ToneOverThePaneTests(unittest.TestCase):
         self.assertIn('own = one(parameterPanel(c.add(0x58).readPointer()));', report)
 
 
+class FocusSwitchTests(unittest.TestCase):
+    def test_s2_focus_modes_way_back_is_the_editors_switch_in_its_place(self):
+        focus, page = text('focus_view.html'), text('workbench.html')
+        self.assertNotIn('class="back"', focus)
+        self.assertIn('<div class="viewsw" role="group" aria-label="View"><button id="back" aria-pressed="false" title="Back to the editor (Esc)">Editor</button><button class="on" aria-pressed="true" tabindex="-1">Focus</button></div>', focus)
+        self.assertIn("$('back').onclick = () => ask('exit');", focus)
+        # the editor's: .view in its 58 px top bar, 16 px from the right; the same look, the current side lit
+        self.assertIn('.view button { height: 28px; min-width: 68px; padding: 1px 14px 0; border-radius: 6px;', page)
+        self.assertIn('.viewsw button { height: 28px; min-width: 68px; padding: 1px 14px 0; border-radius: 6px;', focus)
+        self.assertIn('.viewsw { position: absolute; top: 10.5px; right: 16px;', focus)
+        self.assertIn("padding: 0 16px 0 0;", between(page, '  .top {', '}'))
+        self.assertIn('.viewsw button.on { background: #eceef2; color: #111; font-weight: 600;', focus)
+
+
 if __name__ == '__main__':
     unittest.main()
