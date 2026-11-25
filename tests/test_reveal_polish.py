@@ -497,7 +497,7 @@ class ToneOpensTests(unittest.TestCase):
         self.assertIn('const panel = options.headless ? (options.dockPanel || NULL) : dockPanelFor(options.dockPanel || NULL);', tone)
         self.assertIn('active.panel = dockPanelFor(options.dockPanel);', tone)
         # (the refusal itself stays: with no pane at all, nothing is opened)
-        self.assertIn("send({type:'toneTrace',reason:'navigation-panel-unavailable'});", tone)
+        self.assertIn("reason:'navigation-panel-unavailable',asked:options.asked", tone)
 
     def test_r1_the_view_never_waits_for_ever(self):
         page = text('workbench.html')
@@ -648,6 +648,33 @@ class StageCardTests(unittest.TestCase):
         self.assertNotIn('.lay-stage > .insp .card > div:not(.btnrow) {', page)
         self.assertIn('.swapbox { display: flex; align-items: center;', page)
         self.assertIn('.swapnote { display: grid;', page)
+
+
+class ToneOverThePaneTests(unittest.TestCase):
+    """S1: TONE3000 from the Workbench refused for the rest of the session after a visit to Focus Mode (owner-trials
+    20261125-121738 12:31:34; 20261125-131943 13:28:58 on: `navigation-panel-unavailable`, also with R1's fallback)."""
+
+    def test_s1_the_workbench_open_needs_no_pane_of_hx_edits(self):
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn('sidebar_action(\'catalog\', f"workbench|layout={layout_kept()}|focus={int(focus_seen[0])}")', launcher)
+        self.assertIn('focus_seen[0] = True', launcher)
+        sidebar = text('nam_sidebar.js')
+        self.assertIn("const placed=typeof value.id==='string'&&value.id.startsWith('workbench');", sidebar)
+        self.assertIn("toneView.openBrowser(window,{dockPanel:navigationBanner.dockPanel(),placed,asked:value.id||''});", sidebar)
+        tone = text('tone_view.js')
+        gate = between(tone, "if (!options.headless && (!bounds?.visible || bounds.w < 60 || bounds.h < 60)) {", "    active = { id: ++nextSession, navigation: true")
+        self.assertIn("if (options.placed) {", gate)
+        self.assertIn("stage:'placed-over-pane'", gate)
+        self.assertIn('bounds = {visible:true, x:0, y:0, w:0, h:0, placed:true};', gate)
+        # HX Edit's own TONE3000 button and the Classic tools still dock in its pane (nothing placed: refused as before)
+        self.assertIn("send({type:'toneTrace',reason:'navigation-panel-unavailable',asked:options.asked||'',...panelReport(options.dockPanel)});", gate)
+
+    def test_s1_a_refusal_says_why_in_full(self):
+        tone = text('tone_view.js')
+        report = between(tone, 'function panelReport(given) {', '\n  }\n')
+        self.assertIn('return {first: one(given), own, selected};', report)
+        self.assertIn('selected = {dsp: c.add(0x80).readS32(), block: block(c)};', report)
+        self.assertIn('own = one(parameterPanel(c.add(0x58).readPointer()));', report)
 
 
 if __name__ == '__main__':

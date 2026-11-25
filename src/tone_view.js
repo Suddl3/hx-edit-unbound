@@ -572,8 +572,15 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     let bounds;
     try { bounds = panel.isNull() ? null : panelBounds(panel); } catch (_) { bounds = null; }
     if (!options.headless && (!bounds?.visible || bounds.w < 60 || bounds.h < 60)) {
-      send({type:'toneTrace',reason:'navigation-panel-unavailable'});
-      return false;
+      // The Workbench places the window over its own frame (S1): no parameter pane of HX Edit's is needed there; the
+      // session's bounds then only say so (TonePreview places it by the Workbench's rectangle, bounds_override).
+      if (options.placed) {
+        send({type:'toneTrace',reason:'navigation-panel',stage:'placed-over-pane',asked:options.asked||'',...panelReport(options.dockPanel)});
+        bounds = {visible:true, x:0, y:0, w:0, h:0, placed:true};
+      } else {
+        send({type:'toneTrace',reason:'navigation-panel-unavailable',asked:options.asked||'',...panelReport(options.dockPanel)});
+        return false;
+      }
     }
     active = { id: ++nextSession, navigation: true, bound: false, controller: NULL, editor: NULL,
       window, valid: false, panel, layout: JSON.stringify(bounds), tile: tiles[0],
@@ -655,6 +662,17 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function usablePanel(panel) {
     try { const b = panel && !panel.isNull() ? panelBounds(panel) : null; return !!b && b.visible && b.w >= 60 && b.h >= 60; }
     catch (_) { return false; }
+  }
+  // What a navigation open found, for its trace: each parameter pane it could dock in (nav_banner's first PRVW, the
+  // selected block's own) with its visible flag and bounds, and the selected block. (S1)
+  function panelReport(given) {
+    const one = p => { try { return p && !p.isNull() ? panelBounds(p) : null; } catch (e) { return {error: String(e.message)}; } };
+    let own = null, selected = null;
+    try {
+      const c = cursorController();
+      if (!c.isNull()) { selected = {dsp: c.add(0x80).readS32(), block: block(c)}; own = one(parameterPanel(c.add(0x58).readPointer())); }
+    } catch (e) { own = {error: String(e.message)}; }
+    return {first: one(given), own, selected};
   }
   function dockPanelFor(given) {
     if (usablePanel(given)) return given;

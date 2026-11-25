@@ -349,6 +349,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # Focus Mode, on or off: the pane, the script that reads the blocks for it, and the menu's tick.
             # It starts off with every launch, and the page's own "Editor" button turns it off the same way.
             focus_on = [False]
+            focus_seen = [False]        # Focus Mode shown at least once this launch (the TONE3000 open says so, S1)
             focus_missing = [False]     # its script did not install (a byte guard): the menu item says so
             # The Workbench, on or off (settings.json "workbench", kept from one launch to the next). It is shown while
             # it is on and Focus Mode is not: Focus Mode's "Editor" button comes back to it, and the two panes never
@@ -421,6 +422,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 if on and (focus is None or focus_missing[0]):
                     on, notice = False, 'Focus Mode is not available in this copy.'
                 focus_on[0] = on
+                if on:
+                    focus_seen[0] = True                 # (for the TONE3000 open's trace, S1)
                 if focus is not None:
                     if on:                               # the defaults may have been changed on the Floor look page meanwhile
                         focus.show_look(nam_catalog.load_settings())
@@ -577,7 +580,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         preview.place_over(place)
                         workbench.set_raise(False)
                         if value['name'] == 'tone':
-                            sidebar_action('catalog', '')
+                            # (placed over the Workbench's frame: the script needs no HX Edit pane for it; the layout
+                            # and whether Focus Mode was shown go with it, for its trace: S1)
+                            sidebar_action('catalog', f"workbench|layout={layout_kept()}|focus={int(focus_seen[0])}")
                         else:
                             unbound_choice(value['name'])
                     if preview.workbench_open():
