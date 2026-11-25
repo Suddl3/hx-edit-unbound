@@ -904,6 +904,11 @@
   /* ---- Rig on stage: the gear on the preset's scene (batch4-rig-on-stage.png, -drawer.png) ---- */
   .app.lay-stage { position: relative; grid-template: 58px minmax(0, 1fr) auto / minmax(0, 1fr); }
   .app > .scene { position: absolute; inset: 0; z-index: 0; background: #07070a center / cover no-repeat; }
+  /* the scene's two plates: the new one fades in over the old (R3, Focus Mode's own timing: .55s ease) */
+  .app > .scene > .plate { position: absolute; inset: 0; background: center / cover no-repeat; opacity: 0; transition: opacity .55s ease; }
+  .app > .scene > .plate.on { opacity: 1; }
+  .app > .scene > .plate.now { transition: none; }
+  @media (prefers-reduced-motion: reduce) { .app > .scene > .plate { transition: none; } }
   .app > .scene::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(0 0 0 / .3), transparent 22%, transparent 58%, rgb(0 0 0 / .62)); }
   .lay-stage > .top { background: linear-gradient(180deg, rgb(8 9 12 / .82), rgb(8 9 12 / .35)); border-bottom-color: rgb(255 255 255 / .08); }
   .lay-stage > .top .icon, .lay-stage > .top .tempo, .lay-stage > .top .snaps, .lay-stage > .top .view { background: rgb(12 13 17 / .6); border-color: rgb(255 255 255 / .14); backdrop-filter: blur(10px); }
@@ -2806,10 +2811,17 @@ function syncStage() {
   const name = state ? stageScene() : null, sc = name && catalog.scenes[name];
   const picture = sc ? sc.pictures[0] : '', key = picture + '|' + (sc && sc.focus || '');
   if (key === shownScene) return;
+  const first = !shownScene;
   shownScene = key;
-  box.style.backgroundImage = picture ? `url("${picture}")` : '';
+  // A soft change of scene (R3): two plates, the new one fades in over the old as Focus Mode's do (.plate: opacity .55s
+  // ease); none with reduced motion (CSS). The first scene shows at once.
+  if (box.childElementCount < 2) box.replaceChildren(el('i', 'plate'), el('i', 'plate'));
+  const [a, b] = box.children, next = a.classList.contains('on') ? b : a, last = next === a ? b : a;
+  next.style.backgroundImage = picture ? `url("${picture}")` : '';
   // (where the gear stands in the scene, as Focus Mode places it)
-  box.style.backgroundPosition = sc && Array.isArray(sc.focus) ? `${(100 * sc.focus[0]).toFixed(1)}% ${(100 * sc.focus[1]).toFixed(1)}%` : '';
+  next.style.backgroundPosition = sc && Array.isArray(sc.focus) ? `${(100 * sc.focus[0]).toFixed(1)}% ${(100 * sc.focus[1]).toFixed(1)}%` : '';
+  if (first) { next.classList.add('now'); setTimeout(() => next.classList.remove('now'), 60); }
+  next.classList.add('on'); last.classList.remove('on');
 }
 function stageHead() {
   const head = el('div', 'stagehead'), name = state ? stageScene() : null, button = el('button', 'glassbtn');

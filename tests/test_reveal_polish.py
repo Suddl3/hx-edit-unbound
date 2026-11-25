@@ -515,5 +515,19 @@ class ToneOpensTests(unittest.TestCase):
         self.assertIn("trace({'type': 'workbench', 'event': 'tool-not-open', 'name': 'tone'})", launcher)
 
 
+class SceneFadeTests(unittest.TestCase):
+    def test_r3_the_stage_scene_cross_fades_as_focus_modes_does(self):
+        page, focus = text('workbench.html'), text('focus_view.html')
+        # Focus Mode's own plates: opacity .55s ease
+        self.assertIn('.plate { position: absolute; inset: 0; opacity: 0; transition: opacity .55s ease; }', focus)
+        self.assertIn('.app > .scene > .plate { position: absolute; inset: 0; background: center / cover no-repeat; opacity: 0; transition: opacity .55s ease; }', page)
+        self.assertIn('@media (prefers-reduced-motion: reduce) { .app > .scene > .plate { transition: none; } }', page)
+        sync = between(page, 'function syncStage() {', '\n}')
+        self.assertIn("box.replaceChildren(el('i', 'plate'), el('i', 'plate'));", sync)
+        self.assertIn("next.classList.add('on'); last.classList.remove('on');", sync)
+        # (the first scene shows at once, not faded in)
+        self.assertIn("if (first) { next.classList.add('now'); setTimeout(() => next.classList.remove('now'), 60); }", sync)
+
+
 if __name__ == '__main__':
     unittest.main()
