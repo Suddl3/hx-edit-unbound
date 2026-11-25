@@ -206,7 +206,7 @@ class ClassicPlusTests(unittest.TestCase):
         self.assertIn("ask('model', {dsp: block.dsp, id: block.id, symbol});", pick)
         self.assertIn("chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot});", pick)
         self.assertIn("ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});", pick)
-        self.assertIn('choice.onclick = () => item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);', shared)
+        self.assertIn('item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);', shared)
         # the same DSP room check: the room line, a choice that does not fit marked "full"
         self.assertIn('space: room(block)', shared)
         self.assertIn('full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;', shared)
@@ -586,7 +586,8 @@ class AddPicksTheNewBlockTests(unittest.TestCase):
         text = page()
         ask_line = between(text, 'const ask = (name, value) => {', '};')
         self.assertIn("if (name === 'undo' || name === 'redo') addFollow = null;", ask_line)       # every undo the page asks
-        self.assertIn("else if (message.type === 'notice') { addFollow = null;", text)                # a refused add (no room, ...)
+        self.assertIn("else if (message.type === 'notice') {", text)                                 # a refused add (no room, ...)
+        self.assertIn("addFollow = null; swapAsked = null; toast(message.text);", text)
         # the page's select is not an edit: no unsaved mark and no undo step of the page's own
         self.assertNotIn("'select'", between(text, 'const EDIT_ASKS = new Set(', ');'))
         # after Undo the block is gone from HX Edit's reading: the panel is drawn from that reading (no block kept here)

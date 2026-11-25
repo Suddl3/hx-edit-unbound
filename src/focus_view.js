@@ -456,9 +456,18 @@ function installFocusView(options, parts) {
     const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
     if (!block || !chainBlock.test(block.id) || editor.isNull()) { send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-skipped'}); return; }
     endDrag('a model change');
-    const isNam = namEngines.includes(block.model);
-    const next = command.action === 'capture' ? (isNam ? block.model : namEngines[0]) : command.symbol;
-    if (next !== block.model) {
+    // (the block as HX Edit has it now, not as the last reading saw it: a second ask before a reading showed the first,
+    // a double-click in the page's lists, would make the same change again, a second undo step)
+    let fresh = null;
+    try { fresh = targetBinding.peekModel(editor, block.dsp, block.id); } catch (_) { fresh = null; }
+    const model = fresh && typeof fresh.model === 'string' ? fresh.model : block.model;
+    const isNam = namEngines.includes(model);
+    const next = command.action === 'capture' ? (isNam ? model : namEngines[0]) : command.symbol;
+    if (next === model && (command.action !== 'capture' || (fresh && fresh.index === command.slot))) {
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-same', action: command.action, to: next});
+      return;
+    }
+    if (next !== model) {
       const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], costsNow(), focusCostKey(block.model, block.slot, onFloor),
                              command.action === 'capture' ? focusCostKey(next, command.slot, onFloor) : next, block.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-no-room'}); return; }

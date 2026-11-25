@@ -1963,14 +1963,22 @@ function pickHead(block, s, redraw, inputId) {
   roomLine.title = s.space ? 'What this block may cost: the DSP’s free room plus what this block costs now (the Floor’s own figures).' : 'The Floor has not reported its DSP load yet.';
   return {seg, search, input, roomLine};
 }
-// Picking: a model or a capture for the block, or added at the "+" picked (one undo step, as HX Edit's own picker)
+// Picking: a model or a capture for the block, or added at the "+" picked (one undo step, as HX Edit's own picker).
+// The same choice asked again before a reading shows it (a double-click) is not asked twice (workbenchSwapRepeat).
+let swapAsked = null;
 function pickModel(block, symbol) {
   if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol}); }
-  else if (symbol !== block.model) ask('model', {dsp: block.dsp, id: block.id, symbol});
+  else if (symbol !== block.model && !workbenchSwapRepeat(swapAsked, block, {symbol}, Date.now())) {
+    swapAsked = {dsp: block.dsp, id: block.id, symbol, at: Date.now()};
+    ask('model', {dsp: block.dsp, id: block.id, symbol});
+  }
 }
 function pickCapture(block, c) {
   if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot}); }
-  else if (!(isNam(block) && block.slot === c.slot)) ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
+  else if (!(isNam(block) && block.slot === c.slot) && !workbenchSwapRepeat(swapAsked, block, {slot: c.slot}, Date.now())) {
+    swapAsked = {dsp: block.dsp, id: block.id, slot: c.slot, at: Date.now()};
+    ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
+  }
 }
 // The choices shown for the category, kind and search picked: [{h: heading} | {p: words} | {symbol} | {capture}]
 function pickItems(block, s) {
@@ -2009,7 +2017,15 @@ function pickChoice(block, s, item, shape) {
   if (shape === 'row') choice.append(image(pics, '', true, true), el('span', '', name), el('i', 'num', mark));
   else choice.append(image(pics, 'pic', true, true), el('i', 'num', mark), el('span', '', name));
   choice.title = words;
-  choice.onclick = () => item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);
+  choice.onclick = () => {
+    // (the choice clicked for a block shows as in use at once, until HX Edit's reading redraws the list; refused, the
+    // notice redraws it as it was)
+    if (!block.isPlace && !full && !inUse) {
+      for (const was of choice.parentElement ? choice.parentElement.querySelectorAll('.on') : []) was.classList.remove('on');
+      choice.classList.add('on'); choice.querySelector('i').textContent = 'in use';
+    }
+    item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);
+  };
   return choice;
 }
 function drawPicker(block) {
@@ -2239,11 +2255,13 @@ function drawBar() {
   // (a name box open on a preset or a snapshot that is gone: it closes, keeping the old name)
   if (naming && (naming.preset !== presetWord() || (naming.what === 'snapshot' && typeof (state.snapshots || [])[naming.index] !== 'string'))) naming.done(false);
   if (!listed) closePresets(); else if (!$('presetList').hidden) fillPresets();
-  // Undo and Redo only for steps made on this preset (ownSteps: HX Edit's undo position kept from the last preset
-  // load would otherwise offer another preset's steps, sweep 2026-11-25 00:00, 10@3:31), and only when HX Edit's own
-  // Edit menu would do them too (state.undo / state.redo, target_binding canUndo / canRedo, where they could be read).
-  $('undo').disabled = state.undo === false || (!!ownSteps && ownSteps.steps === 0);
-  $('redo').disabled = !((typeof state.redo === 'boolean' ? state.redo : true) && redoTrack.redo);
+  // Undo and Redo as HX Edit's own Edit menu offers them (state.undo / state.redo, target_binding canUndo / canRedo):
+  // HX Edit empties its history on a preset load, so no other preset's step is offered, and the steps made on this
+  // preset before the Workbench first saw it (in Classic, Focus Mode) stay undoable. The steps seen made here
+  // (ownSteps, redoTrack) only where HX Edit's answer could not be read (workbenchUndoRedo).
+  const can = workbenchUndoRedo(state.undo, state.redo, ownSteps, redoTrack);
+  $('undo').disabled = !can.undo;
+  $('redo').disabled = !can.redo;
   $('tempo').hidden = typeof state.tempo !== 'number';
   if (typeof state.tempo === 'number') $('tempoValue').textContent = state.tempo.toFixed(1);
   // the snapshots as buttons: four at a time, the other four behind one more
@@ -4472,8 +4490,8 @@ function liftLibrary(event, kind, c, row) {
 }
 
 // ---- everything together -----------------------------------------------------------------------------------------
-// Redo: worked out from the steps made on this preset as they change (workbenchOwnSteps, workbenchRedo); a redo asked
-// for here is one.
+// The steps made on this preset as the Workbench saw them (workbenchOwnSteps, workbenchRedo; a redo asked for here is
+// one): Undo and Redo's fallback where HX Edit's own answer cannot be read (workbenchUndoRedo).
 let redoTrack = null, redoAskedAt = 0, ownSteps = null;
 function render() {
   if (!catalog || !state) return;
@@ -4547,7 +4565,10 @@ function receive(message) {
     if (!(layoutAsked && Date.now() - layoutAsked.at < 2000 && options.layout !== layoutAsked.name)) setLayout(options.layout, false);
     drawRail(); return;
   }
-  else if (message.type === 'notice') { addFollow = null; toast(message.text); if (snapHeld.size) { snapHeld.clear(); shownPanel = ''; render(); } return; }   // (a change refused: shown as it is)
+  else if (message.type === 'notice') {                         // (a change refused: shown as it is)
+    addFollow = null; swapAsked = null; toast(message.text);
+    snapHeld.clear(); shownPanel = ''; render(); return;
+  }
   else if (message.type === 'shown') {
     // (hidden, a tool's window goes back over HX Edit's own panel: shown again, it is placed over its frame again)
     visible = message.shown === true; toolShown = '';

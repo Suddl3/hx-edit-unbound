@@ -226,6 +226,26 @@ function workbenchOwnSteps(track, at, preset, size) {
   return {preset, at, steps: Math.max(0, track.steps + move)};
 }
 
+// Whether the bar offers Undo and Redo. HX Edit's own Edit-menu answers decide wherever they could be read (undo,
+// redo: target_binding canUndo / canRedo; null when not read): HX Edit empties its own history on a preset load (live
+// check 2026-11-25 00:55, `undo-can undo:false redo:false` straight after `preset 31`), so they never offer another
+// preset's steps, and they keep the steps made on this preset before the Workbench first saw it (in Classic, in Focus
+// Mode, before a layout switch or a relaunch of the pane: the review of 1d3675f). Only an answer that could not be
+// read falls back on the steps the Workbench itself saw made on this preset (workbenchOwnSteps, workbenchRedo).
+function workbenchUndoRedo(undo, redo, own, redoTrack) {
+  return {undo: typeof undo === 'boolean' ? undo : !(own && own.steps === 0),
+          redo: typeof redo === 'boolean' ? redo : !!(redoTrack && redoTrack.redo)};
+}
+
+// A model or a capture asked for a block that is asked again before a reading shows the first (a double-click on a row,
+// Nick's habit from Classic, where a double-click replaces): the same choice for the same block within
+// WORKBENCH_SWAP_REPEAT_MS. Asked twice, HX Edit made it twice: two undo steps, and the first Undo seemed to do nothing.
+const WORKBENCH_SWAP_REPEAT_MS = 1500;
+function workbenchSwapRepeat(asked, block, choice, now) {
+  return !!asked && !!block && !!choice && asked.dsp === block.dsp && asked.id === block.id && now - asked.at < WORKBENCH_SWAP_REPEAT_MS &&
+    (choice.symbol ? asked.symbol === choice.symbol : asked.slot === choice.slot);
+}
+
 function workbenchRedo(track, at, preset, redoing) {
   // Whether there is something to redo, from HX Edit's undo position (at: the steps that can be undone) as it
   // changes: an undo lowers it and leaves a step to redo; a new change raises it and leaves none, unless it is the
@@ -570,7 +590,7 @@ function workbenchSlotUsers(usage, slot, loaded) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
                      workbenchAdded, WORKBENCH_ADD_SELECT_MS, workbenchPresetKey, workbenchAddFollow, workbenchAddSelect, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
