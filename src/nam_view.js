@@ -1975,14 +1975,14 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     },
     installedCaptures() {
       // Captures of this PC's library that are on the Floor now, by verified slot: for the NAM
-      // category's model list. [{slot, name, gear, icon}], lowest slot first (icon: capture_icons id).
+      // category's model list. [{slot, id, name, gear, icon}], lowest slot first (icon: capture_icons id; id: the library's).
       const result = [];
       if (!slotLedger) return result;
       for (const [slot, contentId] of slotLedger.entries()) {
         const capture = payloadMetadata[contentId];
         // A version (the NAM Pedal model) plays only in its own block: not offered under NAM A2 Lite rows.
         if (!capture || slot === AUDITION_SLOT || capture.version) continue;
-        result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
+        result.push({slot, id: typeof capture.id === 'string' ? capture.id : null, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
           instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar'});
       }
       return result;

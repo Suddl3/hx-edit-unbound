@@ -304,17 +304,20 @@ class WorkbenchView(focus_view.FocusView):
     PAGE_NAME = 'workbench.html'
     PROFILE = 'Workbench WebView'
 
-    def __init__(self, resources, *, costs_file=dsp_costs.FILE, clock=time.monotonic, **options):
+    def __init__(self, resources, *, costs_file=dsp_costs.FILE, clock=time.monotonic, firmware=None, **options):
+        # (firmware: the Floor's own answer this launch, dsp_costs.firmware_of; costs measured on another are dropped)
         self.options = {}
         self.pins = []
         self.usage = []                # usage_view: the presets seen using each slot (Batch 3, Floor slots)
         self.previews = []             # previews_view: the previews of ours in User IR 128
         self.prefs = prefs({})
         self.library = None
-        self.costs = dsp_costs.DspCosts(costs_file)
+        self.costs = dsp_costs.DspCosts(costs_file, firmware)
         self.clock = clock
         self._seen = None
         super().__init__(resources, **options)
+        if self.costs.dropped:
+            self.trace({'type': 'workbench', 'event': 'dsp-costs-dropped', 'firmware': firmware})
 
     def catalog(self):
         if self._catalog is None:

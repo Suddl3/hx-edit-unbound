@@ -1017,7 +1017,18 @@ const host = window.chrome && window.chrome.webview;
 let catalog = null, state = null, dsp = null, options = {}, visible = !host;
 let costs = {};          // each model's DSP as the Floor's meter measured it ({type: "dspCosts"}, workbench.py)
 // A model's DSP: as measured on the Floor where it has been, else HX Edit's estimate (catalog.loads). NaN: unknown.
-const costOf = symbol => { const found = Number(costs[symbol]); return Number.isFinite(found) && found > 0 ? found : Number((catalog && catalog.loads || {})[symbol]); };
+// A key may be a capture's ("<model>#<capture id>", dsp_costs.key_of: each capture costs its own): one not measured
+// yet costs what its model does.
+const costOf = key => {
+  const own = Number(costs[key]), symbol = String(key).split('#')[0], found = Number(costs[symbol]);
+  return Number.isFinite(own) && own > 0 ? own : Number.isFinite(found) && found > 0 ? found : Number((catalog && catalog.loads || {})[symbol]);
+};
+// The cost key of a capture of the library on NAM's engine, and of a block (its capture's when its slot holds one)
+const captureKey = c => c && /^[0-9a-f]{64}$/.test(String(c.id || '')) ? catalog.nam[0] + '#' + c.id : catalog.nam[0];
+const costKey = block => {
+  const c = isNam(block) && Number.isInteger(block.slot) ? (state.captures || []).find(x => x.slot === block.slot) : null;
+  return c && /^[0-9a-f]{64}$/.test(String(c.id || '')) ? block.model + '#' + c.id : block.model;
+};
 // (the page's own changes to the loaded preset, for the unsaved mark: what HX Edit does by itself right after a load
 // is not one of them; see receive)
 const EDIT_ASKS = new Set(['set', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'rename', 'undo', 'redo', 'snapshot']);
@@ -1293,7 +1304,7 @@ function drawPath(p, g, now) {
 // The other path takes it only with room on its DSP for the block's model (the driver checks again).
 function fitsOn(block, path) {
   if (path === block.dsp) return true;
-  const view = dsp && dsp[path], cost = costOf(block.model);
+  const view = dsp && dsp[path], cost = costOf(costKey(block));
   return !view || typeof view.used !== 'number' || !Number.isFinite(cost) || view.used + cost <= view.budget;
 }
 let dragging = null, dragDone = false;
@@ -1580,7 +1591,7 @@ function capturePanel(block) {
   who.append(image(captureUrls(taken).concat(model(block).pictures), 'pic', true), words); box.append(who);
   // This block's DSP as the Floor's meter measured it (dsp_costs.py: the path's change when this model came or went;
   // HX Edit's own estimate from its model list is not what the Floor uses), then the whole path's figure.
-  const facts = el('dl', 'kv'), view = dsp && dsp[block.dsp], cost = Number(costs[block.model]);
+  const facts = el('dl', 'kv'), view = dsp && dsp[block.dsp], cost = Number(costs[costKey(block)]);
   facts.append(el('dt', '', 'Engine'), el('dd', '', model(block).name));
   const budget = view && view.budget ? view.budget : 75;
   facts.append(el('dt', '', 'This block'), Number.isFinite(cost) && cost > 0
@@ -1625,7 +1636,7 @@ function drawPanel() {
   }
   if (picking) { drawPicker(block); return; }
   const list = controlsOf(block), nam = !!capture(block);
-  const key = JSON.stringify(['block', block.dsp, block.id, block.model, block.enabled, block.slot ?? 0, title(block), nam && (state.captures || []).length, irOn(block) && irOn(block).name, dsp && dsp[block.dsp], costs[block.model] ?? null,
+  const key = JSON.stringify(['block', block.dsp, block.id, block.model, block.enabled, block.slot ?? 0, title(block), nam && (state.captures || []).length, irOn(block) && irOn(block).name, dsp && dsp[block.dsp], costs[costKey(block)] ?? null,
                               panelTab, panelTab === 'controls' ? null : [state.assign, state.snapshots, state.snapshot, state.values]]);
   panel.style.setProperty('--c', tint(block).join(' '));
   panel.classList.toggle('off', !block.enabled);
@@ -1881,7 +1892,7 @@ function room(block) {
   // What the selected block may cost on its DSP, in the units of the Floor's own meter: what is free plus its own.
   const view = dsp && dsp[block.dsp];
   if (!view || typeof view.used !== 'number') return null;
-  return {left: view.budget - view.used + (costOf(block.model) || 0), budget: view.budget};
+  return {left: view.budget - view.used + (costOf(costKey(block)) || 0), budget: view.budget};
 }
 // The picker's choices for a block, shared (Batch 4): the picker dialog draws them as cards, Classic+'s Edit area as
 // its lists in place. One list of choices, one way to pick (pickModel, pickCapture): the same asks, the same DSP room
@@ -1988,7 +1999,7 @@ function pickChoice(block, s, item, shape) {
     pics = m.pictures; tintOf = m.tint; name = m.name; mark = inUse ? 'in use' : costText(cost);
     words = m.name + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
   } else {
-    const c = item.capture, cost = isNam(block) ? 0 : s.namCost;
+    const c = item.capture, cost = isNam(block) ? 0 : costOf(captureKey(c));   // (its own, else s.namCost's figure)
     inUse = isNam(block) && block.slot === c.slot; full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;
     pics = captureUrls(c); tintOf = NAM_TINT; name = c.name; mark = inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : costText(cost);
     words = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
@@ -2064,7 +2075,7 @@ function drawEdit(block) {
   const key = JSON.stringify(['edit', target.dsp, target.id, target.lane ?? '', target.place ?? '', target.model, target.enabled, target.slot ?? 0, title(target),
                               tab, tab === 'controls' ? assignKey : [state.assign, state.snapshots, state.snapshot, state.values],
                               chain ? [pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear])] : null,
-                              irOn(target) && irOn(target).name, dsp && dsp[target.dsp], costs[target.model] ?? null, (state.irs || []).length]);
+                              irOn(target) && irOn(target).name, dsp && dsp[target.dsp], target.isPlace ? null : costs[costKey(target)] ?? null, (state.irs || []).length]);
   panel.style.setProperty('--c', tint(target).join(' '));
   panel.classList.toggle('off', !target.isPlace && !target.enabled);
   if (key !== shownPanel) {
@@ -2161,7 +2172,7 @@ function editParams(block, list) {
   let line = el('div');
   if (taken) {
     line = el('div', 'capline');
-    const cost = Number(costs[block.model]), view = dsp && dsp[block.dsp], budget = view && view.budget ? view.budget : 75;
+    const cost = Number(costs[costKey(block)]), view = dsp && dsp[block.dsp], budget = view && view.budget ? view.budget : 75;
     line.title = taken.name;
     line.append('Capture', el('b', '', taken.name), ('gear' in taken ? namKind(taken) : 'Not in the NAM library') + ' · IR slot ' + block.slot +
       (Number.isFinite(cost) && cost > 0 ? ' · this block ' + Math.round(100 * cost / budget) + '% of DSP ' + (block.dsp + 1) : ''), el('span', 'sp'));
@@ -3895,7 +3906,9 @@ function libVersions(row) {
   const namLoad = Number.isFinite(fs.nam_load) ? fs.nam_load : 36, pedalLoad = Number.isFinite(fs.pedal_load) ? fs.pedal_load : 7.5, pedalBlock = fs.pedal_block === true;
   const notYet = key => key === 'pedal' && !pedalBlock ? 'Needs the pedal firmware' : key === 'light16' ? 'Needs a firmware that skips layers' : '';
   const chosen = row.defaultVersion || 'original', plays = chosen !== 'original' && notYet(chosen) ? 'original' : chosen;
-  const meta = key => key === 'original' ? share1(namLoad) : key === 'pedal' ? share1(pedalLoad) : '~' + Math.round(namLoad * 29 / 36) + '% after a firmware update';
+  // (the original's DSP: what the Floor's meter measured for this capture where it has played, else the firmware's)
+  const measured = catalog && catalog.nam ? Number(costs[catalog.nam[0] + '#' + row.id]) : NaN;
+  const meta = key => key === 'original' ? (Number.isFinite(measured) && measured > 0 ? share1(measured) + ' (measured)' : share1(namLoad)) : key === 'pedal' ? share1(pedalLoad) : '~' + Math.round(namLoad * 29 / 36) + '% after a firmware update';
   const ask2 = (doing, key) => ask('levels', {do: doing, arg: row.id, key});
   const listening = fs.listen && fs.listen.id === row.id ? fs.listen : null, source = typeof fs.listen_source === 'string' ? fs.listen_source : null;
   const box = el('div'); box.style.cssText = 'display:grid;gap:7px';

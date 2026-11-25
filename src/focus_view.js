@@ -147,11 +147,13 @@ function focusQueue(queue, command, limit = 32) {
 
 // Whether a DSP has room for model `next` in place of model `now`, by the Floor's own figures (dsp_meter.js: what
 // its blocks use of what they may). null when it fits or cannot be known; else the words for the user.
+// now / next: cost keys (focusCostKey); a capture not measured yet costs what its model does.
 function focusRoom(view, loads, now, next, dsp) {
   if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
-  const cost = Number(loads[next]);
+  const costOf = key => { const own = Number(loads[key]); return key != null && Number.isFinite(own) ? own : Number(loads[String(key).split('#')[0]]); };
+  const cost = costOf(next);
   if (!Number.isFinite(cost)) return null;
-  const after = Math.round((view.used - (Number(loads[now]) || 0) + cost) * 10) / 10;
+  const after = Math.round((view.used - (costOf(now) || 0) + cost) * 10) / 10;
   return after <= view.budget ? null : `DSP ${dsp + 1} has no room for that model (${after} of ${view.budget}).`;
 }
 
@@ -189,14 +191,21 @@ function focusAssign(tree, block, keys) {
 }
 
 // The models' costs measured on the Floor's own meter (the Workbench's dsp_costs.py), each in place of HX Edit's
-// estimate: {symbol: used units}, only plausible figures kept.
+// estimate: {key: used units}, only plausible figures kept. A key is a model symbol, or "<model>#<capture id>" for a
+// NAM block playing that capture of the library (each capture costs its own: sweep 2026-11-24, 36.0 and 27.0).
 function focusMeasured(found) {
   const kept = {};
   if (!found || typeof found !== 'object') return kept;
-  for (const [symbol, cost] of Object.entries(found).slice(0, 1000)) {
-    if (/^[A-Za-z0-9_]{3,64}$/.test(symbol) && typeof cost === 'number' && Number.isFinite(cost) && cost > 0 && cost <= 75) kept[symbol] = cost;
+  for (const [key, cost] of Object.entries(found).slice(0, 4000)) {
+    if (/^[A-Za-z0-9_]{3,64}(#[0-9a-f]{64})?$/.test(key) && typeof cost === 'number' && Number.isFinite(cost) && cost > 0 && cost <= 75) kept[key] = cost;
   }
   return kept;
+}
+// A block's cost key (dsp_costs.key_of): its model, or "<model>#<capture id>" when its slot holds a capture of the
+// library (captures: state.captures [{slot, id}]).
+function focusCostKey(model, slot, captures) {
+  const capture = Number.isInteger(slot) && slot >= 1 ? (captures || []).find(c => c && c.slot === slot) : null;
+  return capture && /^[0-9a-f]{64}$/.test(String(capture.id || '')) ? model + '#' + capture.id : model;
 }
 
 // The pane's place: the main window from its top (over HX Edit's own toolbar: the pane has its own, with the
@@ -450,7 +459,8 @@ function installFocusView(options, parts) {
     const isNam = namEngines.includes(block.model);
     const next = command.action === 'capture' ? (isNam ? block.model : namEngines[0]) : command.symbol;
     if (next !== block.model) {
-      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], costsNow(), block.model, next, block.dsp);
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], costsNow(), focusCostKey(block.model, block.slot, onFloor),
+                             command.action === 'capture' ? focusCostKey(next, command.slot, onFloor) : next, block.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-no-room'}); return; }
       targetBinding.setModel(editor, block.dsp, block.id, next);
     }
@@ -478,7 +488,8 @@ function installFocusView(options, parts) {
       if (occupied(command.dsp, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
       // (a slot alone: a capture, on NAM's engine; a slot with an IR model: an IR block with that IR)
       const next = command.slot && !command.symbol ? namEngines[0] : command.symbol;
-      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], costsNow(), null, next, command.dsp);
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], costsNow(), null,
+                             command.slot && !command.symbol ? focusCostKey(next, command.slot, onFloor) : next, command.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'add-no-room'}); return; }
       if (command.slot) {
         // a capture: the block and its slot as one undo step (target_binding addCapture); its slot set later, as a
@@ -555,7 +566,7 @@ function installFocusView(options, parts) {
         if (occupied(to, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
         if (to === block.dsp) targetBinding.moveBlock(editor, block.dsp, block.id, command.lane, command.place);
         else {
-          const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to], costsNow(), null, block.model, to);
+          const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to], costsNow(), null, focusCostKey(block.model, block.slot, onFloor), to);
           if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'move-no-room'}); return; }
           const meter = typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to];
           const moved = targetBinding.moveAcross(editor, block.dsp, block.id, to, command.lane, command.place);
@@ -629,7 +640,9 @@ function installFocusView(options, parts) {
     // The captures on the Floor, by slot: a NAM block's name and picture come from its slot (focusCaptures: kept
     // while HX Edit re-checks the slots after a chain change).
     try {
-      const found = namView.installedCaptures().map(capture => ({slot: capture.slot, name: capture.name, icon: capture.icon, gear: capture.gear}));
+      // (id: the capture's library id, what its measured DSP cost is kept by: dsp_costs.key_of)
+      const found = namView.installedCaptures().map(capture => ({slot: capture.slot, name: capture.name, icon: capture.icon, gear: capture.gear,
+                                                                 ...(typeof capture.id === 'string' ? {id: capture.id} : {})}));
       return focusCaptures(found, previous, namView.inventorySnapshot ? namView.inventorySnapshot() : null);
     }
     catch (_) { return previous || []; }
@@ -1014,5 +1027,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
 }
