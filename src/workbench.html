@@ -2239,9 +2239,11 @@ function drawBar() {
   // (a name box open on a preset or a snapshot that is gone: it closes, keeping the old name)
   if (naming && (naming.preset !== presetWord() || (naming.what === 'snapshot' && typeof (state.snapshots || [])[naming.index] !== 'string'))) naming.done(false);
   if (!listed) closePresets(); else if (!$('presetList').hidden) fillPresets();
-  $('undo').disabled = state.undo === false;
-  // (HX Edit's own answer, as its Edit menu asks it, where it could be read; else worked out from the undo position)
-  $('redo').disabled = !(typeof state.redo === 'boolean' ? state.redo : redoTrack.redo);
+  // Undo and Redo only for steps made on this preset (ownSteps: HX Edit's undo position kept from the last preset
+  // load would otherwise offer another preset's steps, sweep 2026-11-25 00:00, 10@3:31), and only when HX Edit's own
+  // Edit menu would do them too (state.undo / state.redo, target_binding canUndo / canRedo, where they could be read).
+  $('undo').disabled = state.undo === false || (!!ownSteps && ownSteps.steps === 0);
+  $('redo').disabled = !((typeof state.redo === 'boolean' ? state.redo : true) && redoTrack.redo);
   $('tempo').hidden = typeof state.tempo !== 'number';
   if (typeof state.tempo === 'number') $('tempoValue').textContent = state.tempo.toFixed(1);
   // the snapshots as buttons: four at a time, the other four behind one more
@@ -4468,12 +4470,14 @@ function liftLibrary(event, kind, c, row) {
 }
 
 // ---- everything together -----------------------------------------------------------------------------------------
-// Redo: worked out from HX Edit's undo position as it changes (workbenchRedo); a redo asked for here is one.
-let redoTrack = null, redoAskedAt = 0;
+// Redo: worked out from the steps made on this preset as they change (workbenchOwnSteps, workbenchRedo); a redo asked
+// for here is one.
+let redoTrack = null, redoAskedAt = 0, ownSteps = null;
 function render() {
   if (!catalog || !state) return;
   const preset = state.preset ? state.preset.setlist + ':' + state.preset.number : '';
-  redoTrack = workbenchRedo(redoTrack, state.undoAt, preset, Date.now() - redoAskedAt < 3000);
+  ownSteps = workbenchOwnSteps(ownSteps, state.undoAt, preset, state.undoSize);
+  redoTrack = workbenchRedo(redoTrack, ownSteps.steps, ownSteps.preset, Date.now() - redoAskedAt < 3000);
   drawBar();
   drawRail();
   drawDrawer();

@@ -479,6 +479,7 @@ function installFocusView(options, parts) {
   let addFollow = null;
   let plainIrs = [];          // the Floor's plain IRs, read with each full reading (readIrs)
   let lastUndoWord = '';      // HX Edit's undo position and the preset, as last traced (the Workbench's redo button)
+  let lastCanWord = '';       // HX Edit's own can-undo / can-redo, as last traced
   const ADD_FOLLOW_MS = 3000;
   const occupied = (dsp, lane, place) => (known || []).some(block => block.dsp === dsp && chainBlock.test(block.id) && block.position === place && block.path === lane);
   function change(command) {
@@ -809,9 +810,13 @@ function installFocusView(options, parts) {
       }
       const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
       state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
-      // Something to undo: HX Edit's own undo position (as tone_view reads it).
-      // (undoAt: that position itself, for the Workbench's redo button)
-      try { state.undoAt = editor.add(0x294).readS32(); state.undo = state.undoAt > 0; } catch (_) { state.undo = null; state.undoAt = null; }
+      // HX Edit's own undo position (as tone_view reads it): the index of the last step in its ring of undo records
+      // (editor+0x290: how many, 33), not a count, and a preset load leaves it as it was. The Workbench counts the
+      // steps made on the loaded preset from its moves (workbenchOwnSteps).
+      try { state.undoAt = editor.add(0x294).readS32(); } catch (_) { state.undoAt = null; }
+      try { const size = editor.add(0x290).readS32(); state.undoSize = size >= 2 && size <= 1024 ? size : null; } catch (_) { state.undoSize = null; }
+      // Something to undo, as HX Edit's Edit menu asks it (target_binding canUndo); null when it cannot be read
+      try { state.undo = targetBinding.canUndo ? targetBinding.canUndo(editor) : null; } catch (_) { state.undo = null; }
       // (the last preview that ended with its block back on its own capture: the undo positions before it and after
       // its step back, so the Workbench's unsaved mark does not count the preview's own two steps; tone_view)
       try { state.previewEnded = toneView.previewEnded ? toneView.previewEnded() : null; } catch (_) { state.previewEnded = null; }
@@ -823,6 +828,10 @@ function installFocusView(options, parts) {
       try { state.redo = targetBinding.canRedo(editor); } catch (_) { state.redo = null; }
       const undoWord = state.undoAt + '@' + (state.preset ? state.preset.setlist + ':' + state.preset.number : '-');
       if (undoWord !== lastUndoWord) { lastUndoWord = undoWord; send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-at', at: undoWord}); }
+      // (what HX Edit's Edit menu would offer, on each change: after a preset load it says whether HX Edit cleared its
+      // history; one line per change)
+      const canWord = state.undo + '/' + state.redo;
+      if (canWord !== lastCanWord) { lastCanWord = canWord; send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-can', undo: state.undo, redo: state.redo, at: undoWord}); }
       // The selected block's controllers, footswitch and snapshot values (focusAssign), read with each full reading
       // and kept between them; the first reading of each block goes to the trace (what HX Edit answered).
       const chosen = state.selected && state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id);

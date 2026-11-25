@@ -210,6 +210,22 @@ function workbenchAddSelect(follow, state, namEngine, now) {
   return made ? {select: {dsp: made.dsp, id: made.id}, done: true} : {select: null, done: false};
 }
 
+// The steps made on the loaded preset since it came up, from HX Edit's undo position as it moves. That position is not
+// a count: it is the index into HX Edit's ring of 33 undo records (editor+0x290 holds 33: 32 steps; a Levels scan ran
+// it to 32 and on to 0, sweep 2026-11-24 23:35), and a preset load leaves it where it was (7@3:31, 7@3:32 in the sweep;
+// HX Edit's history clear, editor vtable+0x20 -> 0x291b20, empties the records and keeps the index). So the change of
+// each reading is taken round the ring (size), and a preset loaded starts at 0 steps. {preset, at, steps}; steps null
+// when the position cannot be read. (A reading without the preset's header, as during an undo: the same preset.)
+function workbenchOwnSteps(track, at, preset, size) {
+  if (!Number.isInteger(at)) return {preset: preset || (track && track.preset) || '', at: null, steps: null};
+  if (!preset && track) preset = track.preset;
+  if (!track || track.preset !== preset || !Number.isInteger(track.at) || !Number.isInteger(track.steps)) return {preset, at, steps: 0};
+  const ring = Number.isInteger(size) && size >= 2 ? size : null;
+  let move = at - track.at;
+  if (ring) { move = ((move % ring) + ring) % ring; if (move > ring / 2) move -= ring; }
+  return {preset, at, steps: Math.max(0, track.steps + move)};
+}
+
 function workbenchRedo(track, at, preset, redoing) {
   // Whether there is something to redo, from HX Edit's undo position (at: the steps that can be undone) as it
   // changes: an undo lowers it and leaves a step to redo; a new change raises it and leaves none, unless it is the
@@ -540,7 +556,7 @@ function workbenchSlotUsers(usage, slot, loaded) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
                      workbenchAdded, WORKBENCH_ADD_SELECT_MS, workbenchPresetKey, workbenchAddFollow, workbenchAddSelect, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
