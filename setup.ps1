@@ -27,7 +27,9 @@ param(
   [string]$Key = ''
 )
 
-$ErrorActionPreference = 'Stop'
+# (each step checks its own outcome: with 'Stop', Windows PowerShell 5.1 turns anything a program writes to its error
+# output into a failure, even when it is redirected and the program succeeds)
+$ErrorActionPreference = 'Continue'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $HxEditHash = 'f7faac4996164f9039c9ae3ca8d85cd135c5bceae8a511c8921a1244046cab66'   # HX Edit 3.82 (src\nam_catalog.py)
 $ConverterRepo = 'https://github.com/andreidevs/helix-lt-nam.git'
@@ -155,9 +157,9 @@ else {
       foreach ($pack in $ArtPacks) {
         $zip = Join-Path $env:TEMP "$pack.zip"
         Say "  ..  Downloading $pack"
-        Invoke-WebRequest -UseBasicParsing "$ArtRepo/releases/download/$ArtTag/$pack.zip" -OutFile $zip
-        Expand-Archive -LiteralPath $zip -DestinationPath $ArtRoot -Force
-        Remove-Item -LiteralPath $zip -Force
+        Invoke-WebRequest -UseBasicParsing "$ArtRepo/releases/download/$ArtTag/$pack.zip" -OutFile $zip -ErrorAction Stop
+        Expand-Archive -LiteralPath $zip -DestinationPath $ArtRoot -Force -ErrorAction Stop
+        Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
       }
     } catch {
       Stop-Setup "The art pack could not be downloaded ($($_.Exception.Message)). The editor works without it."

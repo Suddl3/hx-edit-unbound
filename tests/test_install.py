@@ -130,6 +130,11 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("base / 'helix-lt-nam' / 'tools' / 'nam2ir.py' for base in (ROOT.parent, ROOT.parent.parent)", launcher)
         self.assertIn("PACK = ROOT.parent / 'art'", (ROOT / 'focus_view.py').read_text(encoding='utf-8'))
         self.assertIn('/.venv/', (REPO / '.gitignore').read_text(encoding='utf-8'))
+        # (Windows PowerShell 5.1 with 'Stop' failed the first scratch run at the package probe: a program's error output
+        # counts as a failure there even when redirected; each step checks its own exit code instead)
+        self.assertIn("$ErrorActionPreference = 'Continue'", setup)
+        self.assertNotIn("$ErrorActionPreference = 'Stop'", setup)
+        self.assertIn('-OutFile $zip -ErrorAction Stop', setup)
 
     def test_start_launches_the_full_set_and_refuses_with_hx_edit_open(self):
         start = (REPO / 'start.ps1').read_text(encoding='utf-8')
