@@ -92,7 +92,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     profile.favoriteLooks : {}).filter(([, look]) => look && Number.isInteger(look.slot) && Number.isInteger(look.group)));
   const slotLooks = new Map(Array.from(favoriteLooks.values(), look => [look.slot, look]));   // slot -> its last known look
   let choosingSide = false;
-  let sideThread = null;          // the thread our side choice runs on (keepBlockModel acts on that one only)
+  let keepModel = null;           // {flag, counts} once HX Edit's own model choice on a side change is held (installKeepModel)
+  const keptCounts = () => keepModel ? keepModel.counts.map(count => count.readU32()) : null;
   const rememberedSide = category => rememberedSides.get(category) ?? SIDE_ALL;
   // A capture shows on All, on its own instrument's side, and on both when it is marked Any.
   const onSide = (capture, side) => side === SIDE_ALL ||
@@ -144,31 +145,93 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     // HX Edit's "cva!" handler (0x217120, from 0x2172eb) refills the model column for the new side,
     // then hands each row of the block's own model to 0x21a470, what a click on a model row does:
     // it writes the block's "@model" as a single edit, so HX Edit recorded "Change Model" when we
-    // only showed a side (seen: Solo Lead OD on preset 032). While we choose, 0x21a470 gets no
-    // model (keepBlockModel) and returns at once; the row the column had selected is selected again
-    // here instead, with no event.
+    // only showed a side (seen: Solo Lead OD on preset 032). While we choose, keepModel.flag is set
+    // and those calls are skipped (installKeepModel); the row the column had selected is selected
+    // again here instead, with no event. The trace's "kept" counts the skipped calls per call site.
     const list = controller.add(0x58).readPointer();
     const shown = list.isNull() ? NULL : selectedRow(list), model = shown.isNull() ? '' : shown.readUtf8String();
-    choosingSide = true; sideThread = Process.getCurrentThreadId();
-    try { menuSelect(menu, value, subcategoryChanged, 1); } finally { choosingSide = false; sideThread = null; }
+    const before = keptCounts();
+    choosingSide = true;
+    try {
+      if (keepModel) keepModel.flag.writeU8(1);
+      menuSelect(menu, value, subcategoryChanged, 1);
+    } finally {
+      choosingSide = false;
+      if (keepModel) keepModel.flag.writeU8(0);
+    }
     if (model) {
       const index = rowIndex(list, text => text === model);
       if (index >= 0) selectRow(list, 1, index, 0, 0);
     }
-    if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'subcategory', value});
+    const after = keptCounts();
+    const kept = before && after ? after.map((count, index) => count - before[index]) : null;
+    if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'subcategory', value, kept});
   }
-  function keepBlockModel(args) {
-    // 0x21a470(model) onEnter: the side is ours, the block keeps its model (no write, no undo step).
-    // Only inside our own menuSelect call, on its thread: a click on a model row, a side the player
-    // picks in the dropdown, or anything on another thread meanwhile is HX Edit's own as before.
-    if (!choosingSide || sideThread === null || Process.getCurrentThreadId() !== sideThread) return false;
-    args[0] = NULL;
-    return true;
+  // 0x21a470(row) is the model column's "this model for the block": a click on a model row, the
+  // "@model" write and an undo step "Change Model". HX Edit calls it from its handler 0x217120 when a
+  // side is shown (the "cva!" loops, 0x217802 and 0x21790b: the block's own row) and when the column's
+  // selection changes ("sbl!", 0x2179e3). Those three calls are made to go through a stub of ours that
+  // skips the call (and counts it) while keepModel.flag is set, which is only inside our own menuSelect
+  // in chooseSubcategory; otherwise it jumps on to 0x21a470 as before. So a click on a model row and a
+  // side the player picks stay HX Edit's own.
+  // Not an Interceptor hook on 0x21a470 (caf0cec): Frida runs no hook for a call made inside another
+  // hook's onEnter / onLeave (Frida 17.5.2, tested), and blockSide runs in 0x21e500's onLeave, so that
+  // hook never saw our side choice for a selected amp (live check 2026-11-24 21:24, 032: three undo steps).
+  const keepModelSites = [0x217802, 0x21790b, 0x2179e3];
+  // HX Edit 3.82 x86 (HX Edit.exe on disk, 2026-11-24); another build: nothing patched, the trace says
+  // model-keep-guard-failed and our side choice may record "Change Model" as before.
+  const keepModelGuards = {
+    '21a470': '558bec6aff68????????64a100000000',   // 0x21a470's prologue
+    '21aab1': 'c20400',                              // its "ret 4": one argument, which it pops
+    '2172e3': '3bde0f854d06000081fa63766121',        // the handler: sender the side menu (+0x50), event "cva!"
+    '2177ff': '568bcf',                              // push row; mov ecx, edi; then the call at 0x217802
+    '217908': '568bcf',                              // push row; mov ecx, edi; then the call at 0x21790b
+    '2179e0': '8bcf50',                              // mov ecx, edi; push row; then the call at 0x2179e3
+  };
+  const KEEP_STUB = [0x80, 0x3d, 0, 0, 0, 0, 0x00,   // cmp byte ptr [flag], 0
+                     0x75, 0x05,                     // jne skip
+                     0xe9, 0, 0, 0, 0,               // jmp 0x21a470 (HX Edit's own, as before)
+                     0xff, 0x05, 0, 0, 0, 0,         // skip: inc dword ptr [count]
+                     0xc2, 0x04, 0x00];              // ret 4 (the row argument, as 0x21a470 would)
+  const KEEP_STUB_SIZE = 32, KEEP_STUBS_AT = 64;
+  // (rel32 sums in plain 32-bit numbers: HX Edit is a 32-bit process)
+  const relTo = (from, to) => (to.toUInt32() - from.toUInt32()) | 0;           // rel32 from the next instruction
+  const relDestination = (next, rel) => ptr(((next.toUInt32() + rel) >>> 0).toString());
+  const callDestination = at => at.readU8() === 0xe8 ? relDestination(at.add(5), at.add(1).readS32()) : NULL;
+  function isKeepStub(stub, target) {
+    const bytes = new Uint8Array(stub.readByteArray(KEEP_STUB.length));
+    return bytes[0] === 0x80 && bytes[1] === 0x3d && bytes[9] === 0xe9 && bytes[14] === 0xff && bytes[20] === 0xc2 &&
+      relDestination(stub.add(14), stub.add(10).readS32()).equals(target);
   }
-  // 0x21a470 as HX Edit 3.82 x86 has it (HX Edit.exe on disk, 2026-11-24): its prologue, and at
-  // 0x21a4a4 the model argument loaded and tested ("mov edi,[ebp+8]; test edi,edi; jz": no model,
-  // nothing done). Another build: no hook, and our side choice may record "Change Model" as before.
-  const keepModelGuards = { '21a470': '558bec6aff68????????64a100000000', '21a4a4': '8b7d0885ff0f84' };
+  function installKeepModel() {
+    if (!guardsMatch(keepModelGuards)) return null;
+    const target = base.add(0x21a470), sites = keepModelSites.map(rva => base.add(rva));
+    const called = sites.map(callDestination);
+    if (called.every(to => !to.isNull() && to.equals(target))) {
+      // One page (flag, counts, stubs) that is never freed: the patched calls keep somewhere to land
+      // even after this script is gone (flag 0: straight on to 0x21a470).
+      const virtualAlloc = new NativeFunction(Process.getModuleByName('kernel32.dll').getExportByName('VirtualAlloc'),
+        'pointer', ['pointer', 'uint', 'uint', 'uint'], 'stdcall');
+      const page = virtualAlloc(NULL, Process.pageSize, 0x3000, 0x40);   // MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE
+      if (page.isNull()) return null;
+      const counts = sites.map((_, index) => page.add(4 + 4 * index));
+      const stubs = sites.map((_, index) => page.add(KEEP_STUBS_AT + KEEP_STUB_SIZE * index));
+      stubs.forEach((stub, index) => {
+        stub.writeByteArray(KEEP_STUB);
+        stub.add(2).writePointer(page);
+        stub.add(10).writeS32(relTo(stub.add(14), target));
+        stub.add(16).writePointer(counts[index]);
+      });
+      sites.forEach((site, index) => Memory.patchCode(site, 5, code => {
+        code.writeU8(0xe8);
+        code.add(1).writeS32(relTo(site.add(5), stubs[index]));
+      }));
+      return {flag: page, counts};
+    }
+    // Loaded again into the same HX Edit: the calls land on our stubs already; use those.
+    if (!called.every(to => !to.isNull() && isKeepStub(to, target))) return null;
+    return {flag: called[0].add(2).readPointer(), counts: called.map(to => to.add(16).readPointer())};
+  }
   // grid list: add a tile (index, label, picture, 0, row index, model, flags, 1), as 0x21dbfd does
   const gridAppend = method(0x37a1d0, 'pointer', ['int', 'pointer', 'pointer', 'int', 'int', 'pointer', 'int', 'int']);
   function listRows(list) {
@@ -2989,15 +3052,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         try { if (profile.namCategory) blockSide(this.controller); } catch (_) { /* leave HX Edit's own side */ }
       },
     });
-    if (guardsMatch(keepModelGuards)) {
-      Interceptor.attach(base.add(0x21a470), {          // model picker: a model row chosen for the block
-        onEnter(args) {
-          // From our own side choice (HX Edit's "cva!" handler): no model, so 0x21a470 leaves the block
-          // as it is (it returns at its "no model" check, 0x21a4a7).
-          if (keepBlockModel(args) && listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'model-kept'});
-        },
-      });
-    } else send({type: 'toneTrace', reason: 'nam-category', stage: 'model-keep-guard-failed'});
+    // Our side choice keeps the block's model (chooseSubcategory, installKeepModel).
+    try { keepModel = installKeepModel(); } catch (error) { keepModel = null; }
+    send({type: 'toneTrace', reason: 'nam-category', stage: keepModel ? 'model-keep-ready' : 'model-keep-guard-failed'});
     Interceptor.attach(base.add(0x269540), {            // signal-flow data: resolve one path object
       onEnter(args) {
         try {
