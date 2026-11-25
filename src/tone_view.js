@@ -92,6 +92,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     profile.favoriteLooks : {}).filter(([, look]) => look && Number.isInteger(look.slot) && Number.isInteger(look.group)));
   const slotLooks = new Map(Array.from(favoriteLooks.values(), look => [look.slot, look]));   // slot -> its last known look
   let choosingSide = false;
+  let sideThread = null;          // the thread our side choice runs on (keepBlockModel acts on that one only)
   const rememberedSide = category => rememberedSides.get(category) ?? SIDE_ALL;
   // A capture shows on All, on its own instrument's side, and on both when it is marked Any.
   const onSide = (capture, side) => side === SIDE_ALL ||
@@ -140,10 +141,34 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       menuSelectReady = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('') === '558bec56578bf1e8d4c500008b7d083b';
     }
     if (!menuSelectReady) return;     // another HX Edit build: leave the menu as it is
-    choosingSide = true;
-    try { menuSelect(menu, value, subcategoryChanged, 1); } finally { choosingSide = false; }
+    // HX Edit's "cva!" handler (0x217120, from 0x2172eb) refills the model column for the new side,
+    // then hands each row of the block's own model to 0x21a470, what a click on a model row does:
+    // it writes the block's "@model" as a single edit, so HX Edit recorded "Change Model" when we
+    // only showed a side (seen: Solo Lead OD on preset 032). While we choose, 0x21a470 gets no
+    // model (keepBlockModel) and returns at once; the row the column had selected is selected again
+    // here instead, with no event.
+    const list = controller.add(0x58).readPointer();
+    const shown = list.isNull() ? NULL : selectedRow(list), model = shown.isNull() ? '' : shown.readUtf8String();
+    choosingSide = true; sideThread = Process.getCurrentThreadId();
+    try { menuSelect(menu, value, subcategoryChanged, 1); } finally { choosingSide = false; sideThread = null; }
+    if (model) {
+      const index = rowIndex(list, text => text === model);
+      if (index >= 0) selectRow(list, 1, index, 0, 0);
+    }
     if (listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'subcategory', value});
   }
+  function keepBlockModel(args) {
+    // 0x21a470(model) onEnter: the side is ours, the block keeps its model (no write, no undo step).
+    // Only inside our own menuSelect call, on its thread: a click on a model row, a side the player
+    // picks in the dropdown, or anything on another thread meanwhile is HX Edit's own as before.
+    if (!choosingSide || sideThread === null || Process.getCurrentThreadId() !== sideThread) return false;
+    args[0] = NULL;
+    return true;
+  }
+  // 0x21a470 as HX Edit 3.82 x86 has it (HX Edit.exe on disk, 2026-11-24): its prologue, and at
+  // 0x21a4a4 the model argument loaded and tested ("mov edi,[ebp+8]; test edi,edi; jz": no model,
+  // nothing done). Another build: no hook, and our side choice may record "Change Model" as before.
+  const keepModelGuards = { '21a470': '558bec6aff68????????64a100000000', '21a4a4': '8b7d0885ff0f84' };
   // grid list: add a tile (index, label, picture, 0, row index, model, flags, 1), as 0x21dbfd does
   const gridAppend = method(0x37a1d0, 'pointer', ['int', 'pointer', 'pointer', 'int', 'int', 'pointer', 'int', 'int']);
   function listRows(list) {
@@ -2964,6 +2989,15 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         try { if (profile.namCategory) blockSide(this.controller); } catch (_) { /* leave HX Edit's own side */ }
       },
     });
+    if (guardsMatch(keepModelGuards)) {
+      Interceptor.attach(base.add(0x21a470), {          // model picker: a model row chosen for the block
+        onEnter(args) {
+          // From our own side choice (HX Edit's "cva!" handler): no model, so 0x21a470 leaves the block
+          // as it is (it returns at its "no model" check, 0x21a4a7).
+          if (keepBlockModel(args) && listReports-- > 0) send({type: 'toneTrace', reason: 'nam-category', stage: 'model-kept'});
+        },
+      });
+    } else send({type: 'toneTrace', reason: 'nam-category', stage: 'model-keep-guard-failed'});
     Interceptor.attach(base.add(0x269540), {            // signal-flow data: resolve one path object
       onEnter(args) {
         try {
