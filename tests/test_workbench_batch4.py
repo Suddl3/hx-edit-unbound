@@ -353,7 +353,7 @@ class StageTests(unittest.TestCase):
         self.assertIn('const H = Math.round(Math.max(52, Math.min(most, room / lanes - 44)));', sizes)
         self.assertIn('return {YA: H + 8, YB: 2 * H + 52, TILE_H: H + 30, TILE_TOP: H, TILE_W: Math.round(Math.max(76, H * 1.15)), TAG: 104};', sizes)
         # pictures sized for what is shown: the large render only when the gear is shown larger than the small picture
-        self.assertIn('const big = TILE_TOP * (window.devicePixelRatio || 1) > 240;', sizes)
+        self.assertIn('const big = TILE_TOP * (window.devicePixelRatio || 1) > small;', sizes)
         # drawn again only when its room changes (a ResizeObserver, once a change), its dock first in a render
         self.assertIn("if (layout !== 'stage' || h === boardHeight) { boardHeight = h; return; }", text)
         self.assertIn("if (layout === 'stage') { drawPanel(); drawChain(); } else { drawChain(); drawPanel(); }", text)

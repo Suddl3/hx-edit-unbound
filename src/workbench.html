@@ -2877,7 +2877,11 @@ function stageSizes(paths) {
 // the gear stands taller than the small picture's own 256 px on this screen, else the small one, the other behind it
 function stagePictures(block) {
   const given = givenPicture(block), own = pictures(block), urls = given ? catalog.pictures[given].urls : [];
-  const big = TILE_TOP * (window.devicePixelRatio || 1) > 240;
+  // (each set by its own small picture's size: a model's is 256 px, a capture's 128 px (nam_capture_icons; its large one
+  // is the art pack's 1024 px, catalog.captures.pictures' first): a capture standing over 120 px took its 128 px picture
+  // stretched, soft beside the stock gear (S4, 031's EVH 5150III). A capture with no large picture falls back to it.)
+  const taken = capture(block), small = taken && taken.icon && !given ? 120 : 240;
+  const big = TILE_TOP * (window.devicePixelRatio || 1) > small;
   return big ? urls.concat(own) : urls.slice().reverse().concat(own.slice().reverse());
 }
 const scenePinned = () => options.scenePin !== false;

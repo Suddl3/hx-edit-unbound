@@ -721,5 +721,16 @@ class NoFlashTests(unittest.TestCase):
         self.assertTrue(view.page_ready)
 
 
+class StageCaptureArtTests(unittest.TestCase):
+    def test_s4_a_capture_takes_its_large_picture_once_it_stands_over_its_small_ones_size(self):
+        page = text('workbench.html')
+        pics = between(page, 'function stagePictures(block) {', '\n}')
+        self.assertIn('const taken = capture(block), small = taken && taken.icon && !given ? 120 : 240;', pics)
+        self.assertIn('const big = TILE_TOP * (window.devicePixelRatio || 1) > small;', pics)
+        # the large one first when big: catalog.captures.pictures lists the art pack's (capturesfull) before the 128 px
+        self.assertIn("for host in ('capturesfull', 'captures') if host in folders]", text('focus_view.py'))
+        self.assertIn('return big ? urls.concat(own) : urls.slice().reverse().concat(own.slice().reverse());', pics)
+
+
 if __name__ == '__main__':
     unittest.main()
