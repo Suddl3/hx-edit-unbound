@@ -392,15 +392,19 @@ class ScenePinTests(unittest.TestCase):
     def test_b11_the_page(self):
         page = text('workbench.html')
         scene = between(page, 'function stageScene() {', '\n}')
-        # the preset's own scene first, then with the pin one for the preset, without it the picked block's kind's
-        self.assertLess(scene.index('if (whole) return whole;'), scene.index('if (look && scenePinned()) return presetScene();'))
-        self.assertIn("if (look) return defaultSceneOf(now && isChain(now) ? kindKeyOf(now) : 'default');", scene)
+        # the preset's own scene first; the pin off: the picked block's (followScene); on: the frozen one (R2)
+        self.assertLess(scene.index('if (whole) return whole;'), scene.index('if (!scenePinned()) return followScene();'))
+        self.assertIn('if (frozenScene && frozenScene.key === key) return frozenScene.name;', scene)
         self.assertIn('const scenePinned = () => options.scenePin !== false;', page)
-        whole = between(page, 'function presetScene() {', '\n}')
-        # worked out once per preset and Floor look defaults (not per pick, add or remove)
-        self.assertIn('key = JSON.stringify([p ? [p.setlist, p.number, p.name] : null, look.assign]);', whole)
-        self.assertIn('if (pinnedScene && pinnedScene.key === key) return pinnedScene.name;', whole)
-        self.assertNotIn('current()', whole)
+        follow = between(page, 'function followScene() {', '\n}')
+        self.assertIn("if (look) return now && isChain(now) ? blockScene(now).name : defaultSceneOf('default');", follow)
+        # (R2: no rule of its own for "one scene for the preset": it is the scene showing when pinned, or as it comes up)
+        self.assertNotIn('function presetScene()', page)
+        # pressed on: the scene showing now is frozen for this preset; off: it follows again
+        self.assertIn('frozenScene = pinned ? null : {key: sceneKey(), name: stageScene()};', page)
+        # a preset coming up with the pin on: frozen once its blocks and a selection are read
+        self.assertIn('if (state.blocks.length && state.selected) frozenScene = {key, name};', scene)
+        self.assertIn("const sceneKey = () => { const p = state.preset; return JSON.stringify(p ? [p.setlist, p.number, p.name] : null); };", page)
         head = between(page, 'function stageHead() {', '\n}')
         self.assertIn("pin = el('button', 'glassbtn scenepin' + (pinned ? ' on' : ''));", head)
         self.assertIn("'One scene for this preset. Click to let the scene follow the picked block.'", head)

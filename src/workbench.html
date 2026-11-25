@@ -2774,28 +2774,30 @@ function stagePictures(block) {
   return big ? urls.concat(own) : urls.slice().reverse().concat(own.slice().reverse());
 }
 const scenePinned = () => options.scenePin !== false;
-function stageScene() {
-  const now = current(), mine = look && presetLook(), whole = mine && usableScene(mine.scene);
-  if (whole) return whole;
-  if (look && scenePinned()) return presetScene();
-  if (look) return defaultSceneOf(now && isChain(now) ? kindKeyOf(now) : 'default');
+// The scene the picked block brings (the pin off): its own in this preset, else the preset's, else its kind's default
+// (blockScene: Focus Mode's sceneOf)
+function followScene() {
+  const now = current();
+  if (look) return now && isChain(now) ? blockScene(now).name : defaultSceneOf('default');
   return (now && usableScene(model(now).scene)) || Object.keys((catalog && catalog.scenes) || {})[0] || null;
 }
-const stageKey = () => [stageScene(), !!look, scenePinned()];
-// One scene for the preset when it has none of its own: the default of its main amp's kind (its first amp or preamp,
-// a NAM block counting as an amp unless its capture is a pedal, path 1 first), else the default scene; worked out
-// once the preset's blocks are read, then kept while blocks are picked, added or removed, until the preset or the
-// Floor look's defaults change.
-let pinnedScene = null;
-function presetScene() {
-  const p = state.preset, key = JSON.stringify([p ? [p.setlist, p.number, p.name] : null, look.assign]);
-  if (pinnedScene && pinnedScene.key === key) return pinnedScene.name;
-  const chain = state.blocks.filter(isChain).sort((a, b) => a.dsp - b.dsp || (a.path || 0) - (b.path || 0) || a.position - b.position);
-  const ampish = b => { const c = capture(b); return c && 'gear' in c ? /amp/.test(String(c.gear)) : ['amp', 'preamp'].includes(kindKeyOf(b)); };
-  const amp = chain.find(ampish), name = defaultSceneOf(amp ? kindKeyOf(amp) : 'default');
-  if (chain.length) pinnedScene = {key, name};
+// The pin on keeps the scene that is showing (R2, Nick 2026-11-25: he pinned the octave pedal's own scene and it jumped
+// to another): pressed, it freezes the scene shown then, for this preset. A preset that comes up with the pin on: its
+// own Floor look scene, else the scene of the block selected as it comes up, then frozen. Not kept across a relaunch
+// (the pin's state is): the next launch freezes the preset's scene by the same rule as it comes up.
+let frozenScene = null;                                         // {key: the preset, name}
+const sceneKey = () => { const p = state.preset; return JSON.stringify(p ? [p.setlist, p.number, p.name] : null); };
+function stageScene() {
+  const mine = look && presetLook(), whole = mine && usableScene(mine.scene);
+  if (whole) return whole;
+  if (!scenePinned()) return followScene();
+  const key = sceneKey();
+  if (frozenScene && frozenScene.key === key) return frozenScene.name;
+  const name = followScene();
+  if (state.blocks.length && state.selected) frozenScene = {key, name};
   return name;
 }
+const stageKey = () => [stageScene(), !!look, scenePinned()];
 let shownScene = '';
 function syncStage() {
   const box = $('stageScene'), on = layout === 'stage' && !!catalog;
@@ -2819,7 +2821,11 @@ function stageHead() {
   pin.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"/><path d="M12 15v5"/></svg>';
   pin.title = pinned ? 'One scene for this preset. Click to let the scene follow the picked block.' : 'The scene follows the picked block. Click to keep one scene for this preset.';
   pin.setAttribute('aria-pressed', pinned); pin.setAttribute('aria-label', 'One scene for this preset');
-  pin.onclick = () => { options = {...options, scenePin: !pinned}; ask('scenePin', !pinned); shownChain = ''; drawChain(true); syncStage(); };
+  pin.onclick = () => {
+    // (on: the scene showing now is the one that stays; off: it follows the picked block again)
+    frozenScene = pinned ? null : {key: sceneKey(), name: stageScene()};
+    options = {...options, scenePin: !pinned}; ask('scenePin', !pinned); shownChain = ''; drawChain(true); syncStage();
+  };
   head.append(button, pin);
   return head;
 }

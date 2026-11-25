@@ -368,9 +368,10 @@ class StageTests(unittest.TestCase):
     def test_the_scene_is_floor_looks_for_the_preset_and_opens_floor_look(self):
         text = page()
         scene = between(text, 'function stageScene() {', 'const stageKey')
-        self.assertIn('const now = current(), mine = look && presetLook(), whole = mine && usableScene(mine.scene);', scene)
+        self.assertIn('const mine = look && presetLook(), whole = mine && usableScene(mine.scene);', scene)
         self.assertIn('if (whole) return whole;', scene)                                                    # the preset's own
-        self.assertIn("if (look) return defaultSceneOf(now && isChain(now) ? kindKeyOf(now) : 'default');", scene)   # its kind's default
+        # (R2: else the picked block's own, the preset's or its kind's default (followScene), or the pinned one)
+        self.assertIn("if (look) return now && isChain(now) ? blockScene(now).name : defaultSceneOf('default');", text)
         sync = between(text, 'function syncStage() {', 'function stageHead() {')
         self.assertIn("const box = $('stageScene'), on = layout === 'stage' && !!catalog;", sync)               # loaded only on the stage
         self.assertIn('const picture = sc ? sc.pictures[0] : \'\'', sync)                                        # the high-resolution plate first
