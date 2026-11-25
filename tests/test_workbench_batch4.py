@@ -593,5 +593,16 @@ class AddPicksTheNewBlockTests(unittest.TestCase):
         self.assertIn('return state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id) || null;', text)
 
 
+class ShareOfTheBudgetTests(unittest.TestCase):
+    def test_every_dsp_share_in_the_page_needs_a_budget(self):
+        # (a reading without a budget made the path tag say NaN% or Infinity%; review of PR #7)
+        import re
+        lines = [line for line in page().split('\n') if re.search(r'100 \* (\w+)\.used / \1\.budget', line)]
+        self.assertGreaterEqual(len(lines), 4)
+        for line in lines:
+            name = re.search(r'100 \* (\w+)\.used / \1\.budget', line).group(1)
+            self.assertIn('&& %s.budget' % name, line, line.strip())
+
+
 if __name__ == '__main__':
     unittest.main()

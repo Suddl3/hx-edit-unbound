@@ -1275,7 +1275,8 @@ function drawPath(p, g, now) {
   if (p.input) out.push(io(p.input, YA, false));
   if (p.output) out.push(io(p.output, YA, true));
   const row = el('div', 'path'), tag = el('div', 'tag'), grid = el('div', 'grid8');
-  const view = dsp && dsp[p.dsp], share = view && typeof view.used === 'number' ? Math.round(100 * view.used / view.budget) : null;
+  // (and a budget: without one the tag said NaN% or Infinity%; review of PR #7)
+  const view = dsp && dsp[p.dsp], share = view && typeof view.used === 'number' && view.budget ? Math.round(100 * view.used / view.budget) : null;
   tag.append(el('b', '', 'Path ' + (p.dsp + 1)), el('small', 'num', 'DSP ' + (p.dsp + 1) + (share === null ? '' : ' · ' + share + '%')));
   if (share !== null) { const meter = el('span', 'meter ' + (view.level || '')); meter.append(el('i')); meter.firstChild.style.width = Math.min(100, share) + '%'; tag.append(meter); }
   tag.title = two ? 'Lanes ' + (p.dsp + 1) + 'A and ' + (p.dsp + 1) + 'B' : '';

@@ -13,7 +13,9 @@
 // window, and everything while "dark" is off pass through untouched.
 // The drop-down menus are Windows' own popups: they follow uxtheme's app mode (ordinals 135 SetPreferredAppMode and
 // 136 FlushMenuThemes, as other dark Win32 apps use them), set to dark with the row and back to the default with it.
-// Where that is not available the drop-downs stay light.
+// Where that is not available the drop-downs stay light. Tried on Windows 11 build 10.0.26200 (2026-11-23, trace
+// 20261123-220202-cd3f5079: "popups" true, File's drop-down dark); the ordinals are undocumented and could go in a
+// later Windows: then the drop-downs stay light (GetProcAddress finds nothing, or the call does nothing).
 const MENU_DARK = Object.freeze({ bar: 0x001b1614, hot: 0x00332925, ink: 0x00d6cdc9, off: 0x006c605a });   // 0x00BBGGRR: the panes' panel, a raised row, ink, faint
 
 function installMenuDark() {
@@ -43,7 +45,14 @@ function installMenuDark() {
   const setTextColor = api(gdi, 'SetTextColor', 'uint', ['pointer', 'uint']);
   const setBkMode = api(gdi, 'SetBkMode', 'int', ['pointer', 'int']);
 
-  let window = NULL, dark = false, brushes = null, font = NULL;
+  let window = NULL, dark = false, brushes = null, font = NULL, reported = false;
+  // (a drawing that failed falls back to Windows' own, light; it is said once, so a regression shows in the trace
+  // without a message for every repaint; review of PR #7)
+  function failed(where, error) {
+    if (reported) return;
+    reported = true;
+    try { send({ type: 'menuDark', event: 'draw-failed', where, error: String(error && error.message || error) }); } catch (_) { }
+  }
   // (made once, at the first dark row; all drawing is on HX Edit's own window thread)
   const tools = () => brushes || (brushes = { bar: createSolidBrush(MENU_DARK.bar), hot: createSolidBrush(MENU_DARK.hot) });
   function menuFont() {
@@ -99,11 +108,11 @@ function installMenuDark() {
         if (message === 0x91) { if (drawBar(args[3])) args[1] = NULL; }          // drawn here: Windows' own drawing is skipped (WM_NULL)
         else if (message === 0x92) { if (drawItem(args[3])) args[1] = NULL; }
         else if (message === 0x85 || message === 0x86) this.line = true;          // WM_NCPAINT, WM_NCACTIVATE: the line, afterwards
-      } catch (_) { }                                                             // (anything unexpected: Windows draws it, light)
+      } catch (error) { failed('row', error); }                                   // (anything unexpected: Windows draws it, light)
     },
     onLeave() {
       if (!this.line) return;
-      try { drawLine(); } catch (_) { }
+      try { drawLine(); } catch (error) { failed('line', error); }
     },
   });
   function appMode(on) {
@@ -127,7 +136,7 @@ function installMenuDark() {
       if (changed) popups = appMode(dark);
       if (!window.isNull()) {
         // (the row and the frame again, in the new colours: RDW_INVALIDATE | RDW_FRAME)
-        try { drawMenuBar(window); redrawWindow(window, NULL, NULL, 0x0401); } catch (_) { }
+        try { drawMenuBar(window); redrawWindow(window, NULL, NULL, 0x0401); } catch (error) { failed('redraw', error); }
       }
       send({ type: 'menuDark', event: dark ? 'dark' : 'plain', ...(popups === null ? {} : { popups }) });
       listen();

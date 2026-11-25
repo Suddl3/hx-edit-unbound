@@ -198,8 +198,12 @@ class DspCosts:
     def _save(self):
         if not self.path:
             return
+        # (written beside it and then put in its place: a launcher stopped mid-write leaves the old file, not half of
+        # one that the next launch cannot read; review of PR #7)
+        part = self.path.with_name(self.path.name + '.part')
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps({'costs': self.costs}, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+            part.write_text(json.dumps({'costs': self.costs}, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+            os.replace(part, self.path)
         except OSError:
             pass

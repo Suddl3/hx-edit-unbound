@@ -161,5 +161,24 @@ class DeadMeterTests(unittest.TestCase):
         self.assertIn({'type': 'workbench', 'event': 'dsp-cost-held', 'model': NAM, 'cost': 27.0, 'kept': 59.1}, traced)
 
 
+class SavedWholeTests(unittest.TestCase):
+    """dsp-costs.json written beside itself and then put in place (review of PR #7)."""
+
+    def test_the_file_is_replaced_whole_and_kept_when_the_write_fails(self):
+        from unittest import mock
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        file = Path(folder.name) / 'dsp-costs.json'
+        costs = dsp_costs.DspCosts(file)
+        costs.costs = {NAM: 27.0}
+        costs._save()
+        self.assertEqual(dsp_costs.DspCosts(file).costs, {NAM: 27.0})
+        self.assertEqual(sorted(p.name for p in Path(folder.name).iterdir()), ['dsp-costs.json'])   # nothing left beside it
+        costs.costs = {NAM: 36.0}
+        with mock.patch.object(dsp_costs.os, 'replace', side_effect=OSError('stopped')):
+            costs._save()
+        self.assertEqual(dsp_costs.DspCosts(file).costs, {NAM: 27.0})                            # the old file, whole
+
+
 if __name__ == '__main__':
     unittest.main()

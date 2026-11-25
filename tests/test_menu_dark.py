@@ -101,6 +101,10 @@ out.modeOff = modeCalls.splice(0); calls.splice(0);
 out.plain = message(WINDOW, 0x92, item(0)); out.plainCalls = calls.length;
 tell({ window: 'x', on: true });
 out.bad = message(WINDOW, 0x91, bar);
+tell({ window: WINDOW, on: true });                            // a drawing that fails: Windows draws, said once
+const fill = fakes.FillRect; fakes.FillRect = () => { throw new Error('gdi gone'); };
+out.failedBar = message(WINDOW, 0x91, bar); message(WINDOW, 0x92, item(0)); message(WINDOW, 0x85);
+fakes.FillRect = fill;
 out.sent = sent;
 process.stdout.write(JSON.stringify(out));
 """
@@ -153,6 +157,12 @@ class MenuDarkTests(unittest.TestCase):
         self.assertEqual(out['told'], [['bar', 0x720cee], ['redraw', 0x720cee, 0x0401]])
         self.assertEqual(out['sent'][:3], [{'type': 'menuDark', 'event': 'ready'}, {'type': 'menuDark', 'event': 'dark', 'popups': True},
                                            {'type': 'menuDark', 'event': 'plain', 'popups': True}])
+
+    def test_a_drawing_that_fails_is_left_to_windows_and_said_once(self):
+        out = self.run_harness()
+        self.assertEqual(out['failedBar'], 0x91)                       # not WM_NULL: Windows draws the row itself
+        failed = [m for m in out['sent'] if m.get('event') == 'draw-failed']
+        self.assertEqual(failed, [{'type': 'menuDark', 'event': 'draw-failed', 'where': 'row', 'error': 'gdi gone'}])
 
     def test_launcher_and_build_include_it(self):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
