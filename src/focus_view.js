@@ -478,6 +478,7 @@ function installFocusView(options, parts) {
   // reads empty): left on slot 1, a plain IR, it would silence the Floor.
   let addFollow = null;
   let plainIrs = [];          // the Floor's plain IRs, read with each full reading (readIrs)
+  let otherCaptures = [];     // the slots holding a capture the library does not list (readOthers)
   let lastUndoWord = '';      // HX Edit's undo position and the preset, as last traced (the Workbench's redo button)
   let lastCanWord = '';       // HX Edit's own can-undo / can-redo, as last traced
   const ADD_FOLLOW_MS = 3000;
@@ -648,6 +649,12 @@ function installFocusView(options, parts) {
     }
     catch (_) { return previous || []; }
   }
+  function readOthers(previous) {
+    // The slots holding a capture that is not one of the library's listed ones (nam_view otherCaptures), for the
+    // Workbench's Floor slots view; the last list while it cannot be read.
+    try { const found = namView.otherCaptures?.(); return Array.isArray(found) ? found : previous; }
+    catch (_) { return previous; }
+  }
   function readIrs(previous) {
     // The Floor's plain IRs (nam_view plainIrs: HX Edit's IR list without the captures' slots), for the Workbench's
     // IRs drawer; the last list while it cannot be read.
@@ -762,11 +769,12 @@ function installFocusView(options, parts) {
       }
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
       if (full) {
-        onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs);
+        onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs); otherCaptures = readOthers(otherCaptures);
         try { slot128 = namView.slotName?.(128) || ''; } catch (_) { slot128 = ''; }
       }
       state.captures = onFloor;
       state.irs = plainIrs;
+      state.otherCaptures = otherCaptures;
       state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots; state.tempo = header.tempo; state.topology = header.topology;
       state.setlists = header.setlists;
       state.slot128 = slot128 ? {name: slot128} : null;

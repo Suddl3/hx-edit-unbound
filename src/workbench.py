@@ -357,14 +357,15 @@ class WorkbenchView(focus_view.FocusView):
     def checked_clear(self, value):
         """The Floor slots view's Clear ({slots: [...]}), asked of the player there, as the command for focus_view.js,
         or None: only slots the page was shown in use (a capture, a plain IR, or what User IR 128 holds), none of them
-        one the loaded preset's blocks use (HX Edit's own Clear refuses those too; focus_view.js checks again)."""
+        one the loaded preset's blocks use (HX Edit's own Clear refuses those too; focus_view.js checks again). A capture the
+        library does not list (otherCaptures) is in use too."""
         state = self.state if isinstance(self.state, dict) else {}
         slots = value.get('slots') if isinstance(value, dict) else None
         if not isinstance(slots, list) or not 1 <= len(slots) <= 128 or len(set(map(repr, slots))) != len(slots):
             return None
         if any(isinstance(s, bool) or not isinstance(s, int) or not 1 <= s <= 128 for s in slots):
             return None
-        used = {c.get('slot') for key in ('captures', 'irs') for c in state.get(key) or [] if isinstance(c, dict)}
+        used = {c.get('slot') for key in ('captures', 'irs', 'otherCaptures') for c in state.get(key) or [] if isinstance(c, dict)}
         if state.get('slot128'):
             used.add(128)
         here = {b.get('slot') for b in state.get('blocks') or [] if isinstance(b, dict) and isinstance(b.get('slot'), int)}

@@ -1973,6 +1973,27 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       }
       return result;
     },
+    otherCaptures() {
+      // The slots that hold a capture the Workbench does not list as one of this PC's library (installedCaptures): one
+      // the library does not have (a capture put on the Floor from elsewhere, an old TONE3000 one), or a library
+      // capture's Pedal version. [{slot, name}] of the used rows, as plainIrs reads them. Without it the Floor slots
+      // view called such slots free while Put on the Floor rightly passed over them (sweep 2026-11-24: 21, 23).
+      const list = irList(), result = [];
+      if (list.isNull()) return result;
+      const listed = new Set(this.installedCaptures().map(capture => capture.slot));
+      const ledger = new Map(slotLedger ? slotLedger.entries() : []);
+      for (let slot = 1; slot < AUDITION_SLOT; slot++) {
+        if (listed.has(slot) || !(Object.hasOwn(profiles, slot) || ledger.has(slot))) continue;
+        const row = getIrRow(list, slot - 1);
+        if (row.isNull()) break;
+        if (!row.add(0x10c).readU32()) continue;
+        let name = '';
+        try { name = row.readUtf8String() || ''; } catch (_) { name = ''; }
+        const known = payloadMetadata[ledger.get(slot)];
+        result.push({slot, name: String((known && known.name) || profiles[slot] || name || 'Capture').slice(0, 64)});
+      }
+      return result;
+    },
     installedCaptures() {
       // Captures of this PC's library that are on the Floor now, by verified slot: for the NAM
       // category's model list. [{slot, id, name, gear, icon}], lowest slot first (icon: capture_icons id; id: the library's).

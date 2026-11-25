@@ -4088,7 +4088,7 @@ function libTabs() {
 const presetWords = u => number3(u.preset) + ' ' + u.name + (u.setlist !== setlistOf() ? ' (' + setlistName(u.setlist) + ')' : '');
 function slotFacts() {
   // what the view lists: the used slots with their kind, who uses them, and the library's capture for each
-  const rows = workbenchSlotRows(state.captures, state.irs), here = new Map();
+  const rows = workbenchSlotRows(state.captures, state.irs, state.otherCaptures), here = new Map();
   for (const b of state.blocks || []) if (Number.isInteger(b.slot)) here.set(b.slot, 'Path ' + (b.dsp + 1));
   const loaded = state.preset ? {setlist: setlistOf(), number: state.preset.number} : null;
   for (const row of rows) {

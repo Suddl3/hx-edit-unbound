@@ -529,9 +529,11 @@ function workbenchSetlistCount(names) {
 // ---- the Floor's slots (Batch 3) -------------------------------------------------------------------------------------
 // Every used slot of 1..127 (captures and plain IRs share them; 128 is the preview slot, shown apart), in order:
 // {slot, name, kind: 'capture' | 'ir', icon, gear}. A slot listed twice keeps its capture.
-function workbenchSlotRows(captures, irs) {
+// others: the slots holding a capture that is not one of the library's listed ones (state.otherCaptures): used too.
+function workbenchSlotRows(captures, irs, others) {
   const rows = new Map();
   for (const c of Array.isArray(irs) ? irs : []) if (c && Number.isInteger(c.slot) && c.slot >= 1 && c.slot <= 127) rows.set(c.slot, {slot: c.slot, name: String(c.name || ''), kind: 'ir'});
+  for (const c of Array.isArray(others) ? others : []) if (c && Number.isInteger(c.slot) && c.slot >= 1 && c.slot <= 127) rows.set(c.slot, {slot: c.slot, name: String(c.name || ''), kind: 'capture', icon: '', gear: ''});
   for (const c of Array.isArray(captures) ? captures : []) {
     if (c && Number.isInteger(c.slot) && c.slot >= 1 && c.slot <= 127) rows.set(c.slot, {slot: c.slot, name: String(c.name || ''), kind: 'capture', icon: c.icon || '', gear: c.gear || ''});
   }
