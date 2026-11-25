@@ -579,7 +579,6 @@
   .fs .r.on { background: rgb(176 112 224 / .16); box-shadow: inset 2px 0 0 #b070e0; }
   .fs .r.h { height: 26px; color: var(--faint); font-size: 11.5px; } .fs .r.h:hover { background: none; }
   .fs .r img { width: 38px; height: 38px; object-fit: contain; }
-  .fs .r .irpic { width: 38px; height: 38px; border-radius: 8px; background: rgb(242 48 145 / .12); border: 1px solid rgb(242 48 145 / .35); display: grid; place-items: center; color: #f23091; font-size: 10.5px; font-weight: 600; }
   .fs .r b { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fs .r span { color: var(--dim); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fs .r .no { color: var(--ink); font-variant-numeric: tabular-nums; font-size: 13px; }
@@ -596,7 +595,6 @@
   .fs .side .hero { position: relative; background: #000 center 62% / cover no-repeat; display: grid; place-items: center; border-bottom: 1px solid var(--line); }
   .fs .side .hero::before { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgb(12 13 16 / .35), rgb(12 13 16 / .75)); }
   .fs .side .hero img { position: relative; height: 128px; max-width: 80%; object-fit: contain; filter: drop-shadow(0 14px 10px rgb(0 0 0 / .7)); }
-  .fs .side .hero .irpic { position: relative; width: 96px; height: 96px; border-radius: 16px; background: rgb(242 48 145 / .12); border: 1px solid rgb(242 48 145 / .35); display: grid; place-items: center; color: #f23091; font-size: 22px; font-weight: 600; }
   .fs .side .body { padding: 14px 18px; display: grid; align-content: start; gap: 14px; overflow-y: auto; }
   .fs .side h3 { margin: 0; font-size: 21px; font-weight: 600; font-stretch: 86%; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
   .fs .side h3 span { color: var(--faint); font-size: 12px; font-weight: 400; font-stretch: 100%; white-space: nowrap; }
@@ -2732,6 +2730,9 @@ Object.assign(ICON, {
 // The IR block an IR from the drawer makes on an empty place (focus_view.FocusView.IR_BLOCK), and the IR blocks
 const IR_BLOCK = 'HD2_ImpulseResponse1024';
 const isIr = block => /^HD2_ImpulseResponse\d{3,4}[A-Za-z]*$/.test(block.model || '');
+// A plain IR's picture where no block shows it (the Floor slots view): the IR block's own, as the chain draws an IR
+// block (the 3D gear art: HX Edit's res/icons_models FX_HX_IR_1024.png small, the art pack's ir_1024.png large)
+const irPictures = () => ((catalog && catalog.models.HD2_ImpulseResponse1024) || {pictures: []}).pictures;
 const IR_TINT = [242, 48, 145];
 // What differs between the two drawers.
 const DRAWERS = {
@@ -4251,7 +4252,7 @@ function drawFloorSlots() {
     const chk = el('span', 'chk' + (slotChecked.has(row.slot) ? ' on' : '') + (row.here ? ' off' : '')); chk.innerHTML = slotChecked.has(row.slot) ? TICK : '';
     chk.title = row.here ? 'The loaded preset uses this slot' : 'Select it to clear it with others';
     chk.onclick = e => { e.stopPropagation(); if (row.here) return; if (slotChecked.has(row.slot)) slotChecked.delete(row.slot); else slotChecked.add(row.slot); drawLibrary(); };
-    const pic = row.kind === 'ir' ? el('span', 'irpic', 'IR') : image(captureUrls(row), '', true, true);
+    const pic = row.kind === 'ir' ? image(irPictures(), '', true, true) : image(captureUrls(row), '', true, true);
     const kind = el('span', 'kind'), dot = el('i'); dot.style.background = row.kind === 'ir' ? '#f23091' : '#b070e0'; kind.append(dot, row.kind === 'ir' ? 'IR' : 'Capture');
     const clear = el('button', 'btn sm', clearing.has(row.slot) ? 'Clearing…' : 'Clear…');
     clear.disabled = row.here || clearing.size > 0;
@@ -4271,7 +4272,7 @@ function drawFloorSlots() {
   if (sel) {
     const hero = el('div', 'hero');
     hero.style.backgroundImage = catalog.scenes && catalog.scenes.studio ? `url("${sceneThumb('studio')}")` : '';
-    hero.append(sel.kind === 'ir' ? el('span', 'irpic', 'IR') : image(captureUrls(sel), '', false, false));
+    hero.append(image(sel.kind === 'ir' ? irPictures() : captureUrls(sel), '', false, false));
     const inner = el('div', 'body'), h = el('h3', '', sel.name), facts = el('div', 'facts'), users = el('ul');
     h.append(el('span', '', 'slot ' + sel.slot));
     if (sel.here) users.append(el('li', '', 'The loaded preset'));

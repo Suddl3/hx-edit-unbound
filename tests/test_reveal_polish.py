@@ -107,5 +107,17 @@ class PopOutTests(unittest.TestCase):
         self.assertIn("toolShown = ''; toolPopped = false;", closed)
 
 
+class FloorSlotsIrTests(unittest.TestCase):
+    def test_a3_a_plain_irs_row_and_panel_show_the_ir_blocks_own_picture(self):
+        # (was a flat pink tile saying "IR"; the chain draws an IR block with its model's pictures: HX Edit's
+        # res/icons_models FX_HX_IR_1024.png, the 3D gear art, small; the art pack's ir_1024.png large)
+        page = text('workbench.html')
+        self.assertIn("const irPictures = () => ((catalog && catalog.models.HD2_ImpulseResponse1024) || {pictures: []}).pictures;", page)
+        self.assertIn("const pic = row.kind === 'ir' ? image(irPictures(), '', true, true) :", page)
+        self.assertIn("hero.append(image(sel.kind === 'ir' ? irPictures() : captureUrls(sel), '', false, false));", page)
+        self.assertNotIn("'irpic'", page)
+        self.assertNotIn('.irpic', page)
+
+
 if __name__ == '__main__':
     unittest.main()
