@@ -2280,6 +2280,10 @@ function settleStep() {
 }
 function askUndo(action) {
   undoBusy = {action, from: state ? state.undoAt : null, until: Date.now() + 3000};
+  // (a knob keeps showing its own value for 600 ms after its last write, pane_controls held, so it does not jump back
+  // while HX Edit catches up; an Undo within that time showed the changed value until it ran out: HX Edit's own
+  // answer wins at once now)
+  held.clear(); snapHeld.clear();
   if (action === 'undo' && lastStep && lastStep.at !== undefined && state && state.undoAt === lastStep.at) {
     const b = state.blocks.find(x => same(x, lastStep));
     if (b && holdsAll(b, lastStep.after)) {

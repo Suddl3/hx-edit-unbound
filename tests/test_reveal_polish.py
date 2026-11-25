@@ -755,6 +755,9 @@ class UndoAtOnceTests(unittest.TestCase):
         self.assertIn('noteStep(block, {[key]: endpointNow(block) ?? null}, {[key]: route});', page)
         self.assertIn("$('undo').classList.toggle('busy', !!undoBusy && undoBusy.action === 'undo');", page)
         self.assertIn('@media (prefers-reduced-motion: reduce) { .icon.busy { animation: none; } }', page)
+        # (a knob's own held value, 600 ms after its last write, gives way to HX Edit's answer on an Undo)
+        self.assertIn('held.clear(); snapHeld.clear();', ask)
+        self.assertIn("held.set(key, {value, until: phase === 'begin' || phase === 'move' ? 0 : Date.now() + 600});", text('pane_controls.js'))
 
 
 class LevelsSaysWhatTests(unittest.TestCase):
