@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
-from threading import Event, Thread
+from threading import Event, Thread, Timer
 import time
 
 
@@ -424,6 +424,11 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 focus_on[0] = on
                 if on:
                     focus_seen[0] = True                 # (for the TONE3000 open's trace, S1)
+                # (S3: one pane over HX Edit's window all the way through: going back, the Workbench is shown before
+                # Focus Mode goes; coming in, the Workbench stays until Focus Mode's page is up: its first use starts
+                # its pane, and hiding the Workbench at once showed HX Edit's own screen for a moment)
+                if not on:
+                    workbench_show()
                 if focus is not None:
                     if on:                               # the defaults may have been changed on the Floor look page meanwhile
                         focus.show_look(nam_catalog.load_settings())
@@ -433,7 +438,17 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.receive({'type': 'dspNotice', 'text': notice})
                 if not detached.is_set():
                     script.post({'type': 'focusMode', 'payload': {'on': on}})
-                workbench_show()                         # back on the Workbench when it is on, or out of Focus Mode's way
+                if on and focus is not None and not focus.page_ready:
+                    def ready_then():                    # (once: the page's ready, or 4 s, whichever comes first)
+                        if focus_on[0] and not ready_done[0]:
+                            ready_done[0] = True
+                            workbench_show()
+                    ready_done = [False]
+                    focus.on_ready = ready_then
+                    Timer(4.0, ready_then).start()
+                    trace({'type': 'focusView', 'event': 'waits-for-page'})
+                elif on:
+                    workbench_show()                     # out of Focus Mode's way
             def focus_load(number, view=None):
                 view = view or focus                     # the pane that asked (Focus Mode or the Workbench)
                 try:

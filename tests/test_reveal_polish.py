@@ -691,5 +691,35 @@ class FocusSwitchTests(unittest.TestCase):
         self.assertIn('.viewsw button.on { background: #eceef2; color: #111; font-weight: 600;', focus)
 
 
+class NoFlashTests(unittest.TestCase):
+    def test_s3_one_pane_stays_over_hx_edit_through_the_switch(self):
+        launcher = text('start-hx-edit-nam.pyw')
+        mode = between(launcher, 'def focus_mode(on, notice=None):', '            def focus_load(')
+        # going back: the Workbench first, then Focus Mode goes
+        self.assertLess(mode.index('if not on:\n                    workbench_show()'), mode.index('focus.set_on(on)'))
+        # coming in for the first time: the Workbench stays until Focus Mode's page is up (or 4 s)
+        self.assertIn('if on and focus is not None and not focus.page_ready:', mode)
+        self.assertIn('focus.on_ready = ready_then', mode)
+        self.assertIn('Timer(4.0, ready_then).start()', mode)
+        self.assertIn("trace({'type': 'focusView', 'event': 'waits-for-page'})", mode)
+        pane = text('focus_view.py')
+        self.assertIn('ready, self.on_ready = self.on_ready, None', pane)
+
+    def test_s3_the_ready_call_runs_once(self):
+        from focus_view import FocusView
+        calls = []
+        view = FocusView.__new__(FocusView)
+        view.on_ready = lambda: calls.append(1)
+        view.page_ready = False
+        view.trace = lambda event: None
+        view._write = lambda *a: None
+        view.catalog = lambda: {}
+        view._show_look = view._place = view._show_state = view._show_dsp = lambda: None
+        view._handle('pane', {'type': 'ready'})
+        view._handle('pane', {'type': 'ready'})
+        self.assertEqual(calls, [1])
+        self.assertTrue(view.page_ready)
+
+
 if __name__ == '__main__':
     unittest.main()

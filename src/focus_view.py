@@ -578,6 +578,7 @@ class FocusView:
         self.exe = exe
         self.process = None
         self.on = False
+        self.on_ready = None          # called once when the page next reports ready (the launcher's switch, S3)
         self.window = None
         self.bounds = None
         self.raised = True            # the pane above HX Edit's other child windows (set_raise)
@@ -1154,6 +1155,12 @@ class FocusView:
                 self._show_state()
                 self._show_dsp()
                 self.trace({'type': 'focusView', 'event': 'ready'})
+                ready, self.on_ready = self.on_ready, None
+                if ready:
+                    try:
+                        ready()
+                    except Exception:    # (the launcher's own bookkeeping: never the pane's)
+                        pass
             elif event == 'action':
                 self._act(str(value.get('name') or ''), value.get('value'))
             elif event == 'error':
