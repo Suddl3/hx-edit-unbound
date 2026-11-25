@@ -58,7 +58,11 @@ function connectNativeExportLibrary(config,namView,env) {
     slotEpoch:()=>namView.slotEpoch(),
     invalidate:(preserveDisplay=true,slots=null)=>{
       namView.invalidateVerifiedSlots(preserveDisplay,slots);
-      if(automatic)automatic.invalidate(slots);
+      if(automatic){
+        automatic.invalidate(slots);
+        // (a slot changed while the Library is shown: checked again there, unless a load or preview is under way)
+        if(Array.isArray(slots))namView.resumeLibraryCheck?.();
+      }
     },
     ...(config.automatic ? {busy:value=>namView.setDiscoveryLocked(value)} : {}),
     forget:slot=>namView.forgetVerifiedSlot(slot),

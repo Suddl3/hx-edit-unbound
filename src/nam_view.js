@@ -2043,6 +2043,15 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       workflowBusy = busy;
       if (!busy && wasBusy && libraryBrowsing) discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true});
     },
+    resumeLibraryCheck() {
+      // A permanent slot changed (the slot check's invalidate, which pauses it again while a session is open): checked
+      // again at once while the Library is shown and no load or preview workflow runs, the rule setWorkflowBusy(false)
+      // follows. Put on the Floor ends its workflow before HX Edit has announced every change of the slot it wrote
+      // (live sweep 2026-11-24 23:38:14: IR changed, renamed, then the profile registered, each after the
+      // resume), so the check stayed paused until the Library was closed. A TONE3000 session (not the Library) and a
+      // running load still pause it.
+      if (libraryBrowsing && !workflowBusy) discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true});
+    },
     setDiscoveryPause(callback) { discoveryPause = typeof callback === 'function' ? callback : null; },
     setDiscoveryControls(controls) { discoveryControls = controls; },
     setBrowserSessionActive(value) {
