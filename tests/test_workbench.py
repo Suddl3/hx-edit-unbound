@@ -795,6 +795,37 @@ class LibraryTests(unittest.TestCase):
         self.assertEqual((stats['added'], stats['same'], stats['bad']), (1, 0, ['bad.nam']))
         self.assertEqual(workbench.import_files(library, [folder / 'in' / 'one.nam'])['same'], 1)
 
+    def test_import_stops_walking_at_the_limit_and_reads_no_file_larger_than_a_capture(self):
+        # (review of PR #7: the whole tree was walked and sorted before the limit; a huge file was read whole)
+        from unittest import mock
+        import nam_library
+        library, folder = self.library()
+        walked = []
+
+        class Endless:                            # a folder whose walk never ends (a drive, a synced cloud folder)
+            def is_dir(self):
+                return True
+
+            def rglob(self, pattern):
+                n = 0
+                while True:
+                    n += 1
+                    walked.append(n)
+                    yield folder / ('missing-%06d.nam' % n)
+
+        stats = workbench.import_files(library, [Endless()], limit=3)
+        self.assertEqual(len(walked), 4)          # the limit and one more, to know there were more
+        self.assertEqual((stats['added'], len(stats['bad']), stats['more']), (0, 3, True))
+        (folder / 'two').mkdir()
+        for name in ('a.nam', 'b.nam'):
+            (folder / 'two' / name).write_text('not json')
+        self.assertFalse(workbench.import_files(library, [folder / 'two'], limit=2)['more'])
+        big = folder / 'two' / 'big.nam'
+        big.write_bytes(b'x' * 64)
+        with mock.patch.object(nam_library, 'MAX_NAM_FILE', 32), mock.patch.object(Path, 'read_bytes', side_effect=AssertionError('read')):
+            stats = workbench.import_files(library, [big])
+        self.assertEqual(stats['bad'], ['big.nam'])
+
     def test_the_pane_chooses_files_and_the_page_cannot_say_what_was_chosen(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
         self.assertIn('if ((string)name == "choose") { Choose(value as Dictionary<string, object>); return; }', pane)

@@ -81,6 +81,9 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(self.summary({'added': 0, 'same': 1, 'bad': ['a.nam', 'b.nam', 'c.nam', 'd.nam']}),
                          '1 was already in the library. 4 files could not be added (not a NAM capture): a.nam, b.nam, c.nam and 1 more.')
         self.assertEqual(self.summary({'added': 0, 'same': 0, 'bad': []}), 'No NAM files were found to import.')
+        self.assertEqual(self.summary({'added': 2000, 'same': 0, 'bad': [], 'more': True}),
+                         'Added 2000 captures to your NAM library on this PC. Nothing was put on the Floor. That folder has more '
+                         '.nam files than one import takes: the rest were not looked at. Import its subfolders one at a time for those.')
 
 
 class PageTests(unittest.TestCase):

@@ -114,6 +114,9 @@ def import_summary(stats):
     if bad:
         names = ', '.join(bad[:3]) + (f' and {len(bad) - 3} more' if len(bad) > 3 else '')
         parts.append(f'{len(bad)} file{"s" * (len(bad) != 1)} could not be added (not a NAM capture): {names}.')
+    if stats.get('more'):
+        parts.append('That folder has more .nam files than one import takes: the rest were not looked at. '
+                     'Import its subfolders one at a time for those.')
     return ' '.join(parts) or 'No NAM files were found to import.'
 
 

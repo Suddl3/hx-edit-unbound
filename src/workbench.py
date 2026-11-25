@@ -224,14 +224,23 @@ def checked_chosen(value, entries, temp_folder):
 
 def import_files(library, paths, limit=2000):
     """Add the .nam files (a folder: every .nam in it and its subfolders) to the library, as the library window's
-    Import does: nothing is converted, nothing goes on the Floor. {added, same, bad}."""
+    Import does: nothing is converted, nothing goes on the Floor. {added, same, bad, more}.
+    At most limit files: a folder's files are taken as the walk finds them and the walk stops there, so a huge folder
+    (a drive, a synced cloud folder) does not hold the worker until all of it is walked; more: there were more files.
+    A file larger than a capture can be (nam_library.MAX_NAM_FILE) is not read. (Review of PR #7.)"""
+    from itertools import islice
     import nam_library
-    stats = {'added': 0, 'same': 0, 'bad': []}
+    stats = {'added': 0, 'same': 0, 'bad': [], 'more': False}
     files = []
     for path in paths:
-        files += sorted(path.rglob('*.nam')) if path.is_dir() else [path]
+        if len(files) > limit:
+            break
+        files += sorted(islice(path.rglob('*.nam'), limit + 1 - len(files))) if path.is_dir() else [path]
+    stats['more'] = len(files) > limit
     for path in files[:limit]:
         try:
+            if path.stat().st_size > nam_library.MAX_NAM_FILE:
+                raise ValueError('larger than a NAM capture')
             data = path.read_bytes()
             nam_library.check_nam(data)
         except (OSError, ValueError):
