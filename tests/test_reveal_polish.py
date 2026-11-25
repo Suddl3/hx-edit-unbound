@@ -267,10 +267,10 @@ class PickerCardTests(unittest.TestCase):
         self.assertEqual(page.count("ask('undo')"), 1)                       # (the top bar's Undo only)
         self.assertIn("$('undo').onclick = () => ask('undo');", page)
         card = between(page, '  if (picker) {', '    return box;')
-        self.assertIn("close = el('button', 'btn pri', 'Close');", card)
+        self.assertIn("close = el('button', 'btn', 'Close');", card)
         self.assertIn('close.onclick = closePicker;', card)
         self.assertNotIn("'Done'", card)
-        self.assertIn('The top bar’s Undo puts the old one back.', card)
+        self.assertIn('Undo in the top bar puts it back.', card)
         # the card is drawn by the picker dialog only (the Workbench and the stage's dock); Classic+'s Edit area has none
         self.assertEqual(page.count('card(block, true)'), 1)
         self.assertIn('card(block, true)', between(page, 'function drawPicker(block) {', '\n}'))
@@ -314,6 +314,60 @@ class OneCategoryListTests(unittest.TestCase):
         self.assertIn("pickedTab = tab === 'captures' || isNam(block) ? 'all' : '';", home)
         # the search box there searches captures (of the kind picked)
         self.assertIn("input.placeholder = 'Search ' + (pickedTab === 'all' && pickedKind ? pickedKind : pickedTab === 'all' || pickedTab === 'captures' ? 'captures'", head)
+
+
+class ClickRuleTests(unittest.TestCase):
+    """B10: a click lines a model up, Replace swaps it (reveal-card-states.png). Kept in one place: pickRule."""
+
+    def test_b10_one_rule_in_one_place(self):
+        page = text('workbench.html')
+        choice = between(page, 'function pickChoice(block, s, item, shape) {', '\n}')
+        # every choice, in every layout (the picker's cards, Classic+'s rows), goes through pickRule only
+        self.assertIn("choice.onclick = () => pickRule(block, item, 'click');", choice)
+        self.assertIn("choice.ondblclick = () => pickRule(block, item, 'double');", choice)
+        self.assertNotIn('pickModel(', choice)
+        self.assertEqual(page.count("pickRule(block, item, '"), 2)
+        rule = between(page, 'function pickRule(block, item, how) {', '\n}')
+        # a "+": a click adds at once
+        self.assertIn("if (block.isPlace) { item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture); return; }", rule)
+        # a click lines up (no ask), a double-click replaces
+        click = between(rule, "if (how === 'click') {", '  }\n')
+        self.assertNotIn('ask(', click)
+        self.assertIn('lined = {dsp: block.dsp, id: block.id', click)
+        self.assertIn('replaceWith(block, item, f);', rule)
+        # Replace is the same one edit as before (pickModel / pickCapture: one ask, the room check, the repeat guard)
+        swap = between(page, 'function replaceWith(block, item, f) {', '\n}')
+        self.assertIn('if (f.full || f.inUse) return;', swap)
+        self.assertIn('item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);', swap)
+        self.assertIn("replaced = {dsp: block.dsp, id: block.id, was: title(block)}; lined = null;", swap)
+        # Enter replaces with what is lined up
+        self.assertIn("if (e.key === 'Enter' && visible && lined && !naming && !e.target.closest('input, textarea, select')) { e.preventDefault(); replaceLined(); return; }", page)
+
+    def test_b10_the_card_and_classic_plus_say_it_in_the_same_words(self):
+        page = text('workbench.html')
+        box = between(page, 'function swapBox(block, item, shape) {', '\n}')
+        self.assertIn("el('small', '', 'Replace with')", box)
+        self.assertIn("'Not enough room on DSP '", box)
+        self.assertIn("go = el('button', 'btn pri swapgo', 'Replace');", box)
+        self.assertIn('go.disabled = f.full;', box)
+        card = between(page, '  if (picker) {', '    return box;\n  }')
+        self.assertIn("'Click a model to line it up here. Double-click it, or press Enter, to replace at once.'", card)
+        self.assertIn("'Replaced ' + replaced.was + '.'", card)
+        self.assertIn("'Undo in the top bar puts it back.'", card)
+        self.assertIn("hint = 'Click another model to line it up, or close.';", card)
+        self.assertNotIn("'Done'", card)
+        params = between(page, 'function editParams(block, list) {', '\nfunction ')
+        self.assertIn("lines.append(...swapBox(block, item, 'line'));", params)
+        self.assertIn("'Replaced ' + replaced.was + '.'", params)
+        # the lined up choice: a white ring; the one in use: dashed
+        self.assertIn('.mc.sel { border-color: #eceef2;', page)
+        self.assertIn('.insp.pick .mc.on { box-shadow: none; border-style: dashed;', page)
+        # it goes when the picker closes, another opens, or Classic+ moves to another block
+        for where, end in (('function closePicker() {', '\n}'), ('function openPicker(tab) {', '\n}'), ('function editHome(target) {', '\n}')):
+            self.assertIn('lined = replaced = null;', between(page, where, end))
+        # the panel is drawn again for each change of it
+        self.assertIn('s.captures.map(c => [c.slot, c.name, c.icon, c.gear]), lined, replaced]);', page)
+        self.assertIn('s.captures.map(c => [c.slot, c.name, c.icon, c.gear]), lined, replaced] : null,', page)
 
 
 if __name__ == '__main__':

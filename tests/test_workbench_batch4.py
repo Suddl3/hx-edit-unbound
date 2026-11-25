@@ -209,7 +209,7 @@ class ClassicPlusTests(unittest.TestCase):
         self.assertIn('item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);', shared)
         # the same DSP room check: the room line, a choice that does not fit marked "full"
         self.assertIn('space: room(block)', shared)
-        self.assertIn('full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;', shared)
+        self.assertIn('full = !inUse && !!space && Number.isFinite(cost) && cost > space.left + 1e-6;', shared)
         self.assertEqual(text.count("ask('model',"), 1)
         self.assertEqual(text.count("ask('capture',"), 2)                           # (and the Captures drawer's swap, as before)
         # in Classic+ the panel is the Edit area; Change capture / model go to the lists, no dialog opens

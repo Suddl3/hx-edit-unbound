@@ -770,6 +770,24 @@
   .mc.on { border-color: rgb(var(--c)); box-shadow: 0 0 0 1px rgb(var(--c)), 0 8px 24px rgb(var(--c) / .2); background: linear-gradient(#1b1e26, #15181e); }
   .mc.on > i { color: rgb(var(--c)); }
   .mc.full { opacity: .5; }
+  /* the click rule (B10): the choice lined up has a white ring; the one in use a dashed outline */
+  .insp.pick .mc.on { box-shadow: none; border-style: dashed; background: #15181e; }
+  .mc.sel { border-color: #eceef2; box-shadow: 0 0 0 1px #eceef2, 0 8px 24px rgb(0 0 0 / .45); }
+  .mrow.sel { box-shadow: inset 0 0 0 1px #eceef2; color: var(--ink); }
+  .swapbox { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; background: #101216; border: 1px solid #eceef2; }
+  .swapbox .swappic, .swapline .swappic { width: 42px; height: 42px; object-fit: contain; flex: none; }
+  .swapbox div, .swapline div { display: grid; gap: 1px; min-width: 0; }
+  .swapbox small, .swapline small { color: var(--faint); font-size: 11px; }
+  .swapbox b, .swapline b { color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .swapbox span, .swapline span { color: var(--dim); font-size: 12px; }
+  .swapgo { width: 100%; justify-content: center; }
+  .swapnote { display: grid; gap: 2px; padding: 9px 10px; border-radius: 10px; background: #101216; border: 1px solid var(--line); }
+  .swapnote b { color: var(--ink); font-weight: 600; }
+  .swapnote span { color: var(--dim); font-size: 12px; }
+  .params .swapline { margin: 0 18px 8px; padding: 6px 8px 6px 10px; border-radius: 8px; background: #101216; border: 1px solid #eceef2; display: flex; gap: 10px; align-items: center; }
+  .params .swapline .swappic { width: 30px; height: 30px; }
+  .params .swapline .swapgo { width: auto; margin-left: auto; height: 28px; padding: 0 14px; }
+  .params .swapline.note { border-color: var(--line); display: flex; gap: 8px; font-size: 12px; }
   .mc.full > i { color: #e2483c; }
 
   /* ================= Batch 4: the layouts (workbench_layout.js WORKBENCH_LAYOUTS) ================= */
@@ -1508,6 +1526,18 @@ function fill(item, p) {
   item.querySelector('.dial').setAttribute('aria-valuetext', text(p));
   const sync = item.querySelector('.sync'); if (sync) sync.classList.toggle('on', synced(p));
 }
+// What is lined up and its Replace (the picker's card, Classic+'s Edit area header): the same words in both
+function swapBox(block, item, shape) {
+  const f = choiceFacts(block, room(block), item), box = el('div', shape === 'card' ? 'swapbox' : 'swapline'), words = el('div');
+  words.append(el('small', '', 'Replace with'), el('b', '', f.name),
+    el('span', '', f.full ? 'Not enough room on DSP ' + (block.dsp + 1) : (f.share ? f.share + ' of DSP ' : 'DSP ') + (block.dsp + 1)));
+  box.append(image(f.pics, 'swappic', true), words);
+  const go = el('button', 'btn pri swapgo', 'Replace');
+  go.disabled = f.full; go.title = f.full ? 'It does not fit the room left on DSP ' + (block.dsp + 1) : 'Replace ' + title(block) + ' (Enter)';
+  go.onclick = replaceLined;
+  if (shape === 'card') return [box, go];
+  box.append(go); return [box];
+}
 function card(block, picker) {
   const box = el('div', 'card'), m = model(block), taken = capture(block);
   if (block.isPlace) {
@@ -1528,10 +1558,17 @@ function card(block, picker) {
   head.append(line);
   box.append(head);
   if (picker) {
-    // (no undo button of its own: the old one was HX Edit's plain Undo, which undid whatever came last, also a change on another block
-    // (Nick, 2026-11-25); the top bar's Undo and Redo are the only ones)
-    box.append(el('span', 'hint', 'Click a model to swap it in and hear it. The top bar’s Undo puts the old one back.'));
-    const row = el('div', 'btnrow'), close = el('button', 'btn pri', 'Close');
+    // (no undo button of its own: the old one was HX Edit's plain Undo, which undid whatever came last, also a change on
+    // another block (Nick, 2026-11-25); the top bar's Undo and Redo are the only ones. The click rule: pickRule)
+    const item = lined && same(lined, block) ? linedItem() : null;
+    let hint = 'Click a model to line it up here. Double-click it, or press Enter, to replace at once.';
+    if (item) box.append(...swapBox(block, item, 'card'));
+    else if (replaced && same(replaced, block)) {
+      const note = el('div', 'swapnote'); note.append(el('b', '', 'Replaced ' + replaced.was + '.'), el('span', '', 'Undo in the top bar puts it back.'));
+      box.append(note); hint = 'Click another model to line it up, or close.';
+    }
+    box.append(el('span', 'hint', hint));
+    const row = el('div', 'btnrow'), close = el('button', 'btn', 'Close');
     close.onclick = closePicker; close.title = 'Close the picker (Esc)';
     row.append(close); box.append(row);
     return box;
@@ -1878,6 +1915,7 @@ function pickHome(block, tab) {
 }
 function openPicker(tab) {
   const block = current(); if (!block || !isChain(block)) return;
+  lined = replaced = null;
   // (Classic+: the lists are in place under the chain, no dialog: they go to the block's own category)
   if (layout !== 'classicplus') picking = {block: true};
   pickHome(block, tab);
@@ -1885,6 +1923,7 @@ function openPicker(tab) {
   drawPanel();
 }
 function closePicker() {
+  lined = replaced = null;
   if (!picking) return;
   const place = picking.empty;
   picking = false; shownPanel = ''; drawPanel();
@@ -2038,40 +2077,86 @@ function pickItems(block, s) {
   if (!symbols.length) return [{p: 'Nothing matches that search.'}];
   return symbols.slice(0, 240).map(symbol => ({symbol}));
 }
-// One choice as a card (the picker) or a row (Classic+): its picture, name, mark (in use, its slot, its DSP) and click
-function pickChoice(block, s, item, shape) {
-  const costText = cost => s.space && Number.isFinite(cost) ? Math.round(100 * cost / s.space.budget) + '%' : '';
-  let pics, tintOf, name, mark, inUse, full, words;
+// What a choice is for a block: its picture, name, mark (in use, its slot, its DSP), whether it is the one in use and
+// whether it fits the DSP's room (space: room(block))
+function choiceFacts(block, space, item) {
+  const costText = cost => space && Number.isFinite(cost) ? Math.round(100 * cost / space.budget) + '%' : '';
+  let pics, tintOf, name, mark, inUse, full, words, share;
   if (item.symbol) {
     const m = catalog.models[item.symbol], cost = costOf(item.symbol);
-    inUse = item.symbol === block.model; full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;
-    pics = m.pictures; tintOf = m.tint; name = m.name; mark = inUse ? 'in use' : costText(cost);
+    inUse = item.symbol === block.model; full = !inUse && !!space && Number.isFinite(cost) && cost > space.left + 1e-6;
+    pics = m.pictures; tintOf = m.tint; name = m.name; share = costText(cost); mark = inUse ? 'in use' : share;
     words = m.name + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
   } else {
     const c = item.capture, cost = isNam(block) ? 0 : costOf(captureKey(c));   // (its own, else s.namCost's figure)
-    inUse = isNam(block) && block.slot === c.slot; full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;
-    pics = captureUrls(c); tintOf = NAM_TINT; name = c.name; mark = inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : costText(cost);
+    inUse = isNam(block) && block.slot === c.slot; full = !inUse && !!space && Number.isFinite(cost) && cost > space.left + 1e-6;
+    pics = captureUrls(c); tintOf = NAM_TINT; name = c.name; share = isNam(block) ? '' : costText(cost); mark = inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : share;
     words = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
   }
-  const choice = el('button', (shape === 'row' ? 'mrow' : 'mc') + (inUse ? ' on' : '') + (full ? ' full' : ''));
-  choice.style.setProperty('--c', tintOf.join(' '));
-  if (shape === 'row') choice.append(image(pics, '', true, true), el('span', '', name), el('i', 'num', mark));
-  else choice.append(image(pics, 'pic', true, true), el('i', 'num', mark), el('span', '', name));
-  choice.title = words;
-  choice.onclick = () => {
-    // (the choice clicked for a block shows as in use at once, until HX Edit's reading redraws the list; refused, the
-    // notice redraws it as it was)
-    if (!block.isPlace && !full && !inUse) {
-      for (const was of choice.parentElement ? choice.parentElement.querySelectorAll('.on') : []) was.classList.remove('on');
-      choice.classList.add('on'); choice.querySelector('i').textContent = 'in use';
-    }
-    item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);
-  };
+  return {pics, tintOf, name, mark, inUse, full, words, share};
+}
+const choiceKey = item => item.symbol ? 'm:' + item.symbol : 'c:' + item.capture.slot;
+// One choice as a card (the picker) or a row (Classic+): its picture, name, mark and what a click does (pickRule)
+function pickChoice(block, s, item, shape) {
+  const f = choiceFacts(block, s.space, item), sel = isLined(block, item);
+  const choice = el('button', (shape === 'row' ? 'mrow' : 'mc') + (f.inUse ? ' on' : '') + (f.full ? ' full' : '') + (sel ? ' sel' : ''));
+  choice.style.setProperty('--c', f.tintOf.join(' '));
+  if (shape === 'row') choice.append(image(f.pics, '', true, true), el('span', '', f.name), el('i', 'num', f.mark));
+  else choice.append(image(f.pics, 'pic', true, true), el('i', 'num', f.mark), el('span', '', f.name));
+  choice.dataset.choice = choiceKey(item);
+  choice.title = f.words + (block.isPlace || f.inUse ? '' : '\nClick to line it up, double-click to replace at once');
+  choice.onclick = () => pickRule(block, item, 'click');
+  choice.ondblclick = () => pickRule(block, item, 'double');
   return choice;
 }
+
+// ---- the click rule (Reveal B10; Nick, 2026-11-25: "consistent, not annoying"; to be felt live, kept in one place) --
+// An empty place ("+"): a click adds there at once (nothing to lose; Undo takes it away). An existing block, in every
+// layout: a click lines the choice up (the picker's card, Classic+'s Edit area header: "Replace with <name>, n% of
+// DSP d" and Replace); Replace swaps it (one undo step, as a click did before); a double-click, or Enter, replaces at
+// once. A choice that does not fit lines up with Replace off and the reason; the one in use lines nothing up. After a
+// Replace the picker stays: "Replaced <old>. Undo in the top bar puts it back." until another is lined up or it closes.
+let lined = null, replaced = null;          // {dsp, id, symbol | slot} lined up; {dsp, id, was} just replaced
+const isLined = (block, item) => !!lined && same(lined, block) && (item.symbol ? lined.symbol === item.symbol : !!item.capture && lined.slot === item.capture.slot);
+function linedItem() {
+  if (!lined) return null;
+  if (lined.symbol) return catalog.models[lined.symbol] ? {symbol: lined.symbol} : null;
+  const c = (state.captures || []).find(x => x.slot === lined.slot);
+  return c ? {capture: c} : null;
+}
+function pickRule(block, item, how) {
+  if (block.isPlace) { item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture); return; }
+  const f = choiceFacts(block, room(block), item);
+  if (f.inUse) { if (lined) { lined = null; redrawPick(); } return; }
+  if (how === 'click') {
+    if (isLined(block, item)) return;
+    lined = {dsp: block.dsp, id: block.id, symbol: item.symbol || null, slot: item.capture ? item.capture.slot : null};
+    replaced = null; redrawPick();
+    return;
+  }
+  replaceWith(block, item, f);
+}
+function replaceLined() {
+  const block = current(), item = linedItem();
+  if (!block || !item || !same(lined, block)) return;
+  replaceWith(block, item, choiceFacts(block, room(block), item));
+}
+function replaceWith(block, item, f) {
+  if (f.full || f.inUse) return;
+  replaced = {dsp: block.dsp, id: block.id, was: title(block)}; lined = null;
+  item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);
+  redrawPick();
+  // (the choice shows as in use at once, until HX Edit's reading redraws the list; refused, the notice redraws it)
+  const choice = $('insp').querySelector('[data-choice="' + choiceKey(item) + '"]');
+  if (choice) {
+    for (const was of choice.parentElement ? choice.parentElement.querySelectorAll('.on') : []) was.classList.remove('on');
+    choice.classList.add('on'); choice.querySelector('i').textContent = 'in use';
+  }
+}
+function redrawPick() { shownPanel = ''; if (catalog && state) drawPanel(); }
 function drawPicker(block) {
   const panel = $('insp'), s = pickChoices(block);
-  const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear])]);
+  const key = JSON.stringify(['pick', block.dsp, block.id, block.lane ?? '', block.place ?? '', block.model, block.slot ?? 0, pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear]), lined, replaced]);
   panel.style.setProperty('--c', tint(block).join(' '));
   if (key === shownPanel) return;
   const typing = document.activeElement && document.activeElement.id === 'pickSearch';
@@ -2108,7 +2193,7 @@ function editHome(target) {
   // The lists follow the block picked: they open on its own category (a NAM block: its capture's), as the picker does
   const at = target.isPlace ? 'place' : target.dsp + ':' + target.id;
   if (at === editFor) return;
-  editFor = at;
+  editFor = at; lined = replaced = null;
   if (!target.isPlace) pickHome(target);
 }
 function drawEdit(block) {
@@ -2130,7 +2215,7 @@ function drawEdit(block) {
   const assignKey = state.assign ? list.map(p => (state.assign.controls[p.id] || {}).controller ?? 0) : null;
   const key = JSON.stringify(['edit', target.dsp, target.id, target.lane ?? '', target.place ?? '', target.model, target.enabled, target.slot ?? 0, title(target),
                               tab, tab === 'controls' ? assignKey : [state.assign, state.snapshots, state.snapshot, state.values],
-                              chain ? [pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear])] : null,
+                              chain ? [pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear]), lined, replaced] : null,
                               irOn(target) && irOn(target).name, dsp && dsp[target.dsp], target.isPlace ? null : costs[costKey(target)] ?? null, (state.irs || []).length]);
   panel.style.setProperty('--c', tint(target).join(' '));
   panel.classList.toggle('off', !target.isPlace && !target.enabled);
@@ -2214,6 +2299,13 @@ function editParams(block, list) {
     acts.append(remove);
   }
   head.append(name, acts);
+  // (the click rule, pickRule: what is lined up and its Replace, or what was just replaced, under the header)
+  const item = lined && same(lined, block) ? linedItem() : null, lines = el('div');
+  if (item) lines.append(...swapBox(block, item, 'line'));
+  else if (replaced && same(replaced, block)) {
+    const note = el('div', 'swapline note'); note.append(el('b', '', 'Replaced ' + replaced.was + '.'), el('span', '', 'Undo in the top bar puts it back.'));
+    lines.append(note);
+  }
   // a NAM block's capture, as the Workbench's capture panel says it
   let line = el('div');
   if (taken) {
@@ -2234,7 +2326,8 @@ function editParams(block, list) {
     return item;
   }));
   if (!list.length) rows.append(el('p', 'note2', 'This block has no controls.'));
-  box.append(head, line, rows);
+  lines.append(line);
+  box.append(head, lines, rows);
   return box;
 }
 // One control as a slider row: its name (marked when snapshots change it), the slider, its value; a list setting as a
@@ -4710,6 +4803,8 @@ addEventListener('keydown', e => {
     return;
   }
   if (e.key === 'F2' && visible && !e.target.closest('input, textarea')) { e.preventDefault(); startRename('preset'); return; }
+  // (the click rule: Enter replaces with what is lined up)
+  if (e.key === 'Enter' && visible && lined && !naming && !e.target.closest('input, textarea, select')) { e.preventDefault(); replaceLined(); return; }
   // Ctrl+S in the pane: the Workbench's own Save (HX Edit's Save, then a pending preset name; the pane's browser keys are
   // off, so nothing else takes it). HX Edit's own Ctrl+S and File > Save Preset do not rename a pending name.
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && String(e.key).toLowerCase() === 's' && visible && !naming && !leaving) { e.preventDefault(); savePreset(); return; }
