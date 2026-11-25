@@ -578,8 +578,8 @@ class AddPicksTheNewBlockTests(unittest.TestCase):
         receive = between(text, "else if (message.type === 'state') {", "else if (message.type === 'dsp')")
         self.assertIn('const next = workbenchAddSelect(addFollow, state, catalog.nam[0], Date.now());', receive)
         self.assertIn('if (next.done) addFollow = null;', receive)
-        self.assertIn('if (next.select) pickBlock(next.select);', receive)
-        self.assertNotIn('layout', between(receive, 'if (addFollow && catalog)', 'pickBlock(next.select);'))
+        self.assertIn('if (next.select) pickBlock(next.select, true);', receive)
+        self.assertNotIn('layout', between(receive, 'if (addFollow && catalog)', 'pickBlock(next.select, true);'))
         pick = between(text, 'function pickBlock(block', '\n}')
         self.assertEqual(pick.count("ask('select', {dsp: block.dsp, id: block.id});"), 1)
 

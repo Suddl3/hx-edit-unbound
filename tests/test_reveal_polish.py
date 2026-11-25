@@ -136,5 +136,40 @@ class NewBlockTests(unittest.TestCase):
         self.assertIn('plus.onclick = () => openPlacePicker(p.dsp, lane, place);', page)
         self.assertIn('picking = {empty: true, dsp, lane, place};', page)
 
+    def test_a5_after_a_choice_the_place_stays_until_the_new_block_is_picked(self):
+        page = text('workbench.html')
+        pick = between(page, 'function pickModel(block, symbol) {', '// After a model or a capture is clicked')
+        # (no closePicker before the add: that showed the block picked before until HX Edit's reading picked the new one)
+        self.assertNotIn('closePicker()', pick)
+        self.assertEqual(pick.count('startAdding('), 2)
+        self.assertIn("if (picking && picking.empty && picking.adding) { editFor = ''; drawAdding(placeTarget()); return; }   // (every layout)", page)
+        self.assertLess(page.index("drawAdding(placeTarget()); return; }   // (every layout)"), page.index("if (layout === 'classicplus') { drawEdit(block); return; }"))
+        # the new block picked by the add's own wait: the card stays until HX Edit shows it picked (or 2 s)
+        self.assertIn('if (next.select) pickBlock(next.select, true);', page)
+        self.assertIn("if (picking && picking.empty && added && picking.adding) picking.adding.picked = {dsp: block.dsp, id: block.id, until: Date.now() + 2000};", page)
+        # a block appearing at the place does not end it (the wait does); a refusal, an undo or the time ends it
+        self.assertIn('if (picking && picking.empty && !picking.adding && state.blocks.some(', page)
+        settle = between(page, 'function settleAdding() {', '\n}')
+        self.assertIn('if (a.picked ? !(same(on, a.picked) || now > a.picked.until) : !!addFollow && now <= a.until) return false;', settle)
+        self.assertIn('settleAdding();', between(page, 'function render() {', '\n}'))
+        self.assertIn("addFollow = null; swapAsked = null; toast(message.text);", page)               # (a refusal)
+        self.assertIn("if (name === 'undo' || name === 'redo') addFollow = null;", page)              # (an undo)
+        # the chain lights the coming tile, not the block picked before
+        self.assertIn("const now = picking && picking.adding ? state.blocks.find(", page)
+        # another "+" meanwhile: the earlier add is not picked over it
+        self.assertIn('if (picking && picking.adding) addFollow = null;', page)
+
+    @unittest.skipUnless(NODE, 'node is not installed')
+    def test_a5_the_wait_still_picks_nothing_after_a_refusal_or_another_pick(self):
+        follow = {'dsp': 0, 'lane': 0, 'place': 7, 'symbol': 'HD2_DistKinkyBoost', 'was': {'dsp': 0, 'id': 'block4'}, 'preset': '0:6', 'until': 9000}
+        base = {'preset': {'setlist': 0, 'number': 6}, 'selected': {'dsp': 0, 'id': 'block4'}, 'blocks': []}
+        added = dict(base, blocks=[{'dsp': 0, 'id': 'block9', 'model': 'HD2_DistKinkyBoost', 'position': 7, 'path': 0}])
+        run = lambda st, now: run_js(['workbench_layout.js'], 'workbenchAddSelect(%s, %s, "HD2_AmpNAMLite", %d)' % (json.dumps(follow), json.dumps(st), now))
+        self.assertEqual(run(base, 1000), {'select': None, 'done': False})                       # not there yet: wait
+        self.assertEqual(run(added, 1000), {'select': {'dsp': 0, 'id': 'block9'}, 'done': True})  # there: picked
+        self.assertEqual(run(base, 9500), {'select': None, 'done': True})                        # timed out
+        self.assertEqual(run(dict(added, selected={'dsp': 1, 'id': 'block0'}), 1000), {'select': None, 'done': True})
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1178,7 +1178,8 @@ const same = (a, b) => !!a && !!b && a.dsp === b.dsp && a.id === b.id;
 function drawChain(force) {
   const board = $('board'), paths = workbenchPaths(shownBlocks(), catalog, state.topology), sizes = chainSizes(paths);
   const style = getComputedStyle(board), width = Math.max(800, board.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - sizes.TAG);
-  const now = current();
+  // (while an add's "Adding ..." card shows, the coming tile is the lit one, not the block picked before)
+  const now = picking && picking.adding ? state.blocks.find(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane) || {dsp: picking.dsp, id: 'pending'} : current();
   const key = JSON.stringify([width, layout, sizes, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
                               now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), (state.irs || []).map(i => [i.slot, i.name]), dsp,
                               layout === 'stage' ? stageKey() : null]);
@@ -1621,6 +1622,7 @@ function placeTarget() {
 }
 function drawPanel() {
   const panel = $('insp'), block = current();
+  if (picking && picking.empty && picking.adding) { editFor = ''; drawAdding(placeTarget()); return; }   // (every layout)
   if (layout === 'classicplus') { drawEdit(block); return; }        // (Batch 4: the Edit area with its lists in place)
   if (picking && picking.empty) { drawPicker(placeTarget()); return; }
   if (!block) {
@@ -1855,6 +1857,7 @@ function categoryOf(block) {
 }
 let lastCategory = '';
 function openPlacePicker(dsp, lane, place) {
+  if (picking && picking.adding) addFollow = null;              // (another "+" meanwhile: the earlier add is not picked)
   picking = {empty: true, dsp, lane, place};   // (empty, not place: place 0 is a place too) pickQuery = '';
   pickedCategory = lastCategory || ((catalog.lists || [])[0] || {}).name || ''; pickedTab = ''; pickedKind = '';
   shownPanel = ''; shownChain = '';
@@ -1968,18 +1971,50 @@ function pickHead(block, s, redraw, inputId) {
 // The same choice asked again before a reading shows it (a double-click) is not asked twice (workbenchSwapRepeat).
 let swapAsked = null;
 function pickModel(block, symbol) {
-  if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol}); }
+  if (block.isPlace) { startAdding(catalog.models[symbol] ? catalog.models[symbol].name : symbol, (catalog.models[symbol] || {}).pictures); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, symbol}); drawPanel(); }
   else if (symbol !== block.model && !workbenchSwapRepeat(swapAsked, block, {symbol}, Date.now())) {
     swapAsked = {dsp: block.dsp, id: block.id, symbol, at: Date.now()};
     ask('model', {dsp: block.dsp, id: block.id, symbol});
   }
 }
 function pickCapture(block, c) {
-  if (block.isPlace) { closePicker(); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot}); }
+  if (block.isPlace) { startAdding(c.name, captureUrls(c)); chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot}); drawPanel(); }
   else if (!(isNam(block) && block.slot === c.slot) && !workbenchSwapRepeat(swapAsked, block, {slot: c.slot}, Date.now())) {
     swapAsked = {dsp: block.dsp, id: block.id, slot: c.slot, at: Date.now()};
     ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});
   }
+}
+// After a model or a capture is clicked for a "+", the place stays the new block's (a quiet "Adding ..." card) until
+// HX Edit has it and it is picked (addFollow, then pickBlock), never the block picked before (Nick, 2026-11-25: the
+// old block showed for a moment first). The block picked before comes back only when the add was refused, undone or
+// timed out (addFollow ended with nothing to pick), or the player picked something else meanwhile.
+let addingTimer = 0;
+function startAdding(name, pics) {
+  picking = {...picking, adding: {name: String(name || 'the block'), pics: pics || [], until: Date.now() + WORKBENCH_ADD_SELECT_MS + 500, picked: null}};
+  shownPanel = '';
+  clearTimeout(addingTimer);
+  addingTimer = setTimeout(() => { if (settleAdding() && catalog && state) render(); }, WORKBENCH_ADD_SELECT_MS + 600);
+}
+function settleAdding() {
+  const a = picking && picking.empty && picking.adding;
+  if (!a) return false;
+  const now = Date.now(), on = current();
+  if (a.picked ? !(same(on, a.picked) || now > a.picked.until) : !!addFollow && now <= a.until) return false;
+  picking = false; shownPanel = ''; shownChain = '';
+  return true;
+}
+function drawAdding(target) {
+  const panel = $('insp'), a = picking.adding;
+  const key = JSON.stringify(['adding', target.dsp, target.lane, target.place, a.name]);
+  if (key === shownPanel) return;
+  shownPanel = key;
+  panel.className = 'insp adding'; panel.style.removeProperty('--c');
+  const box = el('div', 'card'), head = el('div');
+  if (a.pics.length) box.append(image(a.pics, 'pic')); else box.append(el('div', 'pic place', '+'));
+  head.append(el('h4', '', 'Adding ' + a.name + '…'), el('p', '', 'Path ' + (target.dsp + 1) + ' · lane ' + (target.lane ? 'B' : 'A') + ' · place ' + (target.place + 1)));
+  head.lastChild.style.color = 'var(--dim)';
+  box.append(head, el('span', 'hint', 'It is picked here as soon as HX Edit has it. Undo takes it away again.'));
+  panel.replaceChildren(box);
 }
 // The choices shown for the category, kind and search picked: [{h: heading} | {p: words} | {symbol} | {capture}]
 function pickItems(block, s) {
@@ -2806,8 +2841,10 @@ function commitView(next, relaid) {
 // the block's panel, Floor look stays. A "+" open for a new block ends, as its Cancel would (Nick, 2026-11-25: a
 // click on another block did nothing useful until Cancel), in every layout; another "+" moves the add there instead
 // (openPlacePicker).
-function pickBlock(block) {
-  if (picking && picking.empty) { picking = false; shownPanel = ''; if (catalog && state) drawChain(true); }
+function pickBlock(block, added) {
+  // (added: the block just added, picked once HX Edit has it: its "Adding ..." card stays until it shows; settleAdding)
+  if (picking && picking.empty && added && picking.adding) picking.adding.picked = {dsp: block.dsp, id: block.id, until: Date.now() + 2000};
+  else if (picking && picking.empty) { picking = false; shownPanel = ''; if (catalog && state) drawChain(true); }
   ask('select', {dsp: block.dsp, id: block.id});
   if (view.half === 'level' && !view.full) setView('select');
   else if (catalog && state && !view.full) drawPanel();
@@ -4520,6 +4557,7 @@ function liftLibrary(event, kind, c, row) {
 let redoTrack = null, redoAskedAt = 0, ownSteps = null;
 function render() {
   if (!catalog || !state) return;
+  settleAdding();                                                   // (an add's "Adding ..." card: ended once it is picked)
   const preset = state.preset ? state.preset.setlist + ':' + state.preset.number : '';
   ownSteps = workbenchOwnSteps(ownSteps, state.undoAt, preset, state.undoSize);
   redoTrack = workbenchRedo(redoTrack, ownSteps.steps, ownSteps.preset, Date.now() - redoAskedAt < 3000);
@@ -4575,11 +4613,11 @@ function receive(message) {
     // or an undo)
     if (before !== after || (typeof undoBefore === 'number' && typeof state.undoAt === 'number' && state.undoAt < undoBefore)) snapHeld.clear();
     if (picking && picking.block && !(current() && isChain(current()))) picking = false;
-    if (picking && picking.empty && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
+    if (picking && picking.empty && !picking.adding && state.blocks.some(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane)) picking = false;
     if (addFollow && catalog) {                                    // (the block just added: picked once it is there)
       const next = workbenchAddSelect(addFollow, state, catalog.nam[0], Date.now());
       if (next.done) addFollow = null;
-      if (next.select) pickBlock(next.select);
+      if (next.select) pickBlock(next.select, true);
     }
   }
   else if (message.type === 'dsp') { dsp = message.dsp; shownChain = ''; }
