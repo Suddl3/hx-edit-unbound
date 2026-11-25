@@ -147,11 +147,13 @@ function focusQueue(queue, command, limit = 32) {
 
 // Whether a DSP has room for model `next` in place of model `now`, by the Floor's own figures (dsp_meter.js: what
 // its blocks use of what they may). null when it fits or cannot be known; else the words for the user.
+// now / next: cost keys (focusCostKey); a capture not measured yet costs what its model does.
 function focusRoom(view, loads, now, next, dsp) {
   if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
-  const cost = Number(loads[next]);
+  const costOf = key => { const own = Number(loads[key]); return key != null && Number.isFinite(own) ? own : Number(loads[String(key).split('#')[0]]); };
+  const cost = costOf(next);
   if (!Number.isFinite(cost)) return null;
-  const after = Math.round((view.used - (Number(loads[now]) || 0) + cost) * 10) / 10;
+  const after = Math.round((view.used - (costOf(now) || 0) + cost) * 10) / 10;
   return after <= view.budget ? null : `DSP ${dsp + 1} has no room for that model (${after} of ${view.budget}).`;
 }
 
@@ -189,14 +191,21 @@ function focusAssign(tree, block, keys) {
 }
 
 // The models' costs measured on the Floor's own meter (the Workbench's dsp_costs.py), each in place of HX Edit's
-// estimate: {symbol: used units}, only plausible figures kept.
+// estimate: {key: used units}, only plausible figures kept. A key is a model symbol, or "<model>#<capture id>" for a
+// NAM block playing that capture of the library (each capture costs its own: sweep 2026-11-24, 36.0 and 27.0).
 function focusMeasured(found) {
   const kept = {};
   if (!found || typeof found !== 'object') return kept;
-  for (const [symbol, cost] of Object.entries(found).slice(0, 1000)) {
-    if (/^[A-Za-z0-9_]{3,64}$/.test(symbol) && typeof cost === 'number' && Number.isFinite(cost) && cost > 0 && cost <= 75) kept[symbol] = cost;
+  for (const [key, cost] of Object.entries(found).slice(0, 4000)) {
+    if (/^[A-Za-z0-9_]{3,64}(#[0-9a-f]{64})?$/.test(key) && typeof cost === 'number' && Number.isFinite(cost) && cost > 0 && cost <= 75) kept[key] = cost;
   }
   return kept;
+}
+// A block's cost key (dsp_costs.key_of): its model, or "<model>#<capture id>" when its slot holds a capture of the
+// library (captures: state.captures [{slot, id}]).
+function focusCostKey(model, slot, captures) {
+  const capture = Number.isInteger(slot) && slot >= 1 ? (captures || []).find(c => c && c.slot === slot) : null;
+  return capture && /^[0-9a-f]{64}$/.test(String(capture.id || '')) ? model + '#' + capture.id : model;
 }
 
 // The pane's place: the main window from its top (over HX Edit's own toolbar: the pane has its own, with the
@@ -450,7 +459,8 @@ function installFocusView(options, parts) {
     const isNam = namEngines.includes(block.model);
     const next = command.action === 'capture' ? (isNam ? block.model : namEngines[0]) : command.symbol;
     if (next !== block.model) {
-      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], costsNow(), block.model, next, block.dsp);
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], costsNow(), focusCostKey(block.model, block.slot, onFloor),
+                             command.action === 'capture' ? focusCostKey(next, command.slot, onFloor) : next, block.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-no-room'}); return; }
       targetBinding.setModel(editor, block.dsp, block.id, next);
     }
@@ -468,7 +478,9 @@ function installFocusView(options, parts) {
   // reads empty): left on slot 1, a plain IR, it would silence the Floor.
   let addFollow = null;
   let plainIrs = [];          // the Floor's plain IRs, read with each full reading (readIrs)
+  let otherCaptures = [];     // the slots holding a capture the library does not list (readOthers)
   let lastUndoWord = '';      // HX Edit's undo position and the preset, as last traced (the Workbench's redo button)
+  let lastCanWord = '';       // HX Edit's own can-undo / can-redo, as last traced
   const ADD_FOLLOW_MS = 3000;
   const occupied = (dsp, lane, place) => (known || []).some(block => block.dsp === dsp && chainBlock.test(block.id) && block.position === place && block.path === lane);
   function change(command) {
@@ -478,15 +490,21 @@ function installFocusView(options, parts) {
       if (occupied(command.dsp, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
       // (a slot alone: a capture, on NAM's engine; a slot with an IR model: an IR block with that IR)
       const next = command.slot && !command.symbol ? namEngines[0] : command.symbol;
-      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], costsNow(), null, next, command.dsp);
+      const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[command.dsp], costsNow(), null,
+                             command.slot && !command.symbol ? focusCostKey(next, command.slot, onFloor) : next, command.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'add-no-room'}); return; }
       if (command.slot) {
         // a capture: the block and its slot as one undo step (target_binding addCapture); its slot set later, as a
         // step of its own, only when the new block could not be found at once
+        // (HX Edit's undo index before the add, after it and after finish: one live add once made two records, sweep
+        // fixes check 2026-11-25 00:47:20, 0 -> 2; these say whether the second is ours or HX Edit's afterwards)
+        const undoIndex = () => { try { return editor.add(0x294).readS32(); } catch (_) { return null; } };
+        const before = undoIndex();
         const made = targetBinding.addCapture(editor, command.dsp, command.lane, command.place, next, command.slot);   // (or an IR)
         if (made) {
+          const added = undoIndex();
           finish(editor, command.dsp, made, 'Index', command.slot);
-          send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-one-step', slot: command.slot});
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-one-step', slot: command.slot, undo: [before, added, undoIndex()]});
         } else addFollow = {dsp: command.dsp, lane: command.lane, place: command.place, slot: command.slot, model: next, until: Date.now() + ADD_FOLLOW_MS};
       } else targetBinding.addModel(editor, command.dsp, command.lane, command.place, next);
     } else if (command.action === 'moveSplit') {
@@ -555,7 +573,7 @@ function installFocusView(options, parts) {
         if (occupied(to, command.lane, command.place)) { send({type: 'dspNotice', text: 'That place is no longer empty.'}); return; }
         if (to === block.dsp) targetBinding.moveBlock(editor, block.dsp, block.id, command.lane, command.place);
         else {
-          const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to], costsNow(), null, block.model, to);
+          const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to], costsNow(), null, focusCostKey(block.model, block.slot, onFloor), to);
           if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'move-no-room'}); return; }
           const meter = typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[to];
           const moved = targetBinding.moveAcross(editor, block.dsp, block.id, to, command.lane, command.place);
@@ -629,10 +647,18 @@ function installFocusView(options, parts) {
     // The captures on the Floor, by slot: a NAM block's name and picture come from its slot (focusCaptures: kept
     // while HX Edit re-checks the slots after a chain change).
     try {
-      const found = namView.installedCaptures().map(capture => ({slot: capture.slot, name: capture.name, icon: capture.icon, gear: capture.gear}));
+      // (id: the capture's library id, what its measured DSP cost is kept by: dsp_costs.key_of)
+      const found = namView.installedCaptures().map(capture => ({slot: capture.slot, name: capture.name, icon: capture.icon, gear: capture.gear,
+                                                                 ...(typeof capture.id === 'string' ? {id: capture.id} : {})}));
       return focusCaptures(found, previous, namView.inventorySnapshot ? namView.inventorySnapshot() : null);
     }
     catch (_) { return previous || []; }
+  }
+  function readOthers(previous) {
+    // The slots holding a capture that is not one of the library's listed ones (nam_view otherCaptures), for the
+    // Workbench's Floor slots view; the last list while it cannot be read.
+    try { const found = namView.otherCaptures?.(); return Array.isArray(found) ? found : previous; }
+    catch (_) { return previous; }
   }
   function readIrs(previous) {
     // The Floor's plain IRs (nam_view plainIrs: HX Edit's IR list without the captures' slots), for the Workbench's
@@ -748,11 +774,12 @@ function installFocusView(options, parts) {
       }
       // The captures on the Floor, for the pane's list (looked up with each full reading), NAM block or not.
       if (full) {
-        onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs);
+        onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs); otherCaptures = readOthers(otherCaptures);
         try { slot128 = namView.slotName?.(128) || ''; } catch (_) { slot128 = ''; }
       }
       state.captures = onFloor;
       state.irs = plainIrs;
+      state.otherCaptures = otherCaptures;
       state.preset = header.preset; state.presets = header.presets; state.snapshots = header.snapshots; state.tempo = header.tempo; state.topology = header.topology;
       state.setlists = header.setlists;
       state.slot128 = slot128 ? {name: slot128} : null;
@@ -796,9 +823,13 @@ function installFocusView(options, parts) {
       }
       const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
       state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
-      // Something to undo: HX Edit's own undo position (as tone_view reads it).
-      // (undoAt: that position itself, for the Workbench's redo button)
-      try { state.undoAt = editor.add(0x294).readS32(); state.undo = state.undoAt > 0; } catch (_) { state.undo = null; state.undoAt = null; }
+      // HX Edit's own undo position (as tone_view reads it): the index of the last step in its ring of undo records
+      // (editor+0x290: how many, 33), not a count, and a preset load leaves it as it was. The Workbench counts the
+      // steps made on the loaded preset from its moves (workbenchOwnSteps).
+      try { state.undoAt = editor.add(0x294).readS32(); } catch (_) { state.undoAt = null; }
+      try { const size = editor.add(0x290).readS32(); state.undoSize = size >= 2 && size <= 1024 ? size : null; } catch (_) { state.undoSize = null; }
+      // Something to undo, as HX Edit's Edit menu asks it (target_binding canUndo); null when it cannot be read
+      try { state.undo = targetBinding.canUndo ? targetBinding.canUndo(editor) : null; } catch (_) { state.undo = null; }
       // (the last preview that ended with its block back on its own capture: the undo positions before it and after
       // its step back, so the Workbench's unsaved mark does not count the preview's own two steps; tone_view)
       try { state.previewEnded = toneView.previewEnded ? toneView.previewEnded() : null; } catch (_) { state.previewEnded = null; }
@@ -810,6 +841,10 @@ function installFocusView(options, parts) {
       try { state.redo = targetBinding.canRedo(editor); } catch (_) { state.redo = null; }
       const undoWord = state.undoAt + '@' + (state.preset ? state.preset.setlist + ':' + state.preset.number : '-');
       if (undoWord !== lastUndoWord) { lastUndoWord = undoWord; send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-at', at: undoWord}); }
+      // (what HX Edit's Edit menu would offer, on each change: after a preset load it says whether HX Edit cleared its
+      // history; one line per change)
+      const canWord = state.undo + '/' + state.redo;
+      if (canWord !== lastCanWord) { lastCanWord = canWord; send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-can', undo: state.undo, redo: state.redo, at: undoWord}); }
       // The selected block's controllers, footswitch and snapshot values (focusAssign), read with each full reading
       // and kept between them; the first reading of each block goes to the trace (what HX Edit answered).
       const chosen = state.selected && state.blocks.find(b => b.dsp === state.selected.dsp && b.id === state.selected.id);
@@ -1014,5 +1049,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
+  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
 }

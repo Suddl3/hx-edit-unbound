@@ -160,7 +160,8 @@ class ChainTests(unittest.TestCase):
         # a reading without the preset (HX Edit reloading the preset's contents for the undo) is the same preset
         self.assertEqual(run([[0, 'a', False], [1, 'a', False], [0, '', False], [0, 'a', False]]), [False, False, True, True])
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
-        self.assertIn("$('redo').disabled = !(typeof state.redo === 'boolean' ? state.redo : redoTrack.redo);", page)
+        # (HX Edit's answer and an undo made on this preset, both: test_undo_after_load)
+        self.assertIn("$('redo').disabled = !((typeof state.redo === 'boolean' ? state.redo : true) && redoTrack.redo);", page)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn('state.undoAt = editor.add(0x294).readS32();', script)
 

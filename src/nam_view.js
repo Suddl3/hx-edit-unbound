@@ -330,6 +330,14 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       entries: slotLedger.displayEntries(), verified: slotLedger.entries() });
   }
 
+  function slotCheckTrace(why, resumed) {
+    // Where the slot check's pause is lifted or kept while a session is open (why: slot-changed, workflow-ended,
+    // library-shown / -hidden): with the Library flag and the workflow flag it was decided on. At most a few lines per
+    // slot written or cleared.
+    send({type: 'toneTrace', reason: 'slot-check', stage: resumed === true ? 'resumed' : resumed === false ? 'held' : why,
+          why, library: libraryBrowsing, workflow: workflowBusy});
+  }
+
   function requestLibraryVerification() {
     discoveryControls?.requestVerification({allowWhileBrowsing:true});
   }
@@ -1973,16 +1981,37 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       }
       return result;
     },
+    otherCaptures() {
+      // The slots that hold a capture the Workbench does not list as one of this PC's library (installedCaptures): one
+      // the library does not have (a capture put on the Floor from elsewhere, an old TONE3000 one), or a library
+      // capture's Pedal version. [{slot, name}] of the used rows, as plainIrs reads them. Without it the Floor slots
+      // view called such slots free while Put on the Floor rightly passed over them (sweep 2026-11-24: 21, 23).
+      const list = irList(), result = [];
+      if (list.isNull()) return result;
+      const listed = new Set(this.installedCaptures().map(capture => capture.slot));
+      const ledger = new Map(slotLedger ? slotLedger.entries() : []);
+      for (let slot = 1; slot < AUDITION_SLOT; slot++) {
+        if (listed.has(slot) || !(Object.hasOwn(profiles, slot) || ledger.has(slot))) continue;
+        const row = getIrRow(list, slot - 1);
+        if (row.isNull()) break;
+        if (!row.add(0x10c).readU32()) continue;
+        let name = '';
+        try { name = row.readUtf8String() || ''; } catch (_) { name = ''; }
+        const known = payloadMetadata[ledger.get(slot)];
+        result.push({slot, name: String((known && known.name) || profiles[slot] || name || 'Capture').slice(0, 64)});
+      }
+      return result;
+    },
     installedCaptures() {
       // Captures of this PC's library that are on the Floor now, by verified slot: for the NAM
-      // category's model list. [{slot, name, gear, icon}], lowest slot first (icon: capture_icons id).
+      // category's model list. [{slot, id, name, gear, icon}], lowest slot first (icon: capture_icons id; id: the library's).
       const result = [];
       if (!slotLedger) return result;
       for (const [slot, contentId] of slotLedger.entries()) {
         const capture = payloadMetadata[contentId];
         // A version (the NAM Pedal model) plays only in its own block: not offered under NAM A2 Lite rows.
         if (!capture || slot === AUDITION_SLOT || capture.version) continue;
-        result.push({slot, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
+        result.push({slot, id: typeof capture.id === 'string' ? capture.id : null, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
           instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar'});
       }
       return result;
@@ -2041,7 +2070,20 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const wasBusy = workflowBusy;
       if (busy && !workflowBusy && discoveryPause) discoveryPause();
       workflowBusy = busy;
-      if (!busy && wasBusy && libraryBrowsing) discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true});
+      if (!busy && wasBusy) {
+        const resumed = libraryBrowsing ? discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true}) === true : false;
+        slotCheckTrace('workflow-ended', resumed);
+      }
+    },
+    resumeLibraryCheck() {
+      // A permanent slot changed (the slot check's invalidate, which pauses it again while a session is open): checked
+      // again at once while the Library is shown and no load or preview workflow runs, the rule setWorkflowBusy(false)
+      // follows. Put on the Floor ends its workflow before HX Edit has announced every change of the slot it wrote
+      // (live sweep 2026-11-24 23:38:14: IR changed, renamed, then the profile registered, each after the
+      // resume), so the check stayed paused until the Library was closed. A TONE3000 session (not the Library) and a
+      // running load still pause it.
+      const resumed = libraryBrowsing && !workflowBusy ? discoveryControls?.resumeRequestedVerification({allowWhileBrowsing:true}) === true : false;
+      slotCheckTrace('slot-changed', resumed);
     },
     setDiscoveryPause(callback) { discoveryPause = typeof callback === 'function' ? callback : null; },
     setDiscoveryControls(controls) { discoveryControls = controls; },
@@ -2052,6 +2094,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     setLibraryBrowsing(value) {
       if (libraryBrowsing === value) return;
       libraryBrowsing = value;
+      slotCheckTrace('library-' + (value ? 'shown' : 'hidden'), null);
       if (value) requestLibraryVerification();
       else discoveryControls?.setSessionActive(true);
     },

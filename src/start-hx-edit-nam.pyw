@@ -227,7 +227,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if focus is not None:
                 try:
                     from workbench import WorkbenchView, setting_on
-                    workbench = WorkbenchView(exe.parent / 'res', settings=nam_catalog.load_settings(), trace=trace)
+                    import dsp_costs
+                    # (the DSP costs it measured are dropped when the Floor answers with another firmware)
+                    workbench = WorkbenchView(exe.parent / 'res', settings=nam_catalog.load_settings(), trace=trace,
+                                              firmware=dsp_costs.firmware_of(FLOOR_SEEN))
                     workbench_start = setting_on(nam_catalog.load_settings())
                 except Exception as error:
                     workbench = None

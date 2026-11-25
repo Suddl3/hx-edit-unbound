@@ -210,6 +210,22 @@ function workbenchAddSelect(follow, state, namEngine, now) {
   return made ? {select: {dsp: made.dsp, id: made.id}, done: true} : {select: null, done: false};
 }
 
+// The steps made on the loaded preset since it came up, from HX Edit's undo position as it moves. That position is not
+// a count: it is the index into HX Edit's ring of 33 undo records (editor+0x290 holds 33: 32 steps; a Levels scan ran
+// it to 32 and on to 0, sweep 2026-11-24 23:35), and a preset load leaves it where it was (7@3:31, 7@3:32 in the sweep;
+// HX Edit's history clear, editor vtable+0x20 -> 0x291b20, empties the records and keeps the index). So the change of
+// each reading is taken round the ring (size), and a preset loaded starts at 0 steps. {preset, at, steps}; steps null
+// when the position cannot be read. (A reading without the preset's header, as during an undo: the same preset.)
+function workbenchOwnSteps(track, at, preset, size) {
+  if (!Number.isInteger(at)) return {preset: preset || (track && track.preset) || '', at: null, steps: null};
+  if (!preset && track) preset = track.preset;
+  if (!track || track.preset !== preset || !Number.isInteger(track.at) || !Number.isInteger(track.steps)) return {preset, at, steps: 0};
+  const ring = Number.isInteger(size) && size >= 2 ? size : null;
+  let move = at - track.at;
+  if (ring) { move = ((move % ring) + ring) % ring; if (move > ring / 2) move -= ring; }
+  return {preset, at, steps: Math.max(0, track.steps + move)};
+}
+
 function workbenchRedo(track, at, preset, redoing) {
   // Whether there is something to redo, from HX Edit's undo position (at: the steps that can be undone) as it
   // changes: an undo lowers it and leaves a step to redo; a new change raises it and leaves none, unless it is the
@@ -513,9 +529,23 @@ function workbenchSetlistCount(names) {
 // ---- the Floor's slots (Batch 3) -------------------------------------------------------------------------------------
 // Every used slot of 1..127 (captures and plain IRs share them; 128 is the preview slot, shown apart), in order:
 // {slot, name, kind: 'capture' | 'ir', icon, gear}. A slot listed twice keeps its capture.
-function workbenchSlotRows(captures, irs) {
+// ---- the session's status line: each view its own --------------------------------------------------------------------
+// Levels and the NAM library share one session, whose status text stays the last one said until another is: after
+// Levels' "Undone: 1 preset(s) are back as they were." the Library showed it under Put on the Floor (sweep 2026-11-24).
+// A text belongs to the page the session was on when it first came (page: 'level' or 'library'); the same text sent
+// again later keeps its page. track: {text, page}.
+function workbenchStatusOwner(track, text, page) {
+  text = typeof text === 'string' ? text : '';
+  return track && track.text === text ? track : {text, page};
+}
+// What one view shows of it: the text when it is that view's, else nothing.
+const workbenchStatusFor = (track, page) => (track && track.page === page ? track.text : '');
+
+// others: the slots holding a capture that is not one of the library's listed ones (state.otherCaptures): used too.
+function workbenchSlotRows(captures, irs, others) {
   const rows = new Map();
   for (const c of Array.isArray(irs) ? irs : []) if (c && Number.isInteger(c.slot) && c.slot >= 1 && c.slot <= 127) rows.set(c.slot, {slot: c.slot, name: String(c.name || ''), kind: 'ir'});
+  for (const c of Array.isArray(others) ? others : []) if (c && Number.isInteger(c.slot) && c.slot >= 1 && c.slot <= 127) rows.set(c.slot, {slot: c.slot, name: String(c.name || ''), kind: 'capture', icon: '', gear: ''});
   for (const c of Array.isArray(captures) ? captures : []) {
     if (c && Number.isInteger(c.slot) && c.slot >= 1 && c.slot <= 127) rows.set(c.slot, {slot: c.slot, name: String(c.name || ''), kind: 'capture', icon: c.icon || '', gear: c.gear || ''});
   }
@@ -540,12 +570,12 @@ function workbenchSlotUsers(usage, slot, loaded) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
+  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
                      workbenchAdded, WORKBENCH_ADD_SELECT_MS, workbenchPresetKey, workbenchAddFollow, workbenchAddSelect, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
                      workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, workbenchPreviewOn, WORKBENCH_PREVIEW_END_WAIT_MS, WORKBENCH_PREVIEW_STEP_MS, workbenchSaveHold, WORKBENCH_BACK_MS,
 
- WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers,
+ WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers, workbenchStatusOwner, workbenchStatusFor,
                      workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
 }

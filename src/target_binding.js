@@ -425,6 +425,13 @@ function installTargetBinding(options = {}) {
     const entry = new NativeFunction(editorEntry(editor, 0xe4, 0x504630, 'can-undo-redo'), 'pointer', ['pointer', 'int'], 'thiscall');
     return !entry(editor, 1).isNull();
   }
+  function canUndo(editor) {
+    // The Edit menu's own question for Undo (0x504630 with 0: the undo record at HX Edit's undo position, 0x2929d0).
+    // Not the position itself: that is an index into a ring of 33 records that a preset load does not reset.
+    if (!editorReady(editor)) return null;
+    const entry = new NativeFunction(editorEntry(editor, 0xe4, 0x504630, 'can-undo-redo'), 'pointer', ['pointer', 'int'], 'thiscall');
+    return !entry(editor, 0).isNull();
+  }
   function addCapture(editor, dsp, row, col, symbol, slot) {
     // A NAM block with its capture (or an IR block with its IR) on an empty cell as ONE undo step: the add (+0xa8) and the slot (Index) inside an
     // undo step of their own (+0xd4 opens it, +0xd8 closes it with the outcome, as HX Edit's drop between the paths
@@ -692,7 +699,7 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, renameSnapshot, setValue, setIndex, setModel, addModel, addCapture, undo, redo, canRedo,
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, renameSnapshot, setValue, setIndex, setModel, addModel, addCapture, undo, redo, canRedo, canUndo,
            removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 
