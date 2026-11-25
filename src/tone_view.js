@@ -2866,6 +2866,14 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     if (object.isNull()) object = item.add(0x88).readPointer();
     return object.isNull() || object.readS32() !== 0 ? null : object;      // blocks only
   }
+  function rememberChainItem(item) {
+    try {
+      const object = blockObject(item);
+      if (!object) return;
+      if (chainItems.size > 256) chainItems.clear();
+      chainItems.set(item.toString(), {item, object, vtable: item.readPointer()});
+    } catch (_) { /* not a block item */ }
+  }
   function chainLook(item) {
     // The block's 3D picture (dimmed set when bypassed) and, when bypassed, a dimmer label. With the option off,
     // the label colour goes back to the category's. Never throws.
@@ -3085,7 +3093,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       onEnter() { retargetItem(this.context.ecx, 'path'); },
     });
     Interceptor.attach(base.add(0x40b790), {            // path item: apply label colour and picture opacity
-      onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); },
+      // (with HX Edit's own icons every block drawn is still remembered, so a switch to 3D gear redraws them all at
+      // once: R5, live 2026-11-25, some only changed when the pointer passed over them)
+      onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); else rememberChainItem(this.context.ecx); },
     });
     // A block with a model: its dark tile and grey outline, drawn at the picture's bounds before the picture
     // (0x40a780: white with a tile in the block's colour when selected, +0x94). A large picture has neither, so

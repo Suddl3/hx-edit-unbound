@@ -82,7 +82,7 @@ class ChainOptionTests(unittest.TestCase):
         import make_chain_pictures
         self.assertEqual(make_chain_pictures.GLOW_GAIN, 0.8)                         # a fifth softer than the first one
         tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
-        for marker in ("onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); }",
+        for marker in ("onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); else rememberChainItem(this.context.ecx); }",
                        "function chainSet(file)", 'buttonSites.some(site => site.equals(this.site))',
                        'let chainArt = profile.chainArt === true;', "`CHAIN_NAMCAP_${capture.icon}.png`", "'CHAIN_' + picture",
                        'chainRedraw(entry.item);', 'setChainArt: on =>', 'const LARGE_BOX = {w: 68, h: 56}', 'const LABEL_DROP = 2;', 'shrinkBlock(item, own);', 'base.add(0x924324).add(0x38).readPointer()', 'Interceptor.replace(base.add(0x40a780)', 'selectedFrame(item, graphics);', 'settleChainLater();', 'dropRefused = true;',

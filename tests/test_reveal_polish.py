@@ -548,5 +548,18 @@ class ReplaceNoteTests(unittest.TestCase):
         self.assertNotIn("'Undo in the top bar", settle)
 
 
+class ChainSwitchTests(unittest.TestCase):
+    def test_r5_every_block_drawn_is_redrawn_at_the_switch(self):
+        tone = text('tone_view.js')
+        # with HX Edit's own icons (the default since B12) chainLook does not run, so no block was remembered and the
+        # switch to 3D gear redrew none: they changed only as HX Edit repainted them (the pointer over them)
+        self.assertIn('else rememberChainItem(this.context.ecx); },', tone)
+        remember = between(tone, 'function rememberChainItem(item) {', '\n  }')
+        self.assertIn('chainItems.set(item.toString(), {item, object, vtable: item.readPointer()});', remember)
+        switch = between(tone, 'function setChainArt(on) {', '\n  }')
+        self.assertIn('for (const [key, entry] of [...chainItems]) {', switch)
+        self.assertIn('chainRedraw(entry.item);', switch)
+
+
 if __name__ == '__main__':
     unittest.main()
