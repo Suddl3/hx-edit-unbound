@@ -649,10 +649,12 @@ class ScriptTests(unittest.TestCase):
     def test_a_block_is_selected_by_a_click_on_its_cell_of_hx_edits_chain(self):
         box = '{x: 318, y: 45, w: 1592, h: 120}'
         point = lambda block: run_js(['focus_view.js'], f'focusChainPoint({box}, {json.dumps(block)})')
-        self.assertEqual(point({'id': 'inputA'}), {'x': 398, 'y': 93})                # the first of ten cells, on the name
-        self.assertEqual(point({'id': 'block0', 'position': 1, 'path': 0}), {'x': 716, 'y': 93})
-        self.assertEqual(point({'id': 'block4', 'position': 7, 'path': 1}), {'x': 1671, 'y': 153})   # the lower path
-        self.assertEqual(point({'id': 'outputA'}), {'x': 1830, 'y': 93})
+        # the first of ten cells, on its picture (40 % down its lane), never on the name under it: a block whose bypass has
+        # a custom footswitch label shows that label there, and a click on it opens HX Edit's BYPASS/CONTROLLER ASSIGN
+        self.assertEqual(point({'id': 'inputA'}), {'x': 398, 'y': 69})
+        self.assertEqual(point({'id': 'block0', 'position': 1, 'path': 0}), {'x': 716, 'y': 69})
+        self.assertEqual(point({'id': 'block4', 'position': 7, 'path': 1}), {'x': 1671, 'y': 129})   # the lower path
+        self.assertEqual(point({'id': 'outputA'}), {'x': 1830, 'y': 69})
         for nowhere in ({'id': 'split', 'position': 0}, {'id': 'join', 'position': 8}, {'id': 'block0', 'position': None},
                         {'id': 'block0', 'position': 9, 'path': 0}):
             self.assertIsNone(point(nowhere))

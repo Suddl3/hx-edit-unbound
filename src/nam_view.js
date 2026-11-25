@@ -1934,7 +1934,12 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const insp = canonical(findWidget(view.editor, 0x696e7370, 1));                   // insp
       if (insp.isNull()) return null;
       const editView = canonical(findWidget(insp, 0x65747677, 1)), assignView = canonical(findWidget(insp, 0x63617677, 1));   // etvw, cavw
-      return {edit: !editView.isNull() && !!isVisible(editView, 1), assign: !assignView.isNull() && !!isVisible(assignView, 1)};
+      let prvw = canonical(findWidget(insp, 0x50525657, 1));                            // PRVW, in the EDIT view
+      if (prvw.isNull()) prvw = canonical(findWidget(view.editor, 0x50525657, 1));      // (as nav_banner dockPanel finds it)
+      const flags = w => w.isNull() ? null : [!!isVisible(w, 0), !!isVisible(w, 1)];
+      return {prvw: !prvw.isNull() && !!isVisible(prvw, 1), edit: !editView.isNull() && !!isVisible(editView, 1),
+              assign: !assignView.isNull() && !!isVisible(assignView, 1),
+              seen: {etvw: flags(editView), cavw: flags(assignView), prvw: flags(prvw)}};
     },
     // A click on HX Edit's own EDIT tab (the left half of "emtb"), posted as a chain click is. True when posted.
     showEditTab() {

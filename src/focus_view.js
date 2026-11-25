@@ -125,7 +125,10 @@ function focusChainPoint(box, block) {
   else if (/^block\d{1,2}$/.test(block.id) && Number.isInteger(block.position) && block.position >= 0 && block.position < 8) {
     column = block.position + 1; row = block.path === 1 ? 1 : 0;
   } else return null;
-  return {x: Math.round(box.x + (column + .5) * box.w / 10), y: Math.round(box.y + (row + .8) * box.h / 2)};
+  // (on the block's picture, 40 % down its lane: not on the name under it. A block whose bypass has a custom footswitch
+  // label shows that label there, and HX Edit opens its BYPASS/CONTROLLER ASSIGN tab on a click on it, to edit the
+  // label: live 2026-11-25 14:27:41, 031's "Godzilla" block; from then on HX Edit's panel followed no selection)
+  return {x: Math.round(box.x + (column + .5) * box.w / 10), y: Math.round(box.y + (row + .4) * box.h / 2)};
 }
 
 // Requests from the pane wait here until HX Edit's UI thread takes them. Of a drag's many changes to one
@@ -377,13 +380,18 @@ function installFocusView(options, parts) {
   // on BYPASS/CONTROLLER ASSIGN ("hx-tab-edit"), at most once a second: the panes have their own Bypass and
   // controllers tab, and HX Edit's EDIT tab is what TONE3000 and the Library bind the selected block through. Classic
   // (no pane) is the player's own: not touched there.
-  let hxTab = '', hxTabFixedAt = 0;
+  let hxTab = '', hxTabFixedAt = 0, hxTabTries = 0, hxTabPicked = '', lastPicked = '';
   function keepEditTab() {
     let tab = null;
     try { tab = namView.editPanelTab ? namView.editPanelTab() : null; } catch (_) { tab = null; }
-    const word = !tab ? 'unknown' : tab.assign ? 'assign' : tab.edit ? 'edit' : 'none';
-    if (word !== hxTab) { hxTab = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab', tab: word}); }
-    if (word === 'assign' && Date.now() - hxTabFixedAt > 1000) {
+    // (the parameter pane PRVW shows only on the EDIT tab with a block picked: the 2a7742b reading of the two views
+    // said "none" live while the tab was on assign; their own flags do not follow the tab)
+    const picked = lastPicked;
+    const word = !tab ? 'unknown' : tab.prvw ? 'edit' : tab.assign ? 'assign' : /^block\d{1,2}$/.test(picked) ? 'assign?' : 'none';
+    if (word !== hxTab) { hxTab = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab', tab: word, picked, found: tab}); }
+    if (word === 'edit' || picked !== hxTabPicked) { hxTabTries = 0; hxTabPicked = picked; }
+    if ((word === 'assign' || word === 'assign?') && hxTabTries < 3 && Date.now() - hxTabFixedAt > 1000) {
+      hxTabTries++;
       hxTabFixedAt = Date.now();
       let clicked = false;
       try { clicked = namView.showEditTab ? namView.showEditTab() : false; } catch (_) { clicked = false; }
@@ -927,6 +935,7 @@ function installFocusView(options, parts) {
         send({type: 'toneTrace', reason: 'focus-view', stage: 'select-shown', block: selectAsked.id, ms: Date.now() - selectAsked.at, read: Date.now() - began, full});
         selectAsked = null;
       }
+      lastPicked = state.selected ? state.selected.id : '';
       publish(state);
       if (wanted) select(wanted);
     } catch (error) {

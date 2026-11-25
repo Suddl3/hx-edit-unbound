@@ -795,8 +795,23 @@ class EditTabTests(unittest.TestCase):
     def test_while_a_pane_covers_hx_edit_its_tab_goes_back_to_edit_and_is_traced(self):
         script = text('focus_view.js')
         keep = between(script, 'function keepEditTab() {', '\n  }\n')
-        self.assertIn("send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab', tab: word});", keep)
-        self.assertIn("if (word === 'assign' && Date.now() - hxTabFixedAt > 1000) {", keep)
+        self.assertIn("send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab', tab: word, picked, found: tab});", keep)
+        # (judged by HX Edit's parameter pane: the two views' own flags said "none" live while the tab was on assign)
+        self.assertIn("const word = !tab ? 'unknown' : tab.prvw ? 'edit' : tab.assign ? 'assign' : /^block\\d{1,2}$/.test(picked) ? 'assign?' : 'none';", keep)
+        self.assertIn("if ((word === 'assign' || word === 'assign?') && hxTabTries < 3 && Date.now() - hxTabFixedAt > 1000) {", keep)
+        self.assertIn('if (word === \'edit\' || picked !== hxTabPicked) { hxTabTries = 0; hxTabPicked = picked; }', keep)
+        view = text('nam_view.js')
+        self.assertIn('let prvw = canonical(findWidget(insp, 0x50525657, 1));', view)
+        self.assertIn('if (prvw.isNull()) prvw = canonical(findWidget(view.editor, 0x50525657, 1));', view)
+        self.assertIn('seen: {etvw: flags(editView), cavw: flags(assignView), prvw: flags(prvw)}};', view)
+
+    def test_our_select_clicks_the_blocks_picture_not_its_name(self):
+        # (live 2026-11-25 14:27:41: a click on 031's block0 put HX Edit on BYPASS/CONTROLLER ASSIGN: the click was on the
+        # name under the picture, where that block shows its custom footswitch label "Godzilla")
+        script = text('focus_view.js')
+        self.assertIn('y: Math.round(box.y + (row + .4) * box.h / 2)};', script)
+        self.assertNotIn('(row + .8)', script)
+        keep = between(script, 'function keepEditTab() {', '\n  }\n')
         self.assertIn("send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab-edit', clicked});", keep)
         refresh = between(script, 'function refresh(window) {', '  function select(target) {')
         self.assertIn('keepEditTab();', refresh)
