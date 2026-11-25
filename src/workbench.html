@@ -1531,11 +1531,12 @@ function card(block, picker) {
   head.append(line);
   box.append(head);
   if (picker) {
-    box.append(el('span', 'hint', 'Click a model to swap it in and hear it. Undo puts the old one back.'));
-    const row = el('div', 'btnrow'), done = el('button', 'btn pri', 'Done'), back = el('button', 'btn');
-    back.innerHTML = ICON.undo + 'Put it back'; back.title = "HX Edit's own Undo (Ctrl+Z)";
-    done.onclick = closePicker; back.onclick = () => ask('undo');
-    row.append(done, back); box.append(row);
+    // (no undo button of its own: the old one was HX Edit's plain Undo, which undid whatever came last, also a change on another block
+    // (Nick, 2026-11-25); the top bar's Undo and Redo are the only ones)
+    box.append(el('span', 'hint', 'Click a model to swap it in and hear it. The top bar’s Undo puts the old one back.'));
+    const row = el('div', 'btnrow'), close = el('button', 'btn pri', 'Close');
+    close.onclick = closePicker; close.title = 'Close the picker (Esc)';
+    row.append(close); box.append(row);
     return box;
   }
   const row = el('div', 'btnrow'), change = el('button', 'btn pri');

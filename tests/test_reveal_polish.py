@@ -259,5 +259,24 @@ class ImmediatePickTests(unittest.TestCase):
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', sel)
 
 
+class PickerCardTests(unittest.TestCase):
+    def test_a9_the_pickers_card_has_close_only_and_no_undo_of_its_own(self):
+        # ("Put it back" was HX Edit's plain Undo: live 2026-11-25 it undid a compressor change on another path)
+        page = text('workbench.html')
+        self.assertNotIn('Put it back', page)
+        self.assertEqual(page.count("ask('undo')"), 1)                       # (the top bar's Undo only)
+        self.assertIn("$('undo').onclick = () => ask('undo');", page)
+        card = between(page, '  if (picker) {', '    return box;')
+        self.assertIn("close = el('button', 'btn pri', 'Close');", card)
+        self.assertIn('close.onclick = closePicker;', card)
+        self.assertNotIn("'Done'", card)
+        self.assertIn('The top bar’s Undo puts the old one back.', card)
+        # the card is drawn by the picker dialog only (the Workbench and the stage's dock); Classic+'s Edit area has none
+        self.assertEqual(page.count('card(block, true)'), 1)
+        self.assertIn('card(block, true)', between(page, 'function drawPicker(block) {', '\n}'))
+        # what a click on a model does is not changed here (B10)
+        self.assertIn("ask('model', {dsp: block.dsp, id: block.id, symbol});", page)
+
+
 if __name__ == '__main__':
     unittest.main()
