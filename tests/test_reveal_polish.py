@@ -827,6 +827,7 @@ class PreviewTargetTests(unittest.TestCase):
     its target there with a click on HX Edit's chain, and the Workbench keeps showing its own block."""
 
     STUBS = """
+const AUDITION_SLOT = 128;
 let active = {navigation: true, id: 1}, command = null, workflowRequest = null, toneImport = null;
 const traces = [], replies = [];
 const send = m => traces.push(m), reply = (r, v) => replies.push(v), publishTarget = () => {};
@@ -996,6 +997,83 @@ out
         for bad in ('target:2:block3', 'target:0:split', 'target:0:block123', 'target:0:block1;end'):
             self.assertFalse(preview.tone_action(bad))
         self.assertEqual(put, ['target:1:block3'])
+
+
+class PreviewLiveFixTests(unittest.TestCase):
+    """The live check of 671e369 (2026-11-25 15:4x, owner-trials 20261125-154143-d7fe4b41): F1 a Workbench knob turn
+    ended the preview, F2 the tray's card stayed on "Playing on", F3 "Select a NAM block" with a block chosen, F4 Undo
+    right after a preview left the block on the emptied slot 128."""
+
+    def test_f1_the_refresh_write_is_only_for_the_block_hx_edit_has_selected(self):
+        script = text('focus_view.js')
+        finish = between(script, '  function finish(target, dsp, id, key, value) {', '\n  }\n')
+        self.assertIn("targetBinding.peekGlobal(target, 'global', '@cursor_dsp') === dsp && targetBinding.peekGlobal(target, 'global', '@cursor_group') === id", finish)
+        self.assertIn("stage: 'refresh-skipped'", finish)
+        self.assertLess(finish.index("stage: 'refresh-skipped'"), finish.index("setValue(target, dsp, id, key, value, 'refresh')"))
+        binding = text('target_binding.js')
+        self.assertIn('refresh: 0x40000000', binding)
+
+    def test_f1_hx_edits_setter_moves_its_cursor_only_with_the_refresh_flag(self):
+        exe = Path(r'E:\Dev\HelixNam\research\hx-edit-nam-review\floor-port\navigation-build-20261112\live\app\HX Edit.exe')
+        if not exe.is_file():
+            self.skipTest('HX Edit.exe is not here')
+        data = exe.read_bytes()
+        # (0x5178c0 + image base 0x400000; .text: file offset = rva - 0x1000 + 0x400)
+        at = lambda rva: data[rva - 0x1000 + 0x400:]
+        self.assertTrue(at(0x5178c0).startswith(bytes.fromhex('558bec6aff')))
+        # flags & 0x40000000 kept at [ebp-0x34] ...
+        self.assertTrue(at(0x5178f0).startswith(bytes.fromhex('8bc1250000')))
+        # ... and the "@cursor_dsp" write is behind "cmp [ebp-0x34], 0; je" (0x518108)
+        self.assertTrue(at(0x518108).startswith(bytes.fromhex('837dcc00')))
+        self.assertEqual(at(0x5181d0)[:5], bytes.fromhex('68742fcb00'))      # push "@cursor_dsp"
+
+    def test_f2_an_ended_preview_ends_the_trays_card_and_the_strip_keeps_the_blocks_name(self):
+        tone = text('tone_view.js')
+        self.assertIn('active.previewEnds = (active.previewEnds || 0) + 1;', tone)
+        self.assertIn('ends: active.previewEnds || 0,', between(tone, '  function publishTarget(', '  function observeController('))
+        preview = text('tone_preview.py')
+        ended = between(preview, "ends = state.get('ends')", "if state.get('version') == self.navigation_state.get('version'):")
+        self.assertIn("tray_now['trial'] = None", ended)
+        self.assertIn('slot, free_slots, kept = None, [], None', ended)
+        self.assertIn('tray_out()', ended)
+        piece = between(tone, '  let previewHold = null;', '  function parameterPanel(')
+        out = run_js_source(PreviewTargetTests.STUBS + piece, '''(() => {
+          const nams = [{dsp: 1, id: 'block2', slot: 10}];
+          steerPreview({nams, cursor: {dsp: 1, id: 'block2'}});
+          const before = active.steer.target.name;
+          steerPreview({nams: [{dsp: 1, id: 'block2', slot: 128}], cursor: {dsp: 1, id: 'block2'}});
+          return [before, active.steer.target.name];
+        })()''')
+        self.assertEqual(out, ['Klon Gain=0', 'Klon Gain=0'])
+
+    def test_f3_a_chosen_block_is_named_not_select_a_nam_block(self):
+        tone = text('tone_view.js')
+        publish = between(tone, '  function publishTarget(', '  function observeController(')
+        self.assertIn("steer?.target ? `Pick a tone to hear it on ${steer.target.name}, Path ${steer.target.dsp + 1}.` :", publish)
+        self.assertLess(publish.index('steer?.target ?'), publish.index("'Select a NAM block to audition.'"))
+        preview = text('tone_preview.py')
+        self.assertIn("text.startswith('Select a NAM block')", preview)
+        self.assertIn("nav_said[0] = state.get('text') or ''", preview)
+
+    def test_f4_undo_and_redo_step_over_a_finished_previews_own_steps(self):
+        code = ('[focusPreviewSteps({from: 5, to: 7}, 7, 33, true, false), focusPreviewSteps({from: 31, to: 1, tainted: true}, 1, 33, true, false),'
+                ' focusPreviewSteps({from: 5, to: 7}, 6, 33, true, false), focusPreviewSteps({from: 5, to: 7}, 5, 33, false, true),'
+                ' focusPreviewSteps({from: 5, to: 7}, 5, 33, false, false), focusPreviewSteps({from: 5, to: 20}, 20, 33, true, false),'
+                ' focusStepsGone({from: 5, to: 7}, 6, 33), focusStepsGone({from: 5, to: 7}, 9, 33), focusStepsGone({from: 5, to: 7}, 4, 33),'
+                ' focusStepsGone({from: 5, to: 7}, 7, 33)]')
+        self.assertEqual(run_js(['focus_view.js'], code), [
+            {'count': 2, 'tainted': False}, {'count': 3, 'tainted': True}, None, {'count': 2, 'tainted': False}, None, None,
+            True, False, True, False])
+        script = text('focus_view.js')
+        undo = between(script, "} else if (command.action === 'redo' || command.action === 'undo') {", "} else if (command.action === 'splitType') {")
+        self.assertIn('const over = previewStepsAt(undoing);', undo)
+        self.assertIn('for (let i = 0; i < over.count; i++) step();', undo)
+        self.assertIn('if (!over.tainted)', undo)
+        self.assertIn("stage: 'undo-preview-steps'", undo)
+        tone = text('tone_view.js')
+        self.assertIn("previewSteps = {from: origin.undo, to: after, tainted: !!active.previewTainted, context: contextVersion, at: Date.now()};", tone)
+        self.assertIn('previewSteps = null;                   // (a new preview', tone)
+        self.assertIn('previewSteps: () => previewSteps && previewSteps.context === contextVersion ? {...previewSteps} : null,', tone)
 
 
 if __name__ == '__main__':

@@ -305,6 +305,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // position before it (from) and after its step back (to). The Workbench's unsaved mark moves from one to the other
   // (focus_view state.previewEnded; workbench_layout workbenchPreviewMark).
   let previewEnd = null;
+  // Every preview that ended with its block back on its own capture: HX Edit's undo positions before its step to 128
+  // (from) and after its step back (to), whatever was changed in between (tainted). HX Edit keeps both steps, so its
+  // Undo right after a preview undid only the step back and left the block on the emptied slot 128 (live 2026-11-25
+  // 15:49:50, older than the preview target work). The Workbench's Undo / Redo step over them as one (focus_view).
+  let previewSteps = null;
   // The names this editor gave its own previews in User IR 128 (each carries a random tag: nam_convert
   // stage_tone_import), kept by the launcher (floor_memory previews) from one launch to the next: a
   // leftover of ours found in 128 is replaced without asking (floorPreviewPlan).
@@ -512,6 +517,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       blockModel: bound ? boundModel() : null, blockSlot: bound ? boundSlot() : null,
       selected: selected ? selected.label : '', canBind: payloadCanBind(selected),
       preview: !!active.transfer || !!active.orphanTransfer || !!active.pendingTransfer, quarantined: !!active.quarantined,
+      ends: active.previewEnds || 0,
       text: text || (bound ? active.transfer ? 'Auditioning in User IR 128. Input and EQ stay with this block.' :
         active.onPreviewSlot ? 'This block is still on the preview slot (User IR 128). Pick a capture for it in the NAM tab, then preview.' :
         'Ready to audition on this NAM block.' :
@@ -521,6 +527,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         // block the card said "Select a NAM block" while Preview worked (Floor, November 13).
         payloadCanBind(selected) ? 'Ready to audition on the selected NAM block.' :
         steer?.none ? 'This preset has no NAM block: add one to hear a tone here.' :
+        steer?.target ? `Pick a tone to hear it on ${steer.target.name}, Path ${steer.target.dsp + 1}.` :
         steer?.ask ? 'Which block should play it? Choose one of the preset’s NAM blocks.' :
         'Select a NAM block to audition.') };
     // Native control notifications often repeat without changing the target.
@@ -686,6 +693,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     return steerNames.get(slot);
   }
+  // A block's name in the chooser: its capture's, kept per block while it plays a preview from slot 128 (which has no
+  // name of its own: live 2026-11-25 the strip read "NAM · Path 2" after a preview on the Jcm800 block).
+  const steerBlockNames = new Map();
+  function blockName(b) {
+    const key = b.dsp + ':' + b.id;
+    if (b.slot === AUDITION_SLOT && steerBlockNames.has(key)) return steerBlockNames.get(key);
+    const name = steerName(b.slot);
+    if (b.slot !== AUDITION_SLOT && name !== 'NAM') steerBlockNames.set(key, name);
+    return name;
+  }
   function steerPreview(reading) {
     // reading: {nams: [{dsp, id, slot}] (the preset's NAM blocks), cursor: {dsp, id} or null (HX Edit's own)}.
     // Returns {page, click}: the block the Workbench shows, and one to click on HX Edit's chain now (or null).
@@ -716,7 +733,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     const nams = (reading.nams || []).filter(b => b && [0, 1].includes(b.dsp) && /^block\d{1,2}$/.test(b.id))
       .map(b => ({dsp: b.dsp, id: b.id, slot: Number.isInteger(b.slot) ? b.slot : null, lane: b.path === 1 ? 1 : 0,
-                  position: Number.isInteger(b.position) ? b.position : null, name: steerName(b.slot)}));
+                  position: Number.isInteger(b.position) ? b.position : null, name: blockName(b)}));
     const page = previewHold ? previewHold.page : cursor;
     if (active.choice && !nams.some(b => sameBlock(b, active.choice))) active.choice = null;
     const own = nams.find(b => sameBlock(b, page));
@@ -4183,6 +4200,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (previous && previous !== transfer) namView.clearPreview(previous);
       active.model = active.tile.block;      // the block is the tile's model now
       active.undoAfter = undoIndex();
+      previewSteps = null;                   // (a new preview: the last one's steps are not where they were)
       rememberPreview();
       return { slot: transfer.slot, freeSlots: namView.freeSlots(transfer.slot) };
     }, 3500);
@@ -4393,6 +4411,16 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       forgetPreview();
       // (the block plays its own capture again: the preview's two steps (to 128, back) count for nothing when nothing
       // else was changed meanwhile; the Workbench's unsaved mark moves past them, previewEnded)
+      if (keep === origin.slot && !origin.structural && Number.isInteger(origin.undo)) {
+        let after = null;
+        try { after = undoIndex(); } catch (_) { after = null; }
+        if (Number.isInteger(after) && after !== origin.undo) {
+          previewSteps = {from: origin.undo, to: after, tainted: !!active.previewTainted, context: contextVersion, at: Date.now()};
+          send({type:'toneTrace', reason:'preview-steps', from: origin.undo, to: after, tainted: previewSteps.tainted});
+        }
+      }
+      // (the block's own capture again, and its preview's count of ended previews: the tray's card follows it)
+      active.previewEnds = (active.previewEnds || 0) + 1;
       if (keep === origin.slot && !origin.structural && Number.isInteger(active.undoAfter)) {
         active.previewChain = active.undoAfter + 1;
         if (['end', 'close', 'autoEnd'].includes(request.action) && !active.previewTainted) {
@@ -4974,6 +5002,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   listen();
   return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook,
            previewEnded: () => previewEnd,
+           // the last ended preview's own undo steps, while they are still the ones in HX Edit's history (focus_view)
+           previewSteps: () => previewSteps && previewSteps.context === contextVersion ? {...previewSteps} : null,
+           forgetPreviewSteps: () => { previewSteps = null; },
            // Which block a TONE3000 preview plays on, while a pane covers HX Edit (steerPreview, pagePick).
            steerPreview: reading => { try { return steerPreview(reading); } catch (error) {
              send({type:'toneTrace', reason:'preview-target', stage:'failed', error:String(error.message)}); return null; } },

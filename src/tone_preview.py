@@ -660,6 +660,8 @@ class TonePreview:
                 tray_out()
 
         waiting_tone = [False]      # a tone clicked while the tray asked which block plays it
+        ends_seen = [0]             # previews ended, as the session counts them (tone_view.js "ends")
+        nav_said = ['']             # the last unbound line the session gave (replaced once a block is bound)
 
         def tray_out():
             if self.workbench or self.bounds_override is None or not self.workbench_sink:
@@ -1299,12 +1301,29 @@ class TonePreview:
                         status(text)
                 if 'navigation' in action:
                     state = action['navigation']
+                    ends = state.get('ends')
+                    if isinstance(ends, int) and not isinstance(ends, bool) and ends > ends_seen[0]:
+                        # a preview ended, by Stop or by itself (another block selected, a snapshot, a preset): the
+                        # tray's card is no longer "Playing on" (live 2026-11-25 15:50:21 it still was after an auto-end)
+                        ends_seen[0] = ends
+                        if not state.get('preview'):
+                            slot, free_slots, kept = None, [], None
+                            if tray_now is not None:
+                                tray_now['trial'] = None
+                            tray_out()
                     if state.get('version') == self.navigation_state.get('version'):
                         if not state.get('bound'):
                             free_slots = []
                             if not state.get('preview'):
                                 slot = None
-                        status(state.get('text') or '' if not state.get('bound') else text)
+                        if not state.get('bound'):
+                            nav_said[0] = state.get('text') or ''
+                            status(nav_said[0])
+                        else:
+                            # (bound now: an earlier "Select a NAM block…" line gives way to the session's own)
+                            stale = not text or text == nav_said[0] or text.startswith('Select a NAM block') or \
+                                text.startswith('Tone selected for browsing')
+                            status(state.get('text') or '' if stale else text)
                         tray_out()
                         # The tone clicked while the tray asked which block plays it: heard once one is chosen.
                         if (waiting_tone[0] and state.get('bound') and not state.get('preview') and current is not None

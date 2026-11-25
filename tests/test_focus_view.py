@@ -796,7 +796,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("elif name in ('undo', 'redo'):", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("} else if (command.action === 'redo' || command.action === 'undo') {", script)
-        self.assertIn("if (command.action === 'undo') targetBinding.undo(editor); else targetBinding.redo(editor);", script)
+        self.assertIn("const step = () => { if (undoing) targetBinding.undo(editor); else targetBinding.redo(editor); };", script)
         self.assertIn('state.redo = targetBinding.canRedo(editor);', script)
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         self.assertIn("editorEntry(editor, 0xe0, 0x514bb0, 'redo')", binding)

@@ -82,6 +82,23 @@ function focusAddMade(blocks, follow, namEngines) {
                                       block.path === follow.lane && wanted(block)) || null;
 }
 
+// The last ended preview's own undo steps when HX Edit's undo position is right after them (Undo) or right before
+// them with them still to redo (Redo): {count, tainted}; else null (toneView.previewSteps).
+function focusPreviewSteps(steps, at, size, undoing, canRedo) {
+  if (!steps || !Number.isInteger(at) || !(size >= 2 && size <= 1024)) return null;
+  const count = (steps.to - steps.from + size) % size;
+  if (count < 1 || count > 8) return null;
+  if (undoing ? at !== steps.to : at !== steps.from || !canRedo) return null;
+  return {count, tainted: !!steps.tainted};
+}
+
+// A finished preview's undo steps no longer in HX Edit's history: with nothing to redo, the undo position is inside
+// them or below them (a new step made there wrote over them), or so far past them that the ring came round. Pure.
+function focusStepsGone(steps, at, size) {
+  const count = (steps.to - steps.from + size) % size, past = (at - steps.from + size) % size;
+  return past < count || past > size - 9;
+}
+
 function focusCursor(panel, dsp, group) {
   if ([0, 1].includes(dsp) && typeof group === 'string' && /^(block\d{1,2}|split|join|input[AB]|output[AB])$/.test(group)) {
     return {...(panel || {}), dsp, block: group};
@@ -375,6 +392,7 @@ function installFocusView(options, parts) {
   // changed, and every two seconds in any case.
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
+  let refreshSkips = 12;    // trace lines for refreshes left out (finish)
   let selectAsked = null;   // the page's last pick, until a reading has it selected (trace "select-shown")
   // HX Edit's own panel tab while a pane covers HX Edit: traced on each change ("hx-tab"), and put back on EDIT when it is
   // on BYPASS/CONTROLLER ASSIGN ("hx-tab-edit"), at most once a second: the panes have their own Bypass and
@@ -574,9 +592,20 @@ function installFocusView(options, parts) {
       // renameSnapshot: one undo step; Save keeps it, as any other change). A preset's name is not renamed here.
       targetBinding.renameSnapshot(editor, command.index, command.name);
     } else if (command.action === 'redo' || command.action === 'undo') {
-      // HX Edit's own Undo / Redo (target_binding undo, redo: the Edit menu's entries), as the page's buttons ask
-      const began = Date.now();
-      if (command.action === 'undo') targetBinding.undo(editor); else targetBinding.redo(editor);
+      // HX Edit's own Undo / Redo (target_binding undo, redo: the Edit menu's entries), as the page's buttons ask.
+      // Right after a preview (or right before it, for Redo) its own steps (to slot 128 and back) are stepped over as
+      // one, with the change before them when nothing else was changed during the preview: one Undo undid only the
+      // step back and left the block on the emptied slot 128 (live 2026-11-25 15:49:50).
+      const began = Date.now(), undoing = command.action === 'undo';
+      const step = () => { if (undoing) targetBinding.undo(editor); else targetBinding.redo(editor); };
+      const over = previewStepsAt(undoing);
+      if (over) {
+        for (let i = 0; i < over.count; i++) step();
+        let more = false;
+        if (!over.tainted) { try { more = !!(undoing ? targetBinding.canUndo(editor) : targetBinding.canRedo(editor)); } catch (_) { more = false; } }
+        if (more) step();
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-preview-steps', action: command.action, count: over.count, tainted: over.tainted, more});
+      } else step();
       if (undoAsked) undoAsked.call = Date.now() - began;
     } else if (command.action === 'splitType') {
       // The split's type (Split Y, A/B, Crossover, Dynamic): its model, written as HX Edit's panel writes a model.
@@ -661,9 +690,30 @@ function installFocusView(options, parts) {
     changed = true;
     send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-set', slot: follow.slot});
   }
+  function previewStepsAt(undoing) {
+    try {
+      const steps = toneView.previewSteps ? toneView.previewSteps() : null;
+      if (!steps) return null;
+      return focusPreviewSteps(steps, editor.add(0x294).readS32(), editor.add(0x290).readS32(), undoing,
+                               undoing ? true : !!targetBinding.canRedo(editor));
+    } catch (_) { return null; }
+  }
   function finish(target, dsp, id, key, value) {
     // After a single change or a drag's end: the same value once more, for HX Edit's own views only.
     if (!notify) return;
+    // Only for the block HX Edit itself has selected (the only one its parameter view shows). A write with this flag
+    // also moves HX Edit's own cursor to the block written (its setter 0x5178c0 writes global "@cursor_dsp" and
+    // "@cursor_group" at 0x9181d0 only when 0x40000000 is set, as its Undo selects the block it undoes), so a refresh of
+    // another block selected that block in HX Edit: live 2026-11-25 15:49:32 a Bass turn on the Workbench's block
+    // ended the TONE3000 preview on its target (selection-changed). The value itself was written before, as always.
+    let shown = false;
+    try {
+      shown = targetBinding.peekGlobal(target, 'global', '@cursor_dsp') === dsp && targetBinding.peekGlobal(target, 'global', '@cursor_group') === id;
+    } catch (_) { shown = false; }
+    if (!shown) {
+      if (refreshSkips-- > 0) send({type: 'toneTrace', reason: 'focus-view', stage: 'refresh-skipped', dsp, block: id, key});
+      return;
+    }
     try { targetBinding.setValue(target, dsp, id, key, value, 'refresh'); }
     catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'refresh-failed', error: String(error.message)}); }
   }
@@ -903,6 +953,15 @@ function installFocusView(options, parts) {
         undoAsked = null;
       }
       if (Number.isInteger(state.undoAt)) lastUndoAt = state.undoAt;
+      // (a preview's steps are forgotten once HX Edit's history no longer holds them: a new step made at or below them,
+      // which ends what could be redone, or the ring of records come round)
+      try {
+        const steps = toneView.previewSteps ? toneView.previewSteps() : null, size = state.undoSize || 33;
+        if (steps && Number.isInteger(state.undoAt) && state.redo === false && focusStepsGone(steps, state.undoAt, size)) {
+          toneView.forgetPreviewSteps();
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'preview-steps-forgotten', at: state.undoAt, from: steps.from, to: steps.to});
+        }
+      } catch (_) { /* nothing to forget */ }
       // (what HX Edit's Edit menu would offer, on each change: after a preset load it says whether HX Edit cleared its
       // history; one line per change)
       const canWord = state.undo + '/' + state.redo;
@@ -1151,5 +1210,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
+  module.exports = { focusStepsGone, focusPreviewSteps, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
 }
