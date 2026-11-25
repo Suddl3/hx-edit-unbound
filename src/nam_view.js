@@ -149,9 +149,10 @@ function presetIrSlots(tree, irParameters) {
 // The IR slots a preset uses, for the record of opened presets (the warning before a Clear):
 // every IR parameter of every known IR block, and snapshot values of those parameters. Anything
 // else is skipped, not refused; the Clear protection of the current preset keeps presetIrSlots.
-function presetIrSlotsLenient(tree, irParameters) {
+function presetIrSlotsLenient(tree, irParameters, last = 127) {
+  // (last: the highest slot counted; 127 for the record of what each preset uses, 128 for a Clear's check)
   const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-  const slotOf = value => { const slot = record(value) ? value['@value'] : value; return Number.isInteger(slot) && slot >= 1 && slot <= 127 ? slot : null; };
+  const slotOf = value => { const slot = record(value) ? value['@value'] : value; return Number.isInteger(slot) && slot >= 1 && slot <= last ? slot : null; };
   const parametersOf = node => {
     const model = record(node) ? node['@model'] : undefined;
     return typeof model === 'string' ? irParameters[model] ?? irParameters[model.replace(/(Mono|Stereo)$/, '')] ?? [] : [];
@@ -1500,6 +1501,22 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     }
   }
 
+  // The IR slots the loaded preset uses, for a Clear (the Workbench's Floor slots and a preview's own clean-up):
+  // the lenient reader with 128 counted. The strict presetIrSlots refuses whole preset shapes it does not know
+  // ("unsupported-global-node", live checks 2026-11-24 10:43 and 11:47), so nothing could ever be cleared on them.
+  // {slots: Set} or {reason}.
+  function presetSlotsForClear() {
+    const raw = readCurrentPreset(true, true);
+    if (!raw?.tree) return {reason: String(raw?.reason || 'unreadable')};
+    return presetIrSlotsLenient(raw.tree, irParameters, AUDITION_SLOT);
+  }
+  // 'used' | 'unused' | 'unknown' (the preset cannot be read right now: busy, changing, no editor).
+  function presetSlotUse(slot) {
+    const preset = presetSlotsForClear();
+    if (!(preset?.slots instanceof Set)) return 'unknown';
+    return preset.slots.has(slot) ? 'used' : 'unused';
+  }
+
   // --- Which presets use each IR slot, learned as presets are opened ---
   // HX Edit keeps the loaded preset's header as the Floor sent it, packed as MessagePack, at
   // [[editor+0x140]+0x3c]: {0x66: n, 0x67: n, 0x68: {0x6b: setlist, 0x6c: preset, 0x6d: name, …}}
@@ -1938,6 +1955,24 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     libraryReady, discoverySnapshot, exportDiscoverySlot, profileLabel,
     flushInventoryPresentation, needsInventoryPresentation,
     slotEpoch: () => slotLedger?.epoch() || 0,
+    plainIrs() {
+      // The Floor's plain IRs as HX Edit's IR list has them: [{slot, name}] of the used rows, without the slots that
+      // hold a capture (the NAM library's profiles and the slot check's record) and the audition slot. Read-only, the
+      // rows read as the slot check reads them. (The Workbench's IRs drawer.)
+      const list = irList(), result = [];
+      if (list.isNull()) return result;
+      const captureSlots = new Set(slotLedger ? [...slotLedger.entries()].map(([slot]) => slot) : []);
+      for (let slot = 1; slot < AUDITION_SLOT; slot++) {
+        if (Object.hasOwn(profiles, slot) || captureSlots.has(slot)) continue;
+        const row = getIrRow(list, slot - 1);
+        if (row.isNull()) break;
+        if (!row.add(0x10c).readU32()) continue;
+        let name = '';
+        try { name = row.readUtf8String() || ''; } catch (_) { name = ''; }
+        result.push({slot, name: name.slice(0, 64) || 'IR ' + slot});
+      }
+      return result;
+    },
     installedCaptures() {
       // Captures of this PC's library that are on the Floor now, by verified slot: for the NAM
       // category's model list. [{slot, name, gear, icon}], lowest slot first (icon: capture_icons id).
@@ -2143,7 +2178,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       const row = getIrRow(list, transfer.slot - 1);
       if (row.isNull() || !row.add(0x10c).readU32()) return '';
       const name = row.readUtf8String();
-      return name === transfer.name || (name.length >= 31 && transfer.name.startsWith(name)) ? name : '';
+      // (HX Edit stores a character outside printable ASCII as "?": a name staged with one, an en dash say, is still
+      // ours; live check 2026-11-24 10:43. Staged names are plain ASCII since: nam_convert ascii_name.)
+      const plain = String(transfer.name).replace(/[^\x20-\x7e]/g, '?');
+      return [transfer.name, plain].some(wanted => name === wanted || (name.length >= 31 && wanted.startsWith(name))) ? name : '';
     },
     registerProfile(transfer) {
       const name = this.previewName(transfer);
@@ -2162,25 +2200,25 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       return !!this.previewName(transfer) && setModelSlot(transfer.slot);
     },
     canClearPreview(transfer) {
-      return !!transfer && !!this.previewName(transfer) && previewSlotUnused(readCurrentPreset(), transfer.slot);
+      return this.previewUse(transfer) === 'unused';
     },
     previewUse(transfer) {
       // Whether the current preset references this session's preview slot: 'unused' (safe to
       // clear), 'used', or 'unknown' when the slot is not ours by name or the preset cannot be
-      // read right now (busy, changing, or a shape presetIrSlots does not support).
-      if (!transfer || !this.previewName(transfer)) return 'unknown';
-      const preset = readCurrentPreset();
-      if (!(preset?.slots instanceof Set)) return 'unknown';
-      return preset.slots.has(transfer.slot) ? 'used' : 'unused';
+      // read right now (busy, changing). The same check as the Floor slots' Clear (presetSlotsForClear).
+      if (!transfer || !Number.isInteger(transfer.slot) || !this.previewName(transfer)) return 'unknown';
+      return presetSlotUse(transfer.slot);
     },
+    // Whether the loaded preset uses this IR slot, by the Clear's check: 'used' | 'unused' | 'unknown'.
+    slotUse: slot => Number.isInteger(slot) && slot >= 1 && slot <= AUDITION_SLOT ? presetSlotUse(slot) : 'unknown',
     releaseLeftoverPreview(name) {
       // A preview left in User IR 128 by a session that ended without cleanup, known only by
       // its slot name. Cleared once the current preset no longer references the slot.
       // 'gone': 128 no longer holds it; 'used' / 'unknown': not yet; 'cleared': clear submitted.
       if (typeof name !== 'string' || !name || this.slotName(AUDITION_SLOT) !== name) return 'gone';
-      const preset = readCurrentPreset();
-      if (!(preset?.slots instanceof Set)) return 'unknown';
-      if (preset.slots.has(AUDITION_SLOT)) return 'used';
+      const use = presetSlotUse(AUDITION_SLOT);
+
+      if (use !== 'unused') return use;
       return this.clearSlot(AUDITION_SLOT) ? 'cleared' : 'unknown';
     },
     clearPreview(transfer) {
@@ -2231,6 +2269,31 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         trustedClear = false;
       }
       return true;
+    },
+    clearSlotsChecked(slots) {
+      // The Workbench's Floor slots (Batch 3): Clear, as HX Edit's own Clear of its IR list does it (the librarian's
+      // clear 0x3da2b0 through submitClear, which also tells the slot check and removes the favorites on those slots),
+      // with the same protection as that Clear: never a slot the loaded preset uses, nor while that cannot be read.
+      // The Workbench has asked the player first. {cleared: slots} or {refused: 'bad' | 'not-ready' | 'unknown' | 'used'}.
+      if (!Array.isArray(slots) || !slots.length || slots.length > AUDITION_SLOT || new Set(slots).size !== slots.length ||
+          !slots.every(slot => Number.isInteger(slot) && slot >= 1 && slot <= AUDITION_SLOT)) return {refused: 'bad'};
+      const librarian = irController.isNull() ? NULL : irController.add(0x270).readPointer();
+      if (librarian.isNull()) return {refused: 'not-ready'};
+      // (live check 2026-11-24 10:43: the strict reader refuses whole preset shapes it does not know,
+      // "unsupported-global-node", so nothing could be cleared. The lenient one reads the blocks' IR slots and
+      // snapshot-controlled ones of any preset; with 128 too. The Workbench also checks the blocks it reads itself.)
+      const preset = presetSlotsForClear();
+      if (!(preset?.slots instanceof Set)) return {refused: 'unknown', reason: preset?.reason || ''};
+      const used = slots.filter(slot => preset.slots.has(slot));
+      if (used.length) return {refused: 'used', slots: used};
+      const sorted = [...slots].sort((a, b) => a - b), index = Memory.alloc(4 * sorted.length);
+      sorted.forEach((slot, i) => index.add(4 * i).writeU32(slot - 1));
+      // (the same vector as clearSlot's, of these slots: {vt, grow, data, capacity, first, end})
+      const vector = Memory.alloc(24);
+      vector.writePointer(address(0x8bb0dc)); vector.add(4).writeU32(1); vector.add(8).writePointer(index);
+      vector.add(12).writeU32(sorted.length); vector.add(16).writeU32(0); vector.add(20).writeU32(sorted.length);
+      submitClear(librarian, vector, sorted);
+      return {cleared: sorted};
     },
     previewSlotEmpty(transfer) {
       if (!transfer.controller.equals(irController)) return false;

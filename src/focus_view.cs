@@ -1,4 +1,5 @@
-// Focus Mode's pane: one WebView2 window, a child of HX Edit's main window, showing focus_view.html.
+// Focus Mode's pane, and the Workbench's: one WebView2 window, a child of HX Edit's main window, showing focus_view.html
+// (or workbench.html, the page it is given).
 // focus_view.py starts it and talks to it over its standard input and output:
 //
 //   FocusView.exe <parent window handle, 0 = its own window> <profile folder> <page url> <host=folder>...
@@ -30,8 +31,10 @@ sealed class FocusView : Form
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr hwnd);
     [DllImport("user32.dll")] static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extra);
+    [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
 
-    // The page's undo and redo buttons: HX Edit's own Ctrl+Z and Ctrl+Shift+Z (its Edit menu's keys), typed into
+    // The page's save button: HX Edit's own Ctrl+S (its File menu's key), typed into
     // HX Edit's window (the keyboard goes there first), so HX Edit undoes exactly as it does for the user. Nothing
     // for a pane with no HX Edit.
     void PressInEditor(byte key, bool shift)
@@ -46,6 +49,66 @@ sealed class FocusView : Form
         keybd_event(0x11, 0, 2, UIntPtr.Zero);
     }
 
+    // The Presets view's Export buttons: HX Edit's own File menu commands, posted to its window as its menu (and its
+    // Ctrl+E / Ctrl+Alt+E) sends them; HX Edit then opens its own save dialog. Only these two (HX Edit 3.82's menu
+    // resource: 32781 "Export Preset...", 32783 "Export Setlist..."): nothing on the Floor changes.
+    static readonly Dictionary<string, int> Exports = new Dictionary<string, int> { { "preset", 32781 }, { "setlist", 32783 } };
+    void MenuInEditor(int command)
+    {
+        if (parent == IntPtr.Zero || !IsWindow(parent)) return;
+        PostMessage(GetAncestor(parent, 2), 0x0111, (IntPtr)command, IntPtr.Zero);   // GA_ROOT, WM_COMMAND
+    }
+
+    // The Workbench's NAM library: its files and folders are chosen here, in Windows' own dialogs over HX Edit, and only
+    // the paths go to the launcher ({"type":"action","name":"chosen","value":{kind, id, paths}}): the page itself cannot
+    // read files, and its messages are kept small. A picture is made a PNG of at most 256 px here (the library keeps
+    // only those). kind: nam (.nam files), namFolder (a folder of them), picture (an image), export (a folder).
+    sealed class DialogOwner : IWin32Window { public IntPtr Handle { get; set; } }
+    void Choose(Dictionary<string, object> value)
+    {
+        object kindValue, idValue;
+        if (value == null || !value.TryGetValue("kind", out kindValue) || !(kindValue is string)) return;
+        string kind = (string)kindValue, id = value.TryGetValue("id", out idValue) ? idValue as string : null;
+        var owner = new DialogOwner { Handle = parent == IntPtr.Zero ? Handle : GetAncestor(parent, 2) };
+        var paths = new List<string>();
+        try
+        {
+            if (kind == "nam")
+            {
+                using (var dialog = new OpenFileDialog { Filter = "NAM captures (*.nam)|*.nam", Multiselect = true, Title = "Import NAM files" })
+                    if (dialog.ShowDialog(owner) == DialogResult.OK) paths.AddRange(dialog.FileNames);
+            }
+            else if (kind == "namFolder" || kind == "export")
+            {
+                using (var dialog = new FolderBrowserDialog { Description = kind == "export" ? "Export the capture to this folder" : "Import every .nam file in this folder and its subfolders" })
+                    if (dialog.ShowDialog(owner) == DialogResult.OK) paths.Add(dialog.SelectedPath);
+            }
+            else if (kind == "picture")
+            {
+                using (var dialog = new OpenFileDialog { Filter = "Pictures (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.bmp", Title = "Choose a picture" })
+                    if (dialog.ShowDialog(owner) == DialogResult.OK)
+                        using (var image = Image.FromFile(dialog.FileName))
+                        {
+                            double scale = Math.Min(1.0, 256.0 / Math.Max(image.Width, image.Height));
+                            int w = Math.Max(1, (int)Math.Round(image.Width * scale)), h = Math.Max(1, (int)Math.Round(image.Height * scale));
+                            using (var small = new Bitmap(w, h))
+                            {
+                                using (var g = Graphics.FromImage(small))
+                                {
+                                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                                    g.DrawImage(image, 0, 0, w, h);
+                                }
+                                string made = Path.Combine(Path.GetTempPath(), "workbench-picture-" + Guid.NewGuid().ToString("N") + ".png");
+                                small.Save(made, System.Drawing.Imaging.ImageFormat.Png);
+                                paths.Add(made);
+                            }
+                        }
+            }
+        }
+        catch (Exception error) { Send(new { type = "action", name = "notice", value = "That file could not be read: " + error.Message }); return; }
+        if (paths.Count > 0) Send(new { type = "action", name = "chosen", value = new { kind = kind, id = id, paths = paths } });
+    }
+
     readonly IntPtr parent;
     readonly string profile, page;
     readonly List<KeyValuePair<string, string>> hosts;
@@ -55,7 +118,7 @@ sealed class FocusView : Form
     readonly Timer watch = new Timer { Interval = 250 };
     readonly List<string> waiting = new List<string>();   // messages for the page that came before it loaded
     Rectangle place, applied;
-    bool wanted, loaded, started, closing;
+    bool wanted, loaded, started, closing, raise = true;
 
     FocusView(IntPtr parent, string profile, string page, List<KeyValuePair<string, string>> hosts, TextWriter output)
     {
@@ -117,7 +180,7 @@ sealed class FocusView : Form
         }
         // Stay above HX Edit's other child windows (the NAM tab raises itself when it lays out):
         // SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE. The keyboard focus is never taken here.
-        if (show) SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0013);
+        if (show && raise) SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0013);
     }
 
     void Post(string message)
@@ -170,6 +233,9 @@ sealed class FocusView : Form
         object value;
         if (message.TryGetValue("close", out value) && value is bool && (bool)value) { Shutdown(); return; }
         wanted = message.TryGetValue("visible", out value) && value is bool && (bool)value;
+        // "raise": false while one of the Unbound tools sits over the Workbench's lower panel (the launcher places
+        // the tool's window there): the pane then stops raising itself above HX Edit's other child windows.
+        if (message.TryGetValue("raise", out value) && value is bool) raise = (bool)value;
         try
         {
             if (message.ContainsKey("x"))
@@ -240,8 +306,12 @@ sealed class FocusView : Form
                 object name, value;
                 if (message == null || !message.TryGetValue("name", out name) || !(name is string)) return;
                 message.TryGetValue("value", out value);
-                if ((string)name == "undo") { PressInEditor(0x5A, false); return; }      // Ctrl+Z
-                if ((string)name == "redo") { PressInEditor(0x5A, true); return; }       // Ctrl+Shift+Z
+                // (undo, redo: HX Edit's own entries, through the launcher and the script: its Ctrl+Shift+Z did not reach HX Edit while
+                // the Workbench is shown, seen 2026-11-23)
+                if ((string)name == "save") { PressInEditor(0x53, false); return; }      // Ctrl+S: HX Edit's File > Save Preset
+                if ((string)name == "choose") { Choose(value as Dictionary<string, object>); return; }
+                if ((string)name == "chosen") return;                    // (only the pane's own dialog says what was chosen)
+                if ((string)name == "export") { int command; if (value is string && Exports.TryGetValue((string)value, out command)) MenuInEditor(command); return; }
                 Send(new { type = "action", name = (string)name, value = value });
             };
             core.Navigate(page);

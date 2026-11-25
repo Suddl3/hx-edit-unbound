@@ -121,16 +121,21 @@ class FloorNativePolicyTests(unittest.TestCase):
             if i:
                 self.assertIsNotNone(outcome['error'])
 
-    def test_a_preview_only_ever_uses_slot_128_and_replaces_what_is_there(self):
-        # Owner decision, November 13: User IR 128 is the preview slot and nothing else, so an
-        # occupied 128 is replaced rather than refused. A preview still never uses another slot,
-        # and a block that is itself on 128 has nothing to return to and is refused.
+    def test_a_preview_only_ever_uses_slot_128_and_replaces_only_its_own_or_what_the_player_said(self):
+        # Owner decision, November 13: User IR 128 is the preview slot and nothing else. Batch 3 (2026-11-24): what is
+        # in it is replaced without asking only when it is a preview of ours (a name this editor gave one, kept from one
+        # launch to the next), or when the player said "Replace it and preview"; anything else is asked about once (the
+        # error carries slot 128 as the one to replace) and never replaced unasked. A preview still never uses another
+        # slot, and a block that is itself on 128 has nothing to return to and is refused.
         function = re.search(r'^function floorPreviewPlan.*?^}$', TONE, re.S | re.M).group(0)
         state = {'atTarget': True, 'deviceSaved': False, 'hasTransfer': False,
                  'sameModel': True, 'modelSlot': 9, 'empty128': True}
         script = function + f'\nconst state = {json.dumps(state)};\n' + '''
           const results = [floorPreviewPlan(state)];
-          results.push(floorPreviewPlan({...state, empty128:false}));
+          results.push(floorPreviewPlan({...state, empty128:false, name128:'Plexi a3f9c1', ours128:true}));
+          results.push(floorPreviewPlan({...state, empty128:false, name128:'Room Mic 4x12 Dark', allowed128:true}));
+          try { floorPreviewPlan({...state, empty128:false, name128:'Room Mic 4x12 Dark'}); results.push('UNSAFE'); }
+          catch (e) { results.push({asked: e.message, replace: e.replace}); }
           for (const change of [{modelSlot:128}, {atTarget:false},
                                 {deviceSaved:true}, {sameModel:false}, {modelSlot:null}]) {
             try { floorPreviewPlan({...state, ...change}); results.push('UNSAFE'); }
@@ -139,7 +144,10 @@ class FloorNativePolicyTests(unittest.TestCase):
           console.log(JSON.stringify(results));
         '''
         self.assertEqual(js(script), [{'kind': 'first', 'slot': 128, 'replace': False},
-                                      {'kind': 'first', 'slot': 128, 'replace': True}] + ['blocked'] * 5)
+                                      {'kind': 'first', 'slot': 128, 'replace': True},
+                                      {'kind': 'first', 'slot': 128, 'replace': True},
+                                      {'asked': 'Slot 128 is in use. Replace it to preview? It holds Room Mic 4x12 Dark. HX Edit Unbound has no record of putting it there.',
+                                       'replace': [[128, 'Room Mic 4x12 Dark']]}] + ['blocked'] * 5)
 
     def test_reuse_requires_same_target_and_owned_preview_and_permanent_origin(self):
         function = re.search(r'^function floorPreviewPlan.*?^}$', TONE, re.S | re.M).group(0)

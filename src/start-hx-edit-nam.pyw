@@ -164,6 +164,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     meter = None
     memory = None
     focus = None
+    workbench = None
+    frame = None
+    after_resume = []           # what runs once HX Edit is running (the Workbench, when it was left on)
     pid = device.spawn([str(exe)], cwd=str(exe.parent))
     try:
         session = device.attach(pid)
@@ -181,7 +184,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # A preview left on a block by a closed editor, and the slots already read back.
             from floor_memory import FloorMemory
             memory = FloorMemory(library.folder)
-            options.update(leftoverPreview=memory.preview(), rememberedSlots=memory.slots(),
+            # (and the names this editor gave its own previews in User IR 128: a leftover of ours is replaced without
+            # asking, anything else is asked about first; Batch 3)
+            options.update(leftoverPreview=memory.preview(), rememberedSlots=memory.slots(), ownPreviews=list(memory.previews()),
                            presetUsage=memory.presets(), pickerSides=memory.sides(),
                            favoriteSlots=memory.favorites(), favoriteLooks=memory.looks())
             # The NAM block category exists in this copy's catalog (nam_catalog.patch_nam_category).
@@ -211,15 +216,28 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 from focus_view import FocusView
                 focus = FocusView(exe.parent / 'res', settings=nam_catalog.load_settings(), trace=trace)
                 focus_options = focus.frida_options()
+                # Research only (a copy prepared with this marker file): HX Edit's own chain changes go to the trace.
+                focus_options['chainProbe'] = (exe.parent / 'res' / 'chain-probe.flag').is_file()
             except Exception as error:
                 focus = None
                 trace({'type': 'focusView', 'event': 'unavailable', 'error': str(error)})
+            # The Workbench (workbench.py): a modern view of the regular editor in the same kind of pane, reading and
+            # writing through Focus Mode's script and checks; without Focus Mode it is not offered.
+            workbench_start = False
+            if focus is not None:
+                try:
+                    from workbench import WorkbenchView, setting_on
+                    workbench = WorkbenchView(exe.parent / 'res', settings=nam_catalog.load_settings(), trace=trace)
+                    workbench_start = setting_on(nam_catalog.load_settings())
+                except Exception as error:
+                    workbench = None
+                    trace({'type': 'workbench', 'event': 'unavailable', 'error': str(error)})
             # Read-only research probes: only in a copy prepared with this marker file.
             options.update(namProbe=(exe.parent / 'res' / 'nam-probe.flag').is_file())
             before = '\n'.join((ROOT / name).read_text(encoding='utf-8') for name in
                 ('library_slot_state.js', 'automatic_slot_discovery.js', 'native_export_observer.js',
-                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js',
-                 'focus_view.js')) + '\n'
+                 'nav_banner.js', 'target_binding.js', 'nam_sidebar.js', 'dsp_meter.js', 'window_keep.js', 'menu_row.js', 'menu_dark.js',
+                 'setlists.js', 'focus_view.js')) + '\n'
             config = dict(request=uuid4().hex, repeat=True, automatic=True, requireHostMonitor=True)
             # Validate original native bytes before namView attaches to shared
             # entry points. The callback runs only after toneView exists and the
@@ -228,12 +246,18 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                           # The DSP meter is optional: a failed byte guard leaves the editor as it was.
                           "try { installDspMeter(); } catch (error) { send({type: 'dspMeter', event: 'unavailable', error: String(error.message)}); }\n"
                           # A reconnect leaves the window as the user has it (maximized stays maximized).
-                          "try { installWindowKeeper(); } catch (error) { send({type: 'windowKeeper', event: 'unavailable', error: String(error.message)}); }\n")
+                          "try { installWindowKeeper(); } catch (error) { send({type: 'windowKeeper', event: 'unavailable', error: String(error.message)}); }\n"
+                          # HX Edit's menu row may be taken off its window only while this stands in for it (window_frame.py).
+                          "try { installMenuRow(); } catch (error) { send({type: 'menuRow', event: 'unavailable', error: String(error.message)}); }\n"
+                          # HX Edit's menu row drawn dark while a pane covers its screen (window_frame.py says when).
+                          "try { installMenuDark(); } catch (error) { send({type: 'menuDark', event: 'unavailable', error: String(error.message)}); }\n")
             after = (f'\nconnectNativeExportLibrary({json.dumps(config)}, namView);'
                      '\nnamView.setLibraryOpener(window => toneView.openBrowser(window, {library:true, dockPanel:navigationBanner.dockPanel()}));'
                      '\ninstallNamSidebar(namView);'
+                     # The Workbench's setlists (setlists.js): optional; a failed byte guard leaves them out.
+                     "\nlet setlists = null; try { setlists = installSetlists(); } catch (error) { send({type: 'toneTrace', reason: 'setlists', stage: 'unavailable', error: String(error.message)}); }"
                      # Focus Mode is optional: a failed byte guard leaves the editor as it was.
-                     f"\ntry {{ installFocusView({json.dumps(focus_options)}, {{targetBinding, namView, toneView}}); }}"
+                     f"\ntry {{ installFocusView({json.dumps(focus_options)}, {{targetBinding, namView, toneView, setlists}}); }}"
                      " catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'unavailable', error: String(error.message)}); }")
         script = session.create_script(
             f"{before}{view}\n{imports}\n{tone}\n{initialize}const namView = installNamView({json.dumps(profiles)}, {sidebar_width()}, {json.dumps(ir_parameters(exe.parent / 'res'))}, {json.dumps(options)});"
@@ -286,6 +310,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         script.post({'type': 'chainOption', 'payload': {'name': name, 'on': on}})
                 elif name == 'focusMode':
                     focus_mode(not focus_on[0])
+                elif name == 'workbench':
+                    workbench_mode(True)
                 elif name == 'chainArt':
                     on = not chain_art[0]
                     chain_art[0] = on
@@ -297,6 +323,65 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             # It starts off with every launch, and the page's own "Editor" button turns it off the same way.
             focus_on = [False]
             focus_missing = [False]     # its script did not install (a byte guard): the menu item says so
+            # The Workbench, on or off (settings.json "workbench", kept from one launch to the next). It is shown while
+            # it is on and Focus Mode is not: Focus Mode's "Editor" button comes back to it, and the two panes never
+            # stand over each other. HX Edit's own toolbar items (the meter, the Unbound button) step aside for either.
+            workbench_on = [False]
+            # HX Edit's window frame while either pane covers its screen (window_frame.py): a dark title bar. Its menu
+            # row stays unless settings.json "workbenchMenuBar" is false (the Workbench's menu has the switch). With
+            # the row away HX Edit's window comes back one row taller at the next launch: the frame keeps the
+            # window's size (settings.json "hxWindowSize") and gives it its height back.
+            # The row goes only once menu_row.js said it stands in for it ("menuRow" ready, below): without that HX
+            # Edit ignores its own Save. A failure there never stops a pane from showing.
+            from window_frame import MENU_BAR, WINDOW_SIZE, WindowFrame
+            def menu_bar_kept():
+                return nam_catalog.load_settings().get(MENU_BAR) is not False
+            def frame_kept(handle):
+                if not detached.is_set():
+                    script.post({'type': 'menuRow', 'payload': {'kept': handle}})
+            def frame_dark(window, on):
+                if not detached.is_set():
+                    script.post({'type': 'menuDark', 'payload': {'window': int(window) & 0xffffffff, 'on': bool(on)}})
+            frame = WindowFrame(trace=trace, on_kept=frame_kept, on_dark=frame_dark,
+                                size=nam_catalog.load_settings().get(WINDOW_SIZE),
+                                on_size=lambda size: nam_catalog.save_setting(WINDOW_SIZE, size))
+            def layout_kept():
+                # the Workbench's layout (Batch 4), settings.json "workbenchLayout"; the Workbench when it cannot be read
+                try:
+                    from workbench import layout_of
+                    return layout_of(nam_catalog.load_settings())
+                except Exception:
+                    return 'workbench'
+            def menu_options():
+                return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept(), 'layout': layout_kept()}
+            def frame_show():
+                try:
+                    frame.apply(focus_on[0] or workbench_on[0], menu_bar_kept())
+                except Exception as error:
+                    trace({'type': 'windowFrame', 'event': 'failed', 'error': str(error)})
+            def workbench_show():
+                shown = workbench_on[0] and not focus_on[0]
+                if not shown and preview is not None and preview.bounds_override is not None:
+                    preview.place_over(None)             # (a tool over the Workbench goes back over HX Edit's own panel)
+                    if workbench is not None:
+                        workbench.set_raise(True)
+                if workbench is not None:
+                    if shown:                            # (the looks may have been changed in Focus Mode meanwhile)
+                        workbench.show_look(nam_catalog.load_settings())
+                    workbench.set_on(shown)
+                meter.set_chain_option('focusMode', focus_on[0] or workbench_on[0])
+                frame_show()
+                if not detached.is_set():
+                    script.post({'type': 'focusMode', 'payload': {'pane': 'workbench', 'on': shown}})
+            def workbench_mode(on, notice=None, keep=True):
+                if on and (workbench is None or focus_missing[0]):
+                    on, notice = False, 'The Workbench is not available in this copy.'
+                workbench_on[0] = on
+                if keep:
+                    nam_catalog.save_setting('workbench', on)
+                workbench_show()
+                if notice:
+                    meter.receive({'type': 'dspNotice', 'text': notice})
             def focus_mode(on, notice=None):
                 if on and (focus is None or focus_missing[0]):
                     on, notice = False, 'Focus Mode is not available in this copy.'
@@ -310,23 +395,26 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.receive({'type': 'dspNotice', 'text': notice})
                 if not detached.is_set():
                     script.post({'type': 'focusMode', 'payload': {'on': on}})
-            def focus_load(number):
+                workbench_show()                         # back on the Workbench when it is on, or out of Focus Mode's way
+            def focus_load(number, view=None):
+                view = view or focus                     # the pane that asked (Focus Mode or the Workbench)
                 try:
                     import nam_level
                     nam_level.load_preset(number)
                 except Exception as error:               # no MIDI port, or it is busy: said in the pane
                     trace({'type': 'focusView', 'event': 'preset-load-failed', 'number': number, 'error': str(error)})
-                    focus.notice(f'Preset {number:03d} did not load. {error}')
+                    view.notice(f'Preset {number:03d} did not load. {error}')
                     return
                 for _ in range(30):                      # HX Edit follows within a moment when the Floor took it
                     time.sleep(.1)
-                    preset = (focus.state or {}).get('preset') if isinstance(focus.state, dict) else None
+                    preset = (view.state or {}).get('preset') if isinstance(view.state, dict) else None
                     if isinstance(preset, dict) and preset.get('number') == number:
                         return
-                if focus_on[0]:
+                if view.on:
                     trace({'type': 'focusView', 'event': 'preset-load-unseen', 'number': number})
-                    focus.notice(f'The Floor did not load preset {number:03d}. Check MIDI PC Receive in its Global Settings.')
-            def focus_look_save():
+                    view.notice(f'The Floor did not load preset {number:03d}. Check MIDI PC Receive in its Global Settings.')
+            def focus_look_save(view=None):
+                view = view or focus                     # the pane that asked (Focus Mode or the Workbench)
                 try:
                     import floor_store
                     from floor_memory import FloorMemory
@@ -334,43 +422,56 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                                                         nam_catalog.load_settings().get('floorLook'))
                 except Exception as error:               # no library folder, a picture folder that has gone
                     trace({'type': 'focusView', 'event': 'look-save-failed', 'error': str(error)})
-                    focus.notice(f'The file for the Floor was not saved. {error}')
+                    view.notice(f'The file for the Floor was not saved. {error}')
                     return
                 trace({'type': 'focusView', 'event': 'look-saved', 'slots': len(store['nam']['slots'])})
-                focus.notice(f"Saved for the Floor: the default backgrounds and {len(store['nam']['slots'])} capture pictures. "
+                view.notice(f"Saved for the Floor: the default backgrounds and {len(store['nam']['slots'])} capture pictures. "
                              "It goes onto the Floor with its next picture update.")
+            def pane_request(view, shown, name, value):
+                # What either pane asks of HX Edit, each request checked by the pane's driver (focus_view.FocusView)
+                # and only while that pane is shown. True when it was one of these.
+                if name == 'select' and isinstance(value, dict) and value.get('dsp') in (0, 1) and isinstance(value.get('id'), str):
+                    # A block clicked in the pane's chain: HX Edit selects it, and the pane follows.
+                    if shown and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': {'action': 'select', 'dsp': value['dsp'], 'id': value['id'][:16]}})
+                elif name in ('set', 'snapshot', 'preset', 'model', 'capture', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'rename', 'setlist'):
+                    # A knob, a switch or the bypass (inside the model's own range: view.checked_set), another snapshot,
+                    # another preset of the loaded setlist (focus_view.js first closes a drag left open, then asks back:
+                    # 'load'), or another model or a capture for the block the pane shows.
+                    check = {'set': view.checked_set, 'snapshot': view.checked_snapshot, 'preset': view.checked_preset,
+                             'model': view.checked_model, 'capture': view.checked_capture,
+                             # the Workbench's changes to the chain: a block added, removed or moved (HX Edit's own entries)
+                             'add': view.checked_add, 'remove': view.checked_remove, 'move': view.checked_move,
+                             'moveSplit': view.checked_split, 'route': view.checked_route, 'assign': view.checked_assign,
+                             'snapValue': view.checked_snap_value, 'splitType': view.checked_split_type,
+                             'ir': view.checked_ir,
+                             # the Workbench's name box: a snapshot's name in the edit buffer (one undo step)
+                             'rename': view.checked_rename,
+                             # the Workbench's setlists: another setlist looked at (HX Edit's list asked for its names)
+                             'setlist': view.checked_look}[name]
+                    command = check(value) if shown else None
+                    if command and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': command})
+                elif name in ('undo', 'redo'):
+                    # HX Edit's own Undo / Redo (its Edit menu's entries, focus_view.js), as the pane's buttons ask them.
+                    if shown and not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': {'action': name}})
+                elif name == 'load':
+                    # The preset is loaded as a footswitch or the Level tool loads it (a MIDI Program Change over
+                    # USB); HX Edit follows on its own. Nothing is saved; what was not saved in the preset left
+                    # behind is lost, as with HX Edit's own preset list.
+                    if shown and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
+                        Thread(target=focus_load, args=(value, view), daemon=True).start()
+                else:
+                    return False
+                return True
             def focus_action(name, value):
                 if name == 'exit':
                     focus_mode(False)
                 elif name == 'failed':
                     focus_mode(False, 'Focus Mode could not start.')
-                elif name == 'select' and isinstance(value, dict) and value.get('dsp') in (0, 1) and isinstance(value.get('id'), str):
-                    # A block clicked in the pane's chain strip: HX Edit selects it, and the pane follows.
-                    if focus_on[0] and not detached.is_set():
-                        script.post({'type': 'focusCommand', 'payload': {'action': 'select', 'dsp': value['dsp'], 'id': value['id'][:16]}})
-                elif name == 'set':
-                    # A knob, a switch or the bypass turned in the pane: one value of the block it shows, inside the
-                    # model's own range (focus_view.checked_set), written as HX Edit's own sliders write it.
-                    command = focus.checked_set(value) if focus is not None and focus_on[0] else None
-                    if command and not detached.is_set():
-                        script.post({'type': 'focusCommand', 'payload': command})
-                elif name == 'snapshot':
-                    # Another snapshot, chosen in the pane's top bar: recalled as HX Edit's own control does.
-                    command = focus.checked_snapshot(value) if focus is not None and focus_on[0] else None
-                    if command and not detached.is_set():
-                        script.post({'type': 'focusCommand', 'payload': command})
-                elif name == 'preset':
-                    # Another preset of the loaded setlist, from the pane's top bar (its arrows or its list).
-                    # focus_view.js first closes a drag left open on this preset, then asks back ('load').
-                    command = focus.checked_preset(value) if focus is not None and focus_on[0] else None
-                    if command and not detached.is_set():
-                        script.post({'type': 'focusCommand', 'payload': command})
-                elif name == 'load':
-                    # The preset is loaded as a footswitch or the Level tool loads it (a MIDI Program Change over
-                    # USB); HX Edit follows on its own. Nothing is saved; what was not saved in the preset left
-                    # behind is lost, as with HX Edit's own preset list.
-                    if focus is not None and focus_on[0] and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 127:
-                        Thread(target=focus_load, args=(value,), daemon=True).start()
+                elif focus is not None and pane_request(focus, focus_on[0], name, value):
+                    pass
                 elif name == 'look':
                     # Change look in the pane: a block's or a preset's own look (settings.json presetLooks), or a
                     # default (floorLook.assign, the same one the Floor look page edits). Checked by focus_view.
@@ -384,14 +485,265 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # "Save for the Floor": the file the Floor's picture tool reads, as Save on the Floor look page.
                     if focus is not None and focus_on[0]:
                         Thread(target=focus_look_save, daemon=True).start()
-                elif name in ('model', 'capture'):
-                    # Another model, or a capture, chosen from the pane's list for the block it shows.
-                    check = focus.checked_model if name == 'model' else focus.checked_capture
-                    command = check(value) if focus is not None and focus_on[0] else None
+            def workbench_panel(value):
+                # The Workbench's lower panel as the page measured it (its own pixels), in HX Edit's window: where a
+                # tool's window goes instead of HX Edit's own panel. None when it is not a sensible rectangle.
+                pane = workbench.bounds if isinstance(workbench.bounds, dict) else None
+                if not pane or not isinstance(value, dict):
+                    return None
+                found = [value.get(key) for key in ('x', 'y', 'w', 'h')]
+                if any(isinstance(n, bool) or not isinstance(n, (int, float)) for n in found):
+                    return None
+                x, y, w, h = (int(round(n)) for n in found)
+                w, h = min(w, int(pane['w']) - x), min(h, int(pane['h']) - y)
+                if x < 0 or y < 0 or w < 200 or h < 120:
+                    return None
+                return {'visible': True, 'x': int(pane['x']) + x, 'y': int(pane['y']) + y, 'w': w, 'h': h}
+            def preview_free(then, keep_workbench=False):
+                # TonePreview runs one session at a time (HX Edit's script allows one): the one open closes first,
+                # as its own Close does, then `then` runs. keep_workbench: the Workbench's own session may stay.
+                def wait():
+                    alive = preview.thread is not None and preview.thread.is_alive()
+                    if alive and not (keep_workbench and preview.workbench):
+                        preview.close_window('workbench')
+                        deadline = time.monotonic() + 8
+                        while preview.thread is not None and preview.thread.is_alive() and time.monotonic() < deadline:
+                            time.sleep(.05)
+                    then()
+                Thread(target=wait, daemon=True).start()
+            def workbench_tool_closed():
+                workbench.set_raise(True)
+                workbench.tool_closed()                      # (the page closes the frame it sat in)
+            def workbench_action(name, value):
+                if name == 'tool' and isinstance(value, dict) and value.get('name') in ('look', 'level', 'library', 'tone'):
+                    # A tool from the Workbench's rail, over its lower panel (the Workbench stays): its window is placed
+                    # there (TonePreview.place_over) and the pane stops raising itself above it until it closes.
+                    place = workbench_panel(value)
+                    trace({'type': 'workbench', 'event': 'tool', 'name': value['name'], 'place': place, 'pane': workbench.bounds})
+                    if preview is None or place is None or (value['name'] == 'level' and not preview.level):
+                        workbench_mode(False)                    # (as before: the tool opens on HX Edit's own screen)
+                        if value['name'] == 'tone':
+                            sidebar_action('catalog', '')
+                        else:
+                            unbound_choice(value['name'])
+                        return
+                    def open_tool():
+                        preview.on_browser_closed = workbench_tool_closed
+                        preview.place_over(place)
+                        workbench.set_raise(False)
+                        if value['name'] == 'tone':
+                            sidebar_action('catalog', '')
+                        else:
+                            unbound_choice(value['name'])
+                    if preview.workbench_open():
+                        preview_free(open_tool)              # (the Workbench's Levels session closes first)
+                    else:
+                        open_tool()
+                    return
+                if name == 'levels' and isinstance(value, dict):
+                    # The Workbench's own Levels page (nam_level_flow.LevelFlow in a session without a window,
+                    # TonePreview.WorkbenchSession): open, close, or one of the library page's own Level commands,
+                    # which the session checks as it checks them from that page.
+                    if preview is None or not preview.level or not workbench_on[0] or focus_on[0]:
+                        return
+                    do, argument = value.get('do'), value.get('arg')
+                    page = value.get('page') if value.get('page') in SESSION_PAGES else 'level'
+                    if do == 'open':
+                        # (one session for either page: the NAM library's Floor actions run in it too)
+                        if preview.workbench_open():
+                            preview.workbench_action('levelOpen' if page == 'level' else 'library')
+                        else:
+                            preview_free(lambda: sidebar_action('workbench', page))
+                    elif do == 'close':
+                        if preview.workbench_open():
+                            preview.close_window('workbench')
+                    elif do in LEVEL_COMMANDS and (argument is None or (isinstance(argument, str) and len(argument) <= 20000)):
+                        preview.workbench_action(do + (':' + argument if argument else ''))
+                    elif library is not None and (action := checked_floor(value, library.entries())):
+                        preview.workbench_action(action)
+                    return
+                if name == 'library' and isinstance(value, dict):
+                    # The Workbench's NAM library: the library on this PC changed here (workbench.checked_library):
+                    # a capture's kind, instrument or picture, an uploaded picture deleted, a capture removed, its
+                    # TONE3000 page opened. Nothing touches the Floor.
+                    if library is None or not workbench_on[0] or focus_on[0]:
+                        return
+                    if value.get('do') == 'view':
+                        workbench.show_library(library_view(library))
+                        return
+                    edit = checked_library(value, library.entries())
+                    if edit is None:
+                        return
+                    do, identity, choice = edit
+                    try:
+                        if do == 'gear':
+                            library.update(identity, gear=choice)
+                        elif do == 'instrument':
+                            library.set_instrument(identity, choice or None)
+                        elif do == 'icon':
+                            library.set_icon(identity, choice)
+                        elif do == 'iconDelete':
+                            library.remove_picture(choice)
+                        elif do == 'remove':
+                            library.remove(identity)
+                        elif do == 'openSource':
+                            os.startfile(choice)               # (a TONE3000 page, checked: in the player's browser)
+                    except (OSError, ValueError, KeyError) as error:
+                        workbench.notice(f'Library: {error}')
+                    return
+                if name == 'tray' and isinstance(value, dict):
+                    # The Workbench's TONE3000 tray: Keep on this PC or Load on Floor for the profile previewing now,
+                    # as the window's own card asks it (TonePreview.tone_action checks the shape; browse() the rest),
+                    # or Stop preview (the window's own End preview).
+                    trial, slot = value.get('trial'), value.get('slot')
+                    if preview is not None and value.get('do') == 'end':
+                        preview.tone_action('end')
+                    elif preview is not None and isinstance(trial, int) and not isinstance(trial, bool):
+                        if value.get('do') == 'keep':
+                            preview.tone_action(f'keep:{trial}')
+                        elif value.get('do') == 'save' and isinstance(slot, int) and not isinstance(slot, bool) and 1 <= slot <= 127:
+                            preview.tone_action(f'save:{trial}:{slot}')
+                    return
+                if name == 'notice':
+                    workbench.notice(value if isinstance(value, str) else '')   # (the pane's own word: a file it could not read)
+                    return
+                if name == 'chosen':
+                    # The pane's own Windows dialog (focus_view.cs Choose; the page cannot send this): .nam files or a
+                    # folder to import, a picture (made 256 px PNG by the pane), a folder to export a capture to.
+                    if library is None:
+                        return
+                    chosen = checked_chosen(value, library.entries(), tempfile.gettempdir())
+                    if chosen is None:
+                        return
+                    kind, identity, paths = chosen
+                    def run_chosen():
+                        try:
+                            if kind in ('nam', 'namFolder'):
+                                from tone_preview import import_summary
+                                workbench.notice(import_summary(import_files(library, paths)))
+                            elif kind == 'picture':
+                                library.set_icon(identity, library.add_picture(paths[0].read_bytes()))
+                                paths[0].unlink(missing_ok=True)
+                            elif kind == 'export':
+                                workbench.notice(f'Exported to {library.export(identity, paths[0])}')
+                        except (OSError, ValueError, KeyError) as error:
+                            workbench.notice(f'Library: {error}')
+                    Thread(target=run_chosen, daemon=True).start()
+                    return
+                if name == 'prefs':
+                    # The Workbench's own choices that outlive the page (the Levels page's target, metric, offsets):
+                    # kept in settings.json, checked by workbench.prefs_after, never in the page.
+                    prefs = prefs_after(nam_catalog.load_settings(), value)
+                    if prefs is not None:
+                        nam_catalog.save_setting(PREFS, prefs)
+                        workbench.show_prefs(prefs)
+                    return
+                if name == 'clear':
+                    # The Workbench's Floor slots: Clear, asked of the player on the page first (what is taken off, that
+                    # Undo does not bring it back). workbench.checked_clear: only slots shown in use, none the loaded
+                    # preset uses; focus_view.js clears them as HX Edit's own Clear does, and checks that again.
+                    command = workbench.checked_clear(value) if workbench_on[0] and not focus_on[0] else None
                     if command and not detached.is_set():
                         script.post({'type': 'focusCommand', 'payload': command})
+                    return
+                if name == 'pin':
+                    # A preset pinned or unpinned on the Presets view: kept in settings.json, never in the page.
+                    pins = pins_after(nam_catalog.load_settings(), value)
+                    if pins is not None:
+                        nam_catalog.save_setting(PINS, pins)
+                        workbench.show_pins(pins)
+                    return
+                if name == 'look':
+                    # The Workbench's Floor look: the same looks and checks as Focus Mode's Change look (focus_view
+                    # .look_change): a default (floorLook.assign, what the Floor shows) or this preset's own.
+                    if workbench_on[0] and not focus_on[0]:
+                        changed = workbench.changed_look(value, nam_catalog.load_settings())
+                        for key, kept in changed.items():
+                            nam_catalog.save_setting(key, kept)
+                        if changed:
+                            workbench.show_look(nam_catalog.load_settings())
+                    return
+                if name == 'lookSave':
+                    # "Save for the Floor": the file the Floor's picture tool reads, as Focus Mode's and the old page's Save.
+                    if workbench_on[0] and not focus_on[0]:
+                        Thread(target=focus_look_save, args=(workbench,), daemon=True).start()
+                    return
+                if name == 'toolClose':
+                    # The Workbench closed the frame a tool sat in (Close, Back to the chain, Esc, another tool's
+                    # place): its window closes as its own Close does.
+                    if preview is not None and preview.bounds_override is not None:
+                        preview.close_window('workbench')
+                    return
+                if name == 'toolPlace':
+                    # The Workbench was resized while a tool sits over its lower panel: the tool follows.
+                    place = workbench_panel(value)
+                    if place is not None and preview is not None and preview.bounds_override is not None:
+                        preview.place_over(place)
+                    return
+                if name == 'menuBar':
+                    # The menu's "Show HX Edit's menu bar": kept in settings.json, the frame follows at once.
+                    if isinstance(value, bool):
+                        nam_catalog.save_setting(MENU_BAR, value)
+                        frame_show()
+                        workbench.show_options(menu_options())
+                    return
+                if name == 'layout':
+                    # The logo menu's layout chooser (Batch 4): the page switches at once, the choice is kept in
+                    # settings.json for the next launch (workbench.checked_layout). Classic is "menu" "classic" below.
+                    choice = checked_layout(value)
+                    if choice:
+                        nam_catalog.save_setting(LAYOUT, choice)
+                        workbench.show_options(menu_options())
+                    return
+                if name == 'menu':
+                    # The page's Editor | Focus switch and its Unbound menu. The tools are panels of HX Edit's own
+                    # screen, which the pane would cover: the Workbench steps aside for them.
+                    choice = workbench.checked_menu(value)
+                    if choice == 'classic':
+                        workbench_mode(False)
+                    elif choice == 'focus':
+                        focus_mode(True)
+                    elif choice:
+                        workbench_mode(False)
+                        unbound_choice(choice)
+                elif name == 'failed':
+                    workbench_mode(False, 'The Workbench could not start.', keep=False)
+                elif name == 'costs':
+                    # Each model's DSP as the Floor's meter measured it (workbench.py, dsp_costs.py): focus_view.js
+                    # checks room with them in place of HX Edit's estimates. Taken from the driver's own record, not
+                    # from the request (the page's own requests come this way too).
+                    if not detached.is_set():
+                        script.post({'type': 'focusCommand', 'payload': {'action': 'costs', 'costs': dict(workbench.costs.costs)}})
+                else:
+                    pane_request(workbench, workbench_on[0] and not focus_on[0], name, value)
             if focus is not None:
                 focus.on_action = focus_action
+            if workbench is not None:
+                workbench.on_action = workbench_action
+                workbench.show_options(menu_options())
+                from workbench import (LAYOUT, LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_layout, checked_library, import_files,
+                                       library_view, pinned, pins_after, prefs, prefs_after, previews_view, usage_view)
+                workbench.show_pins(pinned(nam_catalog.load_settings()))
+                workbench.show_prefs(prefs(nam_catalog.load_settings()))
+                if memory is not None:
+                    workbench.show_usage(usage_view(memory.presets()))
+                    workbench.show_previews(previews_view(memory.previews(), memory.preview()))
+                if preview is not None:
+                    # the Workbench's own session (Levels): what it shows goes to the page; it says when it ends
+                    preview.workbench_sink = workbench.show_session
+                    preview.on_workbench_closed = lambda: workbench.show_session('closed', {})
+                if library is not None:
+                    # the NAM library for the Workbench's own view: now, and again whenever it changes
+                    def library_changed():
+                        try:
+                            workbench.show_library(library_view(library))
+                        except (OSError, ValueError) as error:
+                            trace({'type': 'workbench', 'event': 'library-view-failed', 'error': str(error)})
+                    library.subscribe(library_changed)
+                    library_changed()
+                workbench.show_look(nam_catalog.load_settings())
+                if workbench_start:
+                    after_resume.append(lambda: workbench_mode(True, keep=False))
             ir_dots = [options.get('irDots') is not False]
             chain_art = [options.get('chainArt') is True]
             chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False,
@@ -413,14 +765,31 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             payload = event.get('payload', {})
             if memory:
                 memory.receive(payload)
+                # (the Workbench's Floor slots: which presets use each slot, and our own previews in 128, as they change)
+                if workbench is not None and payload.get('type') == 'presetUsage':
+                    workbench.show_usage(usage_view(memory.presets()))
+                if workbench is not None and payload.get('type') in ('previewOwned', 'tonePreviewState'):
+                    workbench.show_previews(previews_view(memory.previews(), memory.preview()))
             if sidebar:
                 sidebar.receive(payload)
             if meter:
                 meter.receive(payload)
             if focus:
                 focus.receive(payload)
+            if workbench:
+                workbench.receive(payload)
                 if payload.get('reason') == 'focus-view' and payload.get('stage') == 'unavailable':
                     focus_missing[0] = True
+            if frame is not None and payload.get('type') == 'menuRow' and payload.get('event') in ('ready', 'unavailable'):
+                # menu_row.js is in place (or its byte guard failed): only then may HX Edit's menu row be taken off
+                frame.allow_menu(payload.get('event') == 'ready')
+                frame_show()
+                if workbench is not None:
+                    workbench.show_options(menu_options())
+            if frame is not None and payload.get('type') == 'focusBounds':
+                # (HX Edit's window, as its script reports it with the pane's place: the frame follows what is shown)
+                frame.set_window(payload.get('window'))
+                frame_show()
             if host:
                 host.receive(payload)
                 if payload.get('type') == 'floorInventory':
@@ -429,7 +798,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 ready.set()
             if payload.get('type') in {'toneTrace', 'navigationBanner', 'automaticSlotStatus', 'floorInventoryPresentation',
                                        'focusBounds',
-                                       'dspMeterLayout', 'windowKeeper', 'presetUsage', 'pickerSide', 'favoritesRemoved',
+                                       'dspMeterLayout', 'windowKeeper', 'menuRow', 'menuDark', 'presetUsage', 'pickerSide', 'favoritesRemoved',
                                        'libraryConnectionGuard', 'librarySlotEvidenceResult'}:
                 trace(payload)
             if payload.get('type') == 'irExportObservation' and payload.get('stage') in {'invalidated', 'discarded', 'slot-changed'}:
@@ -489,6 +858,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
         if host:
             host.start()
         device.resume(pid)
+        for step in after_resume:
+            step()
         detached.wait()
         if preview.thread:
             preview.thread.join(timeout=2)
@@ -510,9 +881,17 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     meter.close()
                 if focus:
                     focus.close()
+                if workbench:
+                    workbench.close()
             finally:
-                if preview:
-                    preview.close_diagnostics()
+                try:
+                    # (HX Edit still open: its title bar and menu row as it made them, even when a pane's close above
+                    # failed; review of PR #7)
+                    if frame is not None:
+                        frame.restore()
+                finally:
+                    if preview:
+                        preview.close_diagnostics()
 
 
 def main():

@@ -550,9 +550,9 @@ def prepare_focus():
     return exe
 
 
-def pane_command(exe, parent, profile, folders):
-    """FocusView.exe <parent window> <profile folder> <page url> <host=folder>…"""
-    return [str(exe), str(int(parent)), str(profile), _url('app', PAGE),
+def pane_command(exe, parent, profile, folders, page=PAGE):
+    """FocusView.exe <parent window> <profile folder> <page url> <host=folder>… (the Workbench: page workbench.html)"""
+    return [str(exe), str(int(parent)), str(profile), _url('app', page),
             *(f'{HOSTS[name]}={folder}' for name, folder in folders.items())]
 
 
@@ -560,7 +560,11 @@ class FocusView:
     """The pane's process and what it shows. Lines to the pane: "P <json>" goes to the page as it is,
     "C <json>" is for the pane itself (its place, shown or hidden). Lines from it: {type: ready | action | error}.
 
-    on_action(name, value): what the page asks for ("exit": back to the normal editor)."""
+    on_action(name, value): what the page asks for ("exit": back to the normal editor).
+
+    The Workbench (workbench.WorkbenchView) is the same pane with another page: PAGE_NAME and PROFILE say which."""
+    PAGE_NAME = PAGE
+    PROFILE = 'Focus WebView'
 
     def __init__(self, resources, *, settings=None, on_action=None, trace=None, process_factory=subprocess.Popen, exe=None):
         self.resources = Path(resources)
@@ -573,6 +577,7 @@ class FocusView:
         self.on = False
         self.window = None
         self.bounds = None
+        self.raised = True            # the pane above HX Edit's other child windows (set_raise)
         self.state = None
         self.page_ready = False
         self.failed = None
@@ -632,6 +637,11 @@ class FocusView:
     def set_on(self, on):
         self.queue.put(('on', bool(on)))
 
+    def set_raise(self, on):
+        """Whether the pane keeps itself above HX Edit's other child windows (False while a tool's window is placed over
+        the Workbench's lower panel)."""
+        self.queue.put(('raise', bool(on)))
+
     def with_pictures(self, state):
         """The state with a picture for every capture: its own when it has one of the pack's, else the one the library
         picks from its name and gear (capture_icons.pick), as the NAM tab and the chain do."""
@@ -667,6 +677,46 @@ class FocusView:
             return None
         return {'action': 'snapshot', 'index': value}
 
+    NAME = re.compile(r'[\x20-\x7e]{1,10}')
+
+    def checked_rename(self, value):
+        """The Workbench's name box, as the command for focus_view.js, or None. Only a snapshot of the loaded preset,
+        renamed in the edit buffer ({what: 'snapshot', index, name}: the Floor's 10 printable characters, not the name
+        it has now). A preset's own name ({what: 'preset', ...}): HX Edit renames a preset only on the Floor's stored
+        copy (its Librarian, "rename preset"), never in the edit buffer, so the page keeps it pending and asks for it
+        right after HX Edit's own Save (_checked_preset_rename)."""
+        state = self.state if isinstance(self.state, dict) else {}
+        names = state.get('snapshots') or []
+        if isinstance(value, dict) and value.get('what') == 'preset':
+            return self._checked_preset_rename(state, value)
+        if not isinstance(value, dict) or value.get('what') != 'snapshot':
+            return None
+        index, name = value.get('index'), value.get('name')
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < min(len(names), 8):
+            return None
+        if not isinstance(name, str) or not self.NAME.fullmatch(name) or name != name.rstrip() or name == names[index]:
+            return None
+        return {'action': 'rename', 'what': 'snapshot', 'index': index, 'name': name}
+
+    PRESET_NAME = re.compile(r'[\x20-\x7e]{1,16}')
+
+    def _checked_preset_rename(self, state, value):
+        # The Workbench's pending preset name (Nick, 2026-11-24: "rename at the next Save"), asked right after HX Edit's
+        # own Save: {what: 'preset', setlist, number, name}. Only the loaded preset (the one just saved), only a name the
+        # Floor keeps (16 printable characters, no space at its end) that differs from its name now, and only when the
+        # script says it can (state "presetRenameReady": its guards held, HX Edit's Librarian model is there).
+        preset = state.get('preset') if isinstance(state.get('preset'), dict) else {}
+        setlist, number, name = value.get('setlist'), value.get('number'), value.get('name')
+        if state.get('presetRenameReady') is not True:
+            return None
+        if any(isinstance(n, bool) or not isinstance(n, int) for n in (setlist, number)):
+            return None
+        if (setlist, number) != (preset.get('setlist'), preset.get('number')) or not 0 <= setlist <= 7 or not 0 <= number <= 127:
+            return None
+        if not isinstance(name, str) or not self.PRESET_NAME.fullmatch(name) or name != name.rstrip() or name == preset.get('name'):
+            return None
+        return {'action': 'presetRename', 'setlist': setlist, 'number': number, 'name': name}
+
     def checked_preset(self, value):
         """The page's request for another preset of the loaded setlist, as the command for focus_view.js, or None:
         'previous' or 'next' of the loaded one (around the ends, as the Floor's own footswitches), or a preset's
@@ -680,13 +730,42 @@ class FocusView:
             number = (now - 1) % 128
         elif value == 'next':
             number = (now + 1) % 128
-        elif isinstance(value, int) and not isinstance(value, bool) and isinstance(state.get('presets'), list):
+        elif isinstance(value, int) and not isinstance(value, bool) and (isinstance(state.get('presets'), list) or state.get('looking')):
+            # (while the Workbench looks at another setlist, HX Edit's list shows that one and the loaded setlist's
+            # names are not read: a number of the loaded setlist is then one of the Floor's 128)
             number = value
-            if not 0 <= number < len(state['presets']) or number > 127 or number == now:
+            count = len(state['presets']) if isinstance(state.get('presets'), list) else 128
+            if not 0 <= number < count or number > 127 or number == now:
                 return None
+        elif isinstance(value, dict):
+            # The Workbench's setlists (Batch 3): {setlist, number}. Of the loaded setlist: as a number. Of another:
+            # only the one HX Edit's list shows now, the Workbench having looked at it (state "looking", read): loaded as
+            # a double-click in that list loads it (setlists.js), never by guessing at what the Floor has.
+            setlist, number = value.get('setlist'), value.get('number')
+            if any(isinstance(n, bool) or not isinstance(n, int) for n in (setlist, number)) or not 0 <= number <= 127:
+                return None
+            if setlist == preset.get('setlist'):
+                return self.checked_preset(number)
+            looking = state.get('looking') if isinstance(state.get('looking'), dict) else {}
+            names = looking.get('names') if looking.get('state') == 'ok' and looking.get('setlist') == setlist else None
+            if not 0 <= setlist <= 7 or not isinstance(names, list) or number >= len(names):
+                return None
+            return {'action': 'presetIn', 'setlist': setlist, 'number': number}
         else:
             return None
         return {'action': 'preset', 'number': number}
+
+    def checked_look(self, value):
+        """The Workbench's look at another setlist ({setlist}), as the command for focus_view.js, or None: one of the
+        setlists HX Edit's chooser lists (state "setlists"). Looking loads nothing: HX Edit's list is asked for that
+        setlist's names (the Librarian's "get preset names"), as its own chooser does."""
+        state = self.state if isinstance(self.state, dict) else {}
+        lists = state.get('setlists') if isinstance(state.get('setlists'), dict) else {}
+        names = lists.get('names') if isinstance(lists.get('names'), list) else []
+        setlist = value.get('setlist') if isinstance(value, dict) else None
+        if isinstance(setlist, bool) or not isinstance(setlist, int) or not 0 <= setlist < min(len(names), 8):
+            return None
+        return {'action': 'look', 'setlist': setlist}
 
     def checked_model(self, value):
         """The page's request to change a block's model, as the command for focus_view.js, or None: only a block
@@ -711,6 +790,204 @@ class FocusView:
                 or not 1 <= slot <= 127 or slot not in on_floor):
             return None
         return {'action': 'capture', 'dsp': block['dsp'], 'id': block['id'], 'slot': slot}
+
+    def _empty(self, dsp, lane, place):
+        """Whether a place of a path's lane is empty in the state the page was shown."""
+        state = self.state if isinstance(self.state, dict) else {}
+        return not any(isinstance(b, dict) and b.get('dsp') == dsp and str(b.get('id', '')).startswith('block')
+                       and b.get('position') == place and b.get('path') == lane for b in state.get('blocks') or [])
+
+    @staticmethod
+    def _cell(value):
+        """(dsp, lane, place) of a request, or None: a path, its lane A or B, one of its eight places."""
+        if not isinstance(value, dict):
+            return None
+        found = tuple(value.get(key) for key in ('dsp', 'lane', 'place'))
+        if any(isinstance(x, bool) or not isinstance(x, int) for x in found):
+            return None
+        dsp, lane, place = found
+        return found if dsp in (0, 1) and lane in (0, 1) and 0 <= place <= 7 else None
+
+    def checked_add(self, value):
+        """The Workbench's request to add a block on an empty place, as the command for focus_view.js, or None: a model
+        HX Edit's picker offers, or a capture that is on the Floor (a NAM block with that capture)."""
+        where = self._cell(value)
+        if not where or not self._empty(*where):
+            return None
+        command = {'action': 'add', 'dsp': where[0], 'lane': where[1], 'place': where[2]}
+        symbol, slot = value.get('symbol'), value.get('slot')
+        if isinstance(symbol, str) and slot is None:
+            offered = {s for group in self.catalog()['lists'] for folder in group['folders'] for s in folder['models']}
+            return {**command, 'symbol': symbol} if symbol in offered else None
+        state = self.state if isinstance(self.state, dict) else {}
+        on_floor = {c.get('slot') for c in state.get('captures') or [] if isinstance(c, dict)}
+        whole = not isinstance(slot, bool) and isinstance(slot, int) and 1 <= slot <= 127
+        if symbol is None and whole and slot in on_floor:
+            return {**command, 'slot': slot}
+        # an IR block with one of the Floor's plain IRs (the IRs drawer)
+        if symbol == self.IR_BLOCK and whole and slot in self._plain_irs():
+            return {**command, 'symbol': symbol, 'slot': slot}
+        return None
+
+    # The IR block the IRs drawer adds (HX Edit's IR 1024, the one its IR list's drag puts in the chain), and the IR
+    # models whose IR a drawer's IR may replace.
+    IR_BLOCK = 'HD2_ImpulseResponse1024'
+    IR_MODEL = re.compile(r'HD2_ImpulseResponse\d{3,4}[A-Za-z]*')
+
+    def _plain_irs(self):
+        state = self.state if isinstance(self.state, dict) else {}
+        return {i.get('slot') for i in state.get('irs') or [] if isinstance(i, dict)}
+
+    def checked_ir(self, value):
+        """The IRs drawer's request to put another of the Floor's plain IRs on an IR block, as the command for
+        focus_view.js, or None: only an IR block of the chain, and only an IR the drawer was shown."""
+        block = self._block(value)
+        slot = value.get('slot') if isinstance(value, dict) else None
+        if (not block or not str(block.get('id', '')).startswith('block') or not self.IR_MODEL.fullmatch(str(block.get('model', '')))
+                or isinstance(slot, bool) or not isinstance(slot, int) or slot not in self._plain_irs() or slot == block.get('slot')):
+            return None
+        return {'action': 'ir', 'dsp': block['dsp'], 'id': block['id'], 'slot': slot}
+
+    def checked_remove(self, value):
+        """The Workbench's request to remove a block, or None: only a block of the chain the page was shown."""
+        block = self._block(value)
+        if not block or not str(block.get('id', '')).startswith('block'):
+            return None
+        return {'action': 'remove', 'dsp': block['dsp'], 'id': block['id']}
+
+    def checked_move(self, value):
+        """The Workbench's request to move a block to an empty place (lane A or B) of its own path, or of the other
+        path ("to": that path's DSP), or None."""
+        block = self._block(value)
+        if not block or not str(block.get('id', '')).startswith('block'):
+            return None
+        to = value.get('to', block['dsp'])
+        where = self._cell({**value, 'dsp': to}) if isinstance(to, int) and not isinstance(to, bool) else None
+        if not where or not self._empty(*where) or (where[0] == block['dsp'] and (where[1], where[2]) == (block.get('path'), block.get('position'))):
+            return None
+        command = {'action': 'move', 'dsp': block['dsp'], 'id': block['id'], 'lane': where[1], 'place': where[2]}
+        return {**command, 'to': to} if to != block['dsp'] else command
+
+    def checked_split(self, value):
+        """The Workbench's request to move the split or the mixer of a path with a lane B to another gap of lane A
+        (0 = before place 1, 8 = after place 8), or None. Lane B's blocks stay between them: the split no later than
+        the first of them, the mixer no earlier than after the last, and the split before the mixer."""
+        node = self._block(value)
+        place = value.get('place') if isinstance(value, dict) else None
+        if (not node or node.get('id') not in ('split', 'join') or isinstance(place, bool) or not isinstance(place, int)
+                or not 0 <= place <= 8 or place == node.get('position')):
+            return None
+        state = self.state if isinstance(self.state, dict) else {}
+        dsp = node['dsp']
+        lane_b = [b.get('position') for b in state.get('blocks') or [] if isinstance(b, dict) and b.get('dsp') == dsp
+                  and str(b.get('id', '')).startswith('block') and b.get('path') == 1 and isinstance(b.get('position'), int)]
+        topology = (state.get('topology') or [None, None])[dsp] if isinstance(state.get('topology'), list) else None
+        if not lane_b and not (isinstance(topology, str) and 'B' in topology):
+            return None                                                          # one lane: no split or mixer shown
+        other = self._block({'dsp': dsp, 'id': 'join' if node['id'] == 'split' else 'split'})
+        other_at = other.get('position') if other and isinstance(other.get('position'), int) else None
+        if node['id'] == 'split':
+            if (lane_b and place > min(lane_b)) or (other_at is not None and place >= other_at):
+                return None
+        elif (lane_b and place < max(lane_b) + 1) or (other_at is not None and place <= other_at):
+            return None
+        return {'action': 'moveSplit', 'dsp': dsp, 'id': node['id'], 'place': place}
+
+    # The controllers the Bypass and controllers tab offers: HX Edit's own numbers, checked against its tab
+    # (2026-11-22/23): 0 None (the assignment taken away), 1-3 EXP Pedal 1-3, 4 Variax Volume, 5 Variax Tone,
+    # Footswitch n = n + 5 (HX Edit offers no Footswitch 6, 11, and nothing at 17), 18 MIDI CC, 19 Snapshots.
+    CONTROLLERS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 18, 19)
+
+    def checked_assign(self, value):
+        """The Bypass and controllers tab's request, as the command for focus_view.js, or None: a block's footswitch
+        (its number 1-12, LED colour 0-11 of HX Edit's list, a label of up to 16 plain characters, latching or
+        momentary) or one of its controls' controller (EXP Pedal 1, EXP Pedal 2, Snapshots) and range (0-1)."""
+        block = self._block(value)
+        if not block or not isinstance(value, dict):
+            return None
+        field, new, key = value.get('field'), value.get('value'), value.get('key')
+        command = {'action': 'assign', 'dsp': block['dsp'], 'id': block['id'], 'field': field}
+        whole = isinstance(new, int) and not isinstance(new, bool)
+        if field == 'fsIndex':
+            return {**command, 'value': new} if whole and 1 <= new <= 12 else None
+        if field == 'fsColor':
+            return {**command, 'value': new} if whole and 0 <= new <= 11 else None
+        if field == 'fsLabel':
+            ok = isinstance(new, str) and len(new) <= 16 and all(32 <= ord(c) < 127 for c in new)
+            return {**command, 'value': new} if ok else None
+        if field == 'fsMomentary':
+            return {**command, 'value': new} if isinstance(new, bool) else None
+        if field == 'fsCc':                                                     # the bypass's MIDI In: 0 is Off
+            return {**command, 'value': new} if whole and 0 <= new <= 127 else None
+        model = self.catalog()['models'].get(block.get('model')) or {}
+        if not isinstance(key, str) or key not in {p.get('id') for p in model.get('params') or []}:
+            return None
+        command['key'] = key
+        if field == 'controller':
+            return {**command, 'value': new} if whole and new in self.CONTROLLERS else None
+        if field == 'cc':                                                       # a control's CC number on MIDI CC
+            return {**command, 'value': new} if whole and 0 <= new <= 127 else None
+        if field in ('min', 'max'):
+            number = isinstance(new, (int, float)) and not isinstance(new, bool)
+            return {**command, 'value': float(new)} if number and 0.0 <= new <= 1.0 else None
+        return None
+
+    def checked_snap_value(self, value):
+        """The Snapshot values grid's request: a value of the selected block in one snapshot, or its on/off there, as
+        the command for focus_view.js (which recalls that snapshot, writes, and recalls the one that was on), or None.
+        Only a control that snapshots move (its controller is Snapshots, 19, as the tab read it) or the block's
+        on/off, checked as a knob's value is (checked_set)."""
+        state = self.state if isinstance(self.state, dict) else {}
+        snapshot = value.get('snapshot') if isinstance(value, dict) else None
+        count = min(len(state.get('snapshots') or []), 8)
+        if isinstance(snapshot, bool) or not isinstance(snapshot, int) or not 0 <= snapshot < count:
+            return None
+        selected, assign = state.get('selected') or {}, state.get('assign') or {}
+        if (value.get('dsp'), value.get('id')) != (selected.get('dsp'), selected.get('id')) or \
+                (assign.get('dsp'), assign.get('id')) != (selected.get('dsp'), selected.get('id')):
+            return None
+        key = value.get('key')
+        controls = assign.get('controls') if isinstance(assign.get('controls'), dict) else {}
+        if key != '@enabled' and (controls.get(key) or {}).get('controller') != 19:
+            return None
+        checked = self.checked_set({'dsp': value.get('dsp'), 'id': value.get('id'), 'key': key, 'value': value.get('value'), 'phase': 'single'})
+        if not checked:
+            return None
+        return {'action': 'snapValue', 'dsp': checked['dsp'], 'id': checked['id'], 'snapshot': snapshot, 'key': key, 'value': checked['value']}
+
+    # The split's types, as HX Edit's panel offers them (Split > Split Y, Split A/B, Split Crossover, Split Dynamic).
+    SPLIT_TYPES = ('HD2_AppDSPFlowSplitY', 'HD2_AppDSPFlowSplitAB', 'HD2_AppDSPFlowSplitXOver', 'HD2_AppDSPFlowSplitDyn')
+
+    def checked_split_type(self, value):
+        """The Workbench's request to change the split's type, as the command for focus_view.js, or None: only a split
+        the page was shown, and only one of the four types HX Edit's panel offers, other than the one it has."""
+        node = self._block(value)
+        symbol = value.get('symbol') if isinstance(value, dict) else None
+        if not node or node.get('id') != 'split' or symbol not in self.SPLIT_TYPES or symbol == node.get('model'):
+            return None
+        return {'action': 'splitType', 'dsp': node['dsp'], 'symbol': symbol}
+
+    def checked_route(self, value):
+        """The Workbench's request to give lane B its own input or output in place of the split or the mixer (HX Edit's
+        "Create Input" / "Create Output"), or to put the split or the mixer back, or None: only what the path's shape
+        (global @topology0/1) says is there. "SABJ" has both nodes, "ABJ" an input B, "SAB" an output B, "AB" both."""
+        node = self._block(value)
+        state = self.state if isinstance(self.state, dict) else {}
+        topology = state.get('topology') if isinstance(state.get('topology'), list) else []
+        if not node or node.get('id') not in ('split', 'join', 'inputB', 'outputB') or node.get('dsp') not in (0, 1):
+            return None
+        word = topology[node['dsp']] if len(topology) > node['dsp'] else None
+        if not isinstance(word, str) or 'B' not in word:
+            return None
+        present = {'split': word.startswith('S'), 'join': word.endswith('J'),
+                   'inputB': not word.startswith('S'), 'outputB': not word.endswith('J')}
+        # HX Edit's way back ("Restore Split" / "Restore Merge", seen with the chain probe) adds the split or the mixer
+        # again ("back"); a removal on input B / output B, or on the split again, is refused (-4, seen).
+        if not present[node['id']]:
+            return None
+        if node['id'] in ('inputB', 'outputB'):
+            return {'action': 'route', 'dsp': node['dsp'], 'id': 'split' if node['id'] == 'inputB' else 'join', 'back': True}
+        return {'action': 'route', 'dsp': node['dsp'], 'id': node['id']}
 
     def checked_set(self, value):
         """The page's request to set a value, as the command for focus_view.js, or None when it is not one of the
@@ -760,9 +1037,9 @@ class FocusView:
     # -- the worker: the only thread that touches the pane's process ---------------------------------------------
     def _start(self):
         exe = self.exe or prepare_focus()
-        profile = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'Focus WebView'
+        profile = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / self.PROFILE
         profile.mkdir(parents=True, exist_ok=True)
-        command = pane_command(exe, self.window, profile, art_folders(self.resources, self.settings))
+        command = pane_command(exe, self.window, profile, art_folders(self.resources, self.settings), self.PAGE_NAME)
         self.process = self.process_factory(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, encoding='utf-8',
                                             errors='replace', creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         Thread(target=self._read, args=(self.process.stdout,), daemon=True).start()
@@ -792,7 +1069,8 @@ class FocusView:
 
     def _place(self):
         bounds = self.bounds if isinstance(self.bounds, dict) else None
-        self._write('C', {'visible': bool(self.on and bounds), **({key: int(bounds[key]) for key in ('x', 'y', 'w', 'h')} if bounds else {})})
+        self._write('C', {'visible': bool(self.on and bounds), 'raise': self.raised,
+                          **({key: int(bounds[key]) for key in ('x', 'y', 'w', 'h')} if bounds else {})})
 
     def _show_state(self):
         if self.page_ready and self.state is not None:
@@ -807,7 +1085,10 @@ class FocusView:
             self._write('P', {'type': 'look', 'look': self.look})
 
     def _handle(self, kind, value):
-        if kind == 'on':
+        if kind == 'raise':
+            self.raised = bool(value)
+            self._place()
+        elif kind == 'on':
             self.on = value
             if value:
                 self.failed = None
@@ -862,6 +1143,9 @@ class FocusView:
                 if self.on and not self.closed.is_set():
                     self._act('failed', self.failed or 'The Focus Mode pane closed.')
 
+    def _idle(self):
+        """Half a second with nothing to do (the Workbench measures its blocks' DSP then)."""
+
     def _act(self, name, value):
         if self.on_action:
             try:
@@ -874,6 +1158,7 @@ class FocusView:
             try:
                 kind, value = self.queue.get(timeout=.5)
             except Empty:
+                self._idle()
                 continue
             if kind == 'close':
                 break

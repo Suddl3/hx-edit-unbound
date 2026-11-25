@@ -61,6 +61,48 @@ class _LibraryActionSession:
         pass
 
 
+class WorkbenchSession:
+    """The Workbench's own pages (its Levels) running a session's work without a window: the page's requests come in
+    as the session's actions (TonePreview.workbench_action), the same strings the library page posts, and what the
+    session would show its window ("status": the Level view, the message) goes to the Workbench page (forward). The
+    session stays open until the Workbench closes it (close_window) or HX Edit ends it."""
+    error = None
+    close_reason = None
+    # (what of a status the Workbench page draws; the rest is the library window's)
+    SHOWN = ('text', 'busy', 'level', 'can_level', 'levelPage',
+             # (the library page's Floor actions: the NAM block it is bound to, Preview, Load / Use, Replace)
+             'can_install', 'can_audition', 'trial', 'free_slots', 'replace', 'installed', 'navigation',
+             'block_model', 'block_slot', 'inventory',
+             # (its versions: making them, hearing them on this PC, what the Floor's firmware plays)
+             'light', 'optimize', 'listen', 'listen_source', 'can_train', 'can_optimize', 'pedal_block', 'nam_load', 'pedal_load')
+
+    def __init__(self, detached, forward):
+        self.actions = Queue()
+        self.detached = detached
+        self.forward = forward
+
+    def wait_ready(self):
+        return True
+
+    def send(self, kind, **data):
+        if kind == 'status' and self.forward:
+            self.forward('status', {key: data[key] for key in self.SHOWN if key in data})
+
+    def next_action(self):
+        while not self.detached.is_set():
+            try:
+                return self.actions.get(timeout=1)
+            except Empty:
+                continue
+        return None
+
+    def is_set(self):
+        return self.detached.is_set()
+
+    def close(self):
+        pass
+
+
 def import_summary(stats):
     """The status line after "Import NAM files": what was added, what was there already, what was not a capture."""
     added, same, bad = stats['added'], stats['same'], stats['bad']
@@ -72,6 +114,9 @@ def import_summary(stats):
     if bad:
         names = ', '.join(bad[:3]) + (f' and {len(bad) - 3} more' if len(bad) > 3 else '')
         parts.append(f'{len(bad)} file{"s" * (len(bad) != 1)} could not be added (not a NAM capture): {names}.')
+    if stats.get('more'):
+        parts.append('That folder has more .nam files than one import takes: the rest were not looked at. '
+                     'Import its subfolders one at a time for those.')
     return ' '.join(parts) or 'No NAM files were found to import.'
 
 
@@ -126,6 +171,15 @@ class TonePreview:
         self._library_notification_pending = None
         self.browser = None
         self.bounds = None
+        # Where the Workbench wants the tool's window instead of HX Edit's panel (its lower panel), or None: set by
+        # the launcher while a tool is opened from the Workbench's rail (place_over), cleared when the window closes.
+        self.bounds_override = None
+        self.on_browser_closed = None
+        # The Workbench's own session (its Levels page, WorkbenchSession): what it shows goes to workbench_sink(kind,
+        # data); on_workbench_closed() when it ends.
+        self.workbench = False
+        self.workbench_sink = None
+        self.on_workbench_closed = None
         self.session = None
         self.tile = None
         self.profile = ''
@@ -236,6 +290,57 @@ class TonePreview:
             if self.payload_callback:
                 self.payload_callback(self.library.payload_metadata())
 
+    def placed(self):
+        """Where the tool's window goes: over the Workbench's lower panel while it asks (bounds_override), else over
+        HX Edit's own panel as tone_view reports it."""
+        return dict(self.bounds_override) if isinstance(self.bounds_override, dict) else self.bounds
+
+    def place_over(self, bounds):
+        """The Workbench's lower panel in HX Edit's window ({visible, x, y, w, h}), or None for HX Edit's own panel."""
+        self.bounds_override = dict(bounds) if isinstance(bounds, dict) else None
+        if self.browser and isinstance(self.placed(), dict):
+            self.browser.send('bounds', **self.placed())
+
+    def _to_workbench(self, kind, data):
+        if self.workbench_sink:
+            try:
+                self.workbench_sink(kind, data)
+            except Exception:    # (the page's copy only: the session goes on)
+                pass
+
+    def tone_action(self, action):
+        """The Workbench tray's request for the TONE3000 window sitting in it: Keep on this PC or Load on Floor for
+        the preview now (the window's own "keep:<trial>" / "save:<trial>:<slot>", checked there as from its card), or
+        Stop preview (the window's own "end": the block gets its own capture back)."""
+        browser = self.browser
+        if (not self.workbench and self.bounds_override is not None and browser is not None and isinstance(action, str)
+                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end', action)):
+            browser.actions.put(action)
+            return True
+        return False
+
+    def workbench_open(self):
+        """Whether the Workbench's own session is running (its Levels page)."""
+        return (self.workbench and self.thread is not None and self.thread.is_alive() and self.browser is not None
+                and not self.close_intent.is_set())
+
+    def workbench_action(self, action):
+        """One of the Workbench page's requests, as the session's action (the library page's own strings)."""
+        browser = self.browser
+        if self.workbench and isinstance(browser, WorkbenchSession) and isinstance(action, str):
+            browser.actions.put(action)
+            return True
+        return False
+
+    def close_window(self, reason='workbench'):
+        """Close the tool's window as its own Close does (the Workbench closed the frame it sat in)."""
+        browser = self.browser
+        if browser:
+            self.close_intent.set()
+            browser.actions.put({'close': reason})
+            return True
+        return False
+
     def receive(self, payload):
         if payload['type'] == 'toneReply':
             self.replies.put(payload)
@@ -262,7 +367,7 @@ class TonePreview:
             if payload['session'] == self.session:
                 self.bounds = payload['bounds']
                 if self.browser:
-                    self.browser.send('bounds', **self.bounds)
+                    self.browser.send('bounds', **self.placed())
         elif payload['type'] == 'toneDismiss':
             # HX Edit picked another model or tile under the pane: close it like Close does
             if payload['session'] == self.session and self.browser:
@@ -286,6 +391,7 @@ class TonePreview:
                     self.initial_library = bool(payload.get('library')) or self.initial_level or self.initial_look
                     self.initial_action = payload.get('libraryAction')
                     self.headless = bool(payload.get('headless'))
+                    self.workbench = bool(payload.get('workbench')) and self.headless
                     self.close_reason = None
                     self.close_intent.clear()
                     self.bounds = payload['bounds']
@@ -381,8 +487,9 @@ class TonePreview:
                 if not self.library:
                     raise ToneError(KEY_HELP)
                 client_id = ''  # the local library still works without a TONE3000 key
-            browser = self.browser = (_LibraryActionSession(self.initial_action, self.detached, self.sidebar_status)
-                                      if self.headless else self.browser_factory(window, self.bounds, self.detached))
+            browser = self.browser = (WorkbenchSession(self.detached, self._to_workbench) if self.workbench else
+                                      _LibraryActionSession(self.initial_action, self.detached, self.sidebar_status)
+                                      if self.headless else self.browser_factory(window, self.placed(), self.detached))
             # Native HX Edit grants foreground permission only on an explicit
             # Browse click. This carries identity; it never focuses a window.
             browser_pid = getattr(getattr(browser, 'process', None), 'pid', None)
@@ -393,7 +500,7 @@ class TonePreview:
                 if not (self.library and (self.initial_library or not client_id)):  # browse() sends the library card
                     browser.send('card', html=render_card(library=bool(self.library)), has_tone=False)
                 if self.navigation:
-                    if self.headless and not self.target_ready.wait(5):
+                    if self.headless and not self.workbench and not self.target_ready.wait(5):
                         raise ToneError('HX Edit did not report the selected NAM block. Nothing was loaded.')
                     browser.send('target', **{key: value for key, value in self.navigation_state.items() if key != 'type'})
                 try:
@@ -419,6 +526,10 @@ class TonePreview:
             if not self.detached.is_set():
                 notice = ('Could not complete the TONE3000 audition. Check the IRs tab before retrying.', 0x10)
         finally:
+            # (a session of the Workbench, or a window sitting in it: its closing word goes to the page, which keeps it
+            # on screen until OK, never a box of the launcher's own: live check 2026-11-24 10:43, that box blocked the
+            # Workbench's clicks and ended up minimized)
+            to_page = bool(self.workbench_sink) and (self.workbench or self.bounds_override is not None)
             helper_error = getattr(browser, 'error', None)
             if isinstance(helper_error, str) and helper_error:
                 notice = notice or (helper_error + '\n\nThe operation is unconfirmed; check HX Edit before another audition.', 0x10)
@@ -445,6 +556,18 @@ class TonePreview:
                 browser.close()
                 self.browser = None
                 self._trace('browser', 'closed', session, started=started)
+                if self.workbench and self.on_workbench_closed:
+                    try:
+                        self.on_workbench_closed()
+                    except Exception:    # (the Workbench's own bookkeeping: never the session's close)
+                        pass
+                if self.bounds_override is not None:
+                    self.bounds_override = None
+                    if self.on_browser_closed:
+                        try:
+                            self.on_browser_closed()
+                        except Exception:    # (the Workbench's own bookkeeping: never the browser's close)
+                            pass
                 if self.sidebar_status and not self.headless:
                     # A cancelled download sends no final status of its own; do not leave the NAM
                     # sidebar showing "Downloading…" with Load/Use disabled.
@@ -465,7 +588,9 @@ class TonePreview:
                     queued, self.queued = self.queued, None
             if queued:
                 self.receive(queued)
-            if notice:
+            if notice and to_page:
+                self._to_workbench('notice', {'text': str(notice[0])})
+            elif notice:
                 self.message(*notice)
 
     def browse(self, browser, session, client_id):
@@ -497,6 +622,23 @@ class TonePreview:
         loaded_now = False  # the profile shown was just loaded on the Floor: it needs no Preview button
 
         reopen = tone_link(self.profile)  # the block's profile came from this tone: its page opens first
+        # The Workbench's TONE3000 tray (while this window sits in the Workbench): each profile picked on the site and
+        # where it is now: "getting" (downloading, converting), "ready" (previewing on the selected block: Keep on
+        # this PC or Load on Floor), "floor" (loaded into a slot), "failed". Newest first; this window's session only.
+        tray = []
+        tray_now = None
+
+        def tray_mark(item, **values):
+            if item is not None:
+                item.update(values)
+                tray_out()
+
+        def tray_out():
+            if self.workbench or self.bounds_override is None or not self.workbench_sink:
+                return
+            self._to_workbench('tone', {'tray': [dict(item) for item in tray[:20]], 'text': text, 'trial': trial,
+                                        'free_slots': list(free_slots), 'current': tray_now['key'] if tray_now else None,
+                                        'bound': bool(self.navigation_state.get('bound'))})
 
         def select():
             nonlocal reopen
@@ -542,6 +684,7 @@ class TonePreview:
                 text = message
             if not self.headless and self.sidebar_status:
                 self.sidebar_status({'text':message, 'busy':busy})
+            tray_out()
             inventory = None
             if self.navigation and self.library:
                 inventory = {'rows': [dict(id=identity, irSlots=entry.get('irSlots', []), pendingSlots=entry.get('pendingSlots', []),
@@ -649,7 +792,7 @@ class TonePreview:
             return mode_now
 
         def audition(candidate, index, replace=None):
-            nonlocal current, selected
+            nonlocal current, selected, tray_now
             if self.close_requested():
                 return
             tone, models, token = candidate
@@ -663,6 +806,18 @@ class TonePreview:
             if mode is None:
                 status('Cancelled: choose the conversion to audition this tone.')
                 return
+            key = f'{tone.get("id")}:{models[index].get("id")}'
+            tray[:] = [item for item in tray if item['key'] != key]
+            picked = ' – '.join(part for part in (tone.get('title', ''), models[index].get('name', '')) if part)
+            try:
+                import capture_icons
+                icon = capture_icons.pick(picked, tone.get('gear') or None)
+            except (OSError, ValueError, KeyError, IndexError):
+                icon = ''
+            tray_now = {'key': key, 'name': picked or 'TONE3000 profile', 'gear': tone.get('gear', ''), 'icon': icon,
+                        'state': 'getting', 'slot': None, 'kept': False, 'trial': None, 'text': ''}
+            tray.insert(0, tray_now)
+            trial_before = trial
             status('Downloading and loading the selected profile…' if mode == 'original' else
                    'Downloading and converting the selected profile…', busy=True)
 
@@ -675,6 +830,10 @@ class TonePreview:
             remember_link(models[index]['id'], tone_url(tone))   # the profile's name ends with this model ID
             message = play(lambda: prepare_model(models[index], token, self.workspace, self.converter, mode), capture,
                            replace, lambda chosen: audition(candidate, index, chosen))
+            if trial != trial_before:
+                tray_mark(tray_now, state='ready', trial=trial, text='')
+            elif tray_now is not None and tray_now['state'] == 'getting':
+                tray_mark(tray_now, state='failed', text=message or text)
             if message is None:
                 return
             if current is not candidate:
@@ -983,7 +1142,8 @@ class TonePreview:
             nonlocal look_page, level_page, library
             if not look_page:
                 browser.send('chrome', targetBar=False, title='Floor look · HX Unbound')
-                browser.send('presentation', mode='floating', focus=True)
+                # (its own window; over the Workbench's lower panel when the Workbench placed it there: place_over)
+                browser.send('presentation', mode='embedded' if self.bounds_override is not None else 'floating', focus=True)
             look_page, level_page = True, False
             if not library:
                 library = True
@@ -1020,7 +1180,8 @@ class TonePreview:
             nonlocal leveling, level_page, look_page
             if not level_page:
                 browser.send('chrome', targetBar=False, title='Level presets · HX Unbound')
-                browser.send('presentation', mode='floating', focus=True)
+                # (its own window; over the Workbench's lower panel when the Workbench placed it there: place_over)
+                browser.send('presentation', mode='embedded' if self.bounds_override is not None else 'floating', focus=True)
             level_page, look_page = True, False
             from nam_level_flow import LevelFlow
             if leveling is None:
@@ -1114,6 +1275,8 @@ class TonePreview:
                     elif action == 'end':
                         if reply.get('ended'):
                             slot, free_slots, kept = None, [], None
+                            if tray_now is not None:                 # (the tray: it is no longer the one playing)
+                                tray_now['trial'] = None
                         status(reply.get('notice') or 'Preview ended. Choose another tone to audition.')
                     else:
                         status('Target selected. Choose a profile to audition.')
@@ -1179,6 +1342,10 @@ class TonePreview:
                         message = (f'Saved to this PC and loaded on the Floor in User IR {reply["savedSlot"]}. '
                                    'The preset is not saved yet.' if self.navigation else
                                    f'Saved in User IR {reply["savedSlot"]}.')
+                    if reply.get('savedSlot'):
+                        for item in tray:
+                            if item.get('trial') == trial:
+                                tray_mark(item, state='floor', slot=reply['savedSlot'], kept=True)
                     if reply.get('savedSlot') and self.library:
                         try:
                             if not keep():
@@ -1213,7 +1380,12 @@ class TonePreview:
                         library_visibility()
                         show_card()
                     elif command == 'keep' and argument == str(trial):
-                        status('Saved to your NAM library on this PC. Nothing changed on the Floor.' if keep() else
+                        made = keep()
+                        if made:
+                            for item in tray:
+                                if item.get('trial') == trial:
+                                    item['kept'] = True
+                        status('Saved to your NAM library on this PC. Nothing changed on the Floor.' if made else
                                'This preview\'s original capture is no longer available, so nothing was added. '
                                'Preview the tone again, then choose Save to PC.')
                     elif command == 'pick' and identity in self.library.entries():

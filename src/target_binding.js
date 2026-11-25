@@ -61,11 +61,20 @@ function installTargetBinding(options = {}) {
   function decode(value) {
     const type = value.readU32();
     if (type === 4) return { type, value: value.add(8).readS32() };
+    // (1: a small whole number, as HX Edit writes @controller and @cc; only its low byte is the value, the rest is
+    // whatever was there before: seen 2026-11-23, 0x0B6E0012 for MIDI CC (18), 0x0A760005 for CC5)
+    if (type === 1) return { type, value: value.add(8).readU8() };
     if (type === 5) return { type, value: value.add(8).readU32() };
     if (type === 8) return { type, value: value.add(8).readFloat() };
+    // (6 / 7: a 64-bit number, as a snapshot keeps a list setting's choice, a wave shape say: seen 2026-11-22 as
+    // "kind 7". A small whole number is that; anything else is read as a double.)
+    if (type === 6 || type === 7) {
+      const whole = (type === 6 ? value.add(8).readS64() : value.add(8).readU64()).toNumber();
+      return { type, value: Number.isSafeInteger(whole) && Math.abs(whole) < 1e9 ? whole : value.add(8).readDouble() };
+    }
     if (type === 10) return { type, value: nativeString(value.add(8).readPointer()) };
     if (type === 11) return { type, value: value.add(8).readU8() !== 0 };   // a switch (@enabled, Polarity, …)
-    fail('unsupported native parameter type');
+    fail(`unsupported native parameter type ${type}`);
   }
   function editorReady(editor) {
     if (editor.isNull() || !editor.readPointer().equals(base.add(0x963dfc))) return false;
@@ -225,12 +234,28 @@ function installTargetBinding(options = {}) {
       return parameter({editor, dsp: -1, blockName: group}, key).value;
     } catch (_) { return undefined; }
   }
+  // The Workbench's Bypass and controllers / Snapshot values tabs: the preset's own tree, as HX Edit's controller
+  // view reads it (0x1b72cd: dsp -1, the group "controller", the key "dsp0.block1.Gain.@controller"), and the same
+  // for "footswitch" and "snapshot0".."snapshot7" (the sections of a preset file). Read-only; undefined when not there.
+  const treePattern = /^(?:controller|footswitch|snapshot[0-7])$/, pathPattern = /^[A-Za-z0-9_ .@+-]{1,120}$/;
+  function peekTree(editor, group, key) {
+    try {
+      if (!editorReady(editor) || !treePattern.test(group) || !pathPattern.test(key)) return undefined;
+      return parameter({editor, dsp: -1, blockName: group}, key).value;
+    } catch (error) {
+      // (there, but of a kind decode does not read yet: said so, for the trace)
+      const kind = /unsupported native parameter type (\d+)/.exec(String(error.message));
+      return kind ? {unsupportedType: Number(kind[1])} : undefined;
+    }
+  }
   // Recalls a snapshot (0..7) as HX Edit's own snapshot control and Level presets do: "@current_snapshot" of
   // "global", one write with the single-change flag. Nothing is saved.
   function recallSnapshot(editor, index) {
     if (!editorReady(editor) || !Number.isInteger(index) || index < 0 || index > 7) fail('unsupported snapshot');
     const current = parameter({editor, dsp: -1, blockName: 'global'}, '@current_snapshot');
-    if (![4, 5].includes(current.type)) fail('unexpected snapshot value');
+    // (HX Edit keeps it as 4 or 5, and as 1 or a 64-bit 6/7 after its own snapshot changes: seen 2026-11-22, a recall
+    // refused as "unexpected snapshot value". Written back with the kind it has; the upper half stays zero.)
+    if (![1, 4, 5, 6, 7].includes(current.type)) fail('unexpected snapshot value');
     let group = null, name = null;
     const variant = emptyVariant();
     try {
@@ -242,6 +267,41 @@ function installTargetBinding(options = {}) {
       destroyVariant(variant);
       if (name) destroyVariant(name);
       if (group) destroyVariant(group);
+    }
+    return true;
+  }
+  // The Workbench's Bypass and controllers tab: a value of the preset's "controller" or "footswitch" section written
+  // as HX Edit's own Bypass/Controller Assign tab writes it (seen with the chain probe 2026-11-22): +0x7c, dsp -1,
+  // flags 0, e.g. ("controller", "dsp0.block1.Drive.@controller", Variant{1, 1}) for EXP Pedal 1, a float 0..1 for
+  // "@min" / "@max", ("footswitch", "dsp0.block0.@fs_index", Variant{1, N}), "@fs_customcolor", "@fs_customlabel".
+  // The value keeps the kind HX Edit already has there; where nothing is there yet, kind says: 'enum' (Variant type 1,
+  // as HX Edit writes @controller and @fs_index), 'float', 'bool' or 'text'.
+  const writePattern = /^(?:controller|footswitch)$/;
+  function writeTree(editor, group, key, value, kind) {
+    if (!editorReady(editor) || !writePattern.test(group) || !pathPattern.test(key) || !['enum', 'float', 'bool', 'text'].includes(kind)) fail('unsupported tree value');
+    let type = {enum: 1, float: 8, bool: 11, text: 10}[kind];
+    // (an 'enum' is always written as HX Edit writes it, type 1, whatever a reading of it says)
+    if (kind !== 'enum') {
+      try { const now = parameter({editor, dsp: -1, blockName: group}, key); if ([4, 5, 8, 10, 11].includes(now.type)) type = now.type; } catch (_) { /* not there yet */ }
+    }
+    let groupName = null, keyName = null, variant = null;
+    try {
+      groupName = string(group); keyName = string(key);
+      if (type === 10) {
+        if (typeof value !== 'string' || value.length > 32) fail('unsupported text');
+        variant = string(value);
+      } else {
+        variant = emptyVariant(); variant.writeU32(type);
+        if (type === 8) { if (!Number.isFinite(value)) fail('unsupported number'); variant.add(8).writeFloat(value); }
+        else if (type === 11) variant.add(8).writeU8(value ? 1 : 0);
+        else { if (!Number.isInteger(value)) fail('unsupported whole number'); variant.add(8).writeS32(value); }
+      }
+      const result = writeValue(editor, -1, groupName, keyName, variant, 0);
+      if (result < 0) fail(`HX Edit refused to change ${key} (${result})`);
+    } finally {
+      if (variant) destroyVariant(variant);
+      if (keyName) destroyVariant(keyName);
+      if (groupName) destroyVariant(groupName);
     }
     return true;
   }
@@ -283,14 +343,47 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  function setIndex(editor, dsp, blockName, slot) {
+  // The Workbench's name box in a snapshot's button: the snapshot's name in the edit buffer. HX Edit's own snapshot
+  // rename (its snapshot control's edit, 0x26f870; static study of HX Edit.exe 3.82, 2026-11-24) writes exactly this
+  // value: +0x80 (= +0x7c with flags 0) with dsp -1, "snapshot<n>", "@name", Variant(String). With flags 0 the write is
+  // not kept for undo (0x5178c0: only a write with the top bit set records an undo step), so here it is written as a
+  // knob is, with the single-change flag (one undo step, as a model's name is written by setModel), then once more with
+  // the refresh flag for HX Edit's own views (not kept for undo), and read back. The Floor's limit: 10 printable
+  // characters. Nothing is saved: the preset's Save keeps it, as any other change.
+  function renameSnapshot(editor, index, name) {
+    if (!editorReady(editor) || !Number.isInteger(index) || index < 0 || index > 7 || typeof name !== 'string' ||
+        !/^[\x20-\x7e]{1,10}$/.test(name)) fail('unsupported snapshot name');
+    const group = 'snapshot' + index;
+    const before = parameter({editor, dsp: -1, blockName: group}, '@name');
+    if (before.type !== 10) fail('unexpected snapshot name');
+    if (before.value === name) return true;
+    for (const flags of [WRITE_FLAGS.single, WRITE_FLAGS.refresh]) {
+      let groupName = null, keyName = null, variant = null;
+      try {
+        groupName = string(group); keyName = string('@name'); variant = string(name);
+        const result = writeValue(editor, -1, groupName, keyName, variant, flags);
+        if (result < 0) fail(`HX Edit refused the snapshot's name (${result})`);
+      } finally {
+        if (variant) destroyVariant(variant);
+        if (keyName) destroyVariant(keyName);
+        if (groupName) destroyVariant(groupName);
+      }
+    }
+    const after = parameter({editor, dsp: -1, blockName: group}, '@name');
+    if (after.type !== 10 || after.value !== name) fail('the snapshot kept its old name');
+    return true;
+  }
+  // HX Edit's IR blocks (IR 1024, IR 2048...): their IR is a slot of the same IR store, the same Index as a NAM block's
+  const IR_MODEL = /^HD2_ImpulseResponse\d{3,4}[A-Za-z]*$/;
+  function setIndex(editor, dsp, blockName, slot, flags = 0x80000000) {
     // A NAM block's capture slot, written as restore() writes it (one undo step), keeping the
-    // stored value's own type. Only for a supported NAM engine and a permanent slot.
+    // stored value's own type. Only for a supported NAM engine and a permanent slot. (flags 0: inside an undo step
+    // opened by the caller, addCapture)
     if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName) ||
         !Number.isInteger(slot) || slot < 1 || slot > 127) fail('unsupported block or slot');
     const state = {editor, dsp, blockName, parameter: 'Index'};
     const model = parameter(state, '@model');
-    if (model.type !== 10 || !engines.has(model.value)) fail('not a NAM block');
+    if (model.type !== 10 || !(engines.has(model.value) || IR_MODEL.test(model.value))) fail('not a NAM or IR block');
     const current = parameter(state, 'Index');
     if (![4, 5, 8].includes(current.type)) fail('unexpected slot value');
     let block = null, key = null;
@@ -299,7 +392,7 @@ function installTargetBinding(options = {}) {
       block = string(blockName); key = string('Index');
       value.writeU32(current.type);
       if (current.type === 8) value.add(8).writeFloat(slot); else value.add(8).writeU32(slot);
-      const result = writeValue(editor, dsp, block, key, value, 0x80000000);
+      const result = writeValue(editor, dsp, block, key, value, flags === 0 ? 0 : 0x80000000);
       if (result < 0) fail(`write was rejected (${result})`);
     } finally {
       destroyVariant(value);
@@ -308,14 +401,74 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
+  // HX Edit's own Redo, and whether there is one: the edit buffer's entries the Edit menu's command uses (read from HX
+  // Edit.exe 3.82 on disk, 2026-11-23: command 0xd1 calls vtbl+0xe0 = 0x514bb0, "app.err.redo" when it fails; the
+  // menu item asks vtbl+0xe4 = 0x504630 with 1, nonzero when there is a step to redo; 0xdc / 0 are Undo). Its
+  // Ctrl+Shift+Z did not reach HX Edit while the Workbench is shown (seen 2026-11-23), its Ctrl+Z does.
+  function redo(editor) {
+    if (!editorReady(editor)) fail('no editor');
+    const entry = new NativeFunction(editorEntry(editor, 0xe0, 0x514bb0, 'redo'), 'int', ['pointer'], 'thiscall');
+    const result = entry(editor);
+    if (result < 0) fail(`redo was refused (${result})`);
+    return true;
+  }
+  function undo(editor) {
+    // HX Edit's own Undo: the Edit menu's command 0xd0 calls vtbl+0xdc = 0x51aaf0 ("app.err.undo" when it fails)
+    if (!editorReady(editor)) fail('no editor');
+    const entry = new NativeFunction(editorEntry(editor, 0xdc, 0x51aaf0, 'undo'), 'int', ['pointer'], 'thiscall');
+    const result = entry(editor);
+    if (result < 0) fail(`undo was refused (${result})`);
+    return true;
+  }
+  function canRedo(editor) {
+    if (!editorReady(editor)) return null;
+    const entry = new NativeFunction(editorEntry(editor, 0xe4, 0x504630, 'can-undo-redo'), 'pointer', ['pointer', 'int'], 'thiscall');
+    return !entry(editor, 1).isNull();
+  }
+  function addCapture(editor, dsp, row, col, symbol, slot) {
+    // A NAM block with its capture (or an IR block with its IR) on an empty cell as ONE undo step: the add (+0xa8) and the slot (Index) inside an
+    // undo step of their own (+0xd4 opens it, +0xd8 closes it with the outcome, as HX Edit's drop between the paths
+    // does: moveAcross). Two steps apart, an Undo left a NAM block on IR slot 1 between them (seen 2026-11-23).
+    // Returns the new block's name, or null when it could not be found at once (the block is added; the caller sets
+    // the slot later, as before).
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || ![0, 1].includes(row) || !Number.isInteger(col) || col < 0 || col > 15 ||
+        !(engines.has(symbol) || IR_MODEL.test(symbol)) || !Number.isInteger(slot) || slot < 1 || slot > 127) fail('unsupported cell, engine or slot');
+    const add = new NativeFunction(editorEntry(editor, 0xa8, 0x4ff300, 'add-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    const open = new NativeFunction(editorEntry(editor, 0xd4, 0x4ffa80, 'undo-open'), 'int', ['pointer', 'uint'], 'thiscall');
+    const close = new NativeFunction(editorEntry(editor, 0xd8, 0x5044b0, 'undo-close'), 'int', ['pointer', 'int'], 'thiscall');
+    let value = null, made = null, result = -1;
+    const cell = emptyVariant();
+    try {
+      value = string(symbol);
+      cell.writeU32(5); cell.add(8).writeU32(((row << 16) | col) >>> 0);
+      const before = blockCells(editor, dsp).map(b => b.name);
+      open(editor, 0x80000000);
+      try {
+        result = add(editor, dsp, value, cell, 0);
+        if (result >= 0) {
+          made = blockCells(editor, dsp).find(b => !before.includes(b.name) && b.path === row && b.position === col) || null;
+          if (made) setIndex(editor, dsp, made.name, slot, 0);
+        }
+      } finally {
+        close(editor, result);
+      }
+      if (result < 0) fail(`adding the block was rejected (${result})`);
+    } finally {
+      if (value) destroyVariant(value);
+    }
+    return made ? made.name : null;
+  }
   // What the block picker itself does when a model row is chosen (0x21a470): a block's model
   // changes through the editor's parameter write (vtbl+0x7c = 0x5178c0, "@model"); an empty cell
   // gets a block through vtbl+0xa8 = 0x4ff300(dsp, &Variant(symbol), &Variant{5, (row<<16)|col},
   // flags). One undo step each, and HX Edit fills the defaults itself: far quicker than pasting a
   // favorite. Symbols only of HX Edit's models.
   const symbolPattern = /^[A-Za-z0-9_]{3,64}$/;
+  // (the split's own type is its model too, as HX Edit's panel offers it: Split Y, A/B, Crossover, Dynamic)
+  const SPLIT_MODELS = ['HD2_AppDSPFlowSplitY', 'HD2_AppDSPFlowSplitAB', 'HD2_AppDSPFlowSplitXOver', 'HD2_AppDSPFlowSplitDyn'];
   function setModel(editor, dsp, blockName, symbol) {
-    if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName) || !symbolPattern.test(symbol)) {
+    const split = blockName === 'split' && SPLIT_MODELS.includes(symbol);
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !(split || /^block\d{1,2}$/.test(blockName)) || !symbolPattern.test(symbol)) {
       fail('unsupported block or model');
     }
     let block = null, key = null, value = null;
@@ -348,7 +501,199 @@ function installTargetBinding(options = {}) {
     }
     return true;
   }
-  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, recallSnapshot, setValue, setIndex, setModel, addModel };
+  // The Workbench: a block removed or moved as HX Edit itself does it, through the edit buffer's own entries beside
+  // add (research/modern-ui/STAGE2-FINDINGS.md, read from HX Edit.exe 3.82 on disk). Remove is vtbl+0xb0 = 0x514bc0
+  // (dsp, &Variant(block name), flags): what HX Edit's block picker calls when "None" is chosen (0x21a565). Move is
+  // vtbl+0xa0 = 0x5123c0 (dsp, &Variant(block name), &Variant{5, (lane<<16)|place}, flags): what its chain's drag
+  // calls (0x412932). Flags 0x80000000, a user's action: one undo step each. Only a block of the chain, never an
+  // input, an output, the split or the join, and only when the entry is the one studied.
+  function editorEntry(editor, slot, rva, what) {
+    const entry = editor.readPointer().add(slot).readPointer();
+    if (!entry.equals(base.add(rva))) fail(`unexpected editor ${what} entry`);
+    return entry;
+  }
+  function removeBlock(editor, dsp, blockName) {
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName)) fail('unsupported block');
+    const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    try {
+      name = string(blockName);
+      const result = remove(editor, dsp, name, 0x80000000);
+      if (result < 0) fail(`removing the block was rejected (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  function moveBlock(editor, dsp, blockName, row, col) {
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !/^block\d{1,2}$/.test(blockName) || ![0, 1].includes(row) ||
+        !Number.isInteger(col) || col < 0 || col > 7) fail('unsupported block or place');
+    const move = new NativeFunction(editorEntry(editor, 0xa0, 0x5123c0, 'move-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    const cell = emptyVariant();
+    try {
+      name = string(blockName);
+      cell.writeU32(5); cell.add(8).writeU32(((row << 16) | col) >>> 0);
+      const result = move(editor, dsp, name, cell, 0x80000000);
+      if (result < 0) fail(`moving the block was rejected (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  function removeNode(editor, dsp, which) {
+    // Lane B's own input or output, as HX Edit's split / mixer menu "Create Input" / "Create Output" (shortcut Del)
+    // makes it: its menu's clear (0x41b224), the remove entry (+0xb0 = 0x514bc0) on "split" (-> 0x4d66b0) or "join"
+    // (-> 0x4d5cf0). Flags 0x80000000, as the menu: one undo step. (The way back is an add: restoreNode. A second
+    // removal, or one on "inputB" / "outputB", is refused: -4, seen 2026-11-22.)
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join'].includes(which)) fail('unsupported routing item');
+    const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    try {
+      name = string(which);
+      const result = remove(editor, dsp, name, 0x80000000);
+      if (result < 0) fail(`HX Edit refused to change lane B's routing (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  function restoreNode(editor, dsp, which) {
+    // The split or the mixer back in place of lane B's own input or output, as HX Edit's menu "Restore Split" /
+    // "Restore Merge" does it (seen with the chain probe 2026-11-22): the add entry (+0xa8 = 0x4ff300) with the item
+    // "split" at place 0 or "join" at place 8 of lane A; add hands those to 0x484970 / 0x483e40. One undo step.
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join'].includes(which)) fail('unsupported routing item');
+    const add = new NativeFunction(editorEntry(editor, 0xa8, 0x4ff300, 'add-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    const cell = emptyVariant();
+    try {
+      name = string(which);
+      cell.writeU32(5); cell.add(8).writeU32(which === 'split' ? 0 : 8);
+      const result = add(editor, dsp, name, cell, 0x80000000);
+      if (result < 0) fail(`HX Edit refused to put the ${which === 'join' ? 'mixer' : 'split'} back (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  function selectNode(editor, dsp, which) {
+    // The split or the mixer selected in HX Edit (its settings then show, as a block's do): "@cursor_dsp" and then
+    // "@cursor_group" of "global", as HX Edit's chain drop selects a split or a mixer it has just moved (0x41324f:
+    // +0x80, which is +0x7c with flags 0: no undo step). Nothing of the preset changes.
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join'].includes(which)) fail('unsupported split or mixer');
+    const current = parameter({editor, dsp: -1, blockName: 'global'}, '@cursor_dsp');
+    if (![4, 5].includes(current.type)) fail('unexpected cursor value');
+    let group = null, key = null, name = null;
+    const number = emptyVariant();
+    try {
+      group = string('global'); key = string('@cursor_dsp');
+      number.writeU32(current.type); number.add(8).writeU32(dsp >>> 0);
+      let result = writeValue(editor, -1, group, key, number, 0);
+      if (result < 0) fail(`selecting the path was rejected (${result})`);
+      destroyVariant(key); key = string('@cursor_group'); name = string(which);
+      result = writeValue(editor, -1, group, key, name, 0);
+      if (result < 0) fail(`selecting the ${which === 'join' ? 'mixer' : 'split'} was rejected (${result})`);
+    } finally {
+      destroyVariant(number);
+      if (name) destroyVariant(name);
+      if (key) destroyVariant(key);
+      if (group) destroyVariant(group);
+    }
+    return true;
+  }
+  function moveSplit(editor, dsp, which, gap) {
+    // The split or the mixer to another gap of lane A (0 = before place 1, 8 = after place 8): the same move entry
+    // (+0xa0 = 0x5123c0) with the item "split" or "join". For those it reads only the place of the target cell and
+    // hands it to the split's or the mixer's own code (0x4c8800 / 0x4c7d60, static study 2026-11-22), as HX Edit's
+    // chain drag does (0x4131b2 checks for them after a drop). Flags 0x80000000: one undo step.
+    if (!editorReady(editor) || ![0, 1].includes(dsp) || !['split', 'join'].includes(which) || !Number.isInteger(gap) ||
+        gap < 0 || gap > 8) fail('unsupported split, mixer or gap');
+    const move = new NativeFunction(editorEntry(editor, 0xa0, 0x5123c0, 'move-block'), 'int', ['pointer', 'int', 'pointer', 'pointer', 'uint'], 'thiscall');
+    let name = null;
+    const cell = emptyVariant();
+    try {
+      name = string(which);
+      cell.writeU32(5); cell.add(8).writeU32(gap >>> 0);
+      const result = move(editor, dsp, name, cell, 0x80000000);
+      if (result < 0) fail(`moving the ${which === 'join' ? 'mixer' : 'split'} was rejected (${result})`);
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  function blockCells(editor, dsp) {
+    // The blocks of a path as the edit buffer has them now: [{name, path, position}].
+    const found = [];
+    for (let k = 0; k < 32; k++) {
+      const name = 'block' + k;
+      if (!peekModel(editor, dsp, name)) continue;
+      const lane = peekValue(editor, dsp, name, '@path'), place = peekValue(editor, dsp, name, '@position');
+      if (Number.isInteger(lane) && Number.isInteger(place)) found.push({name, path: lane, position: place});
+    }
+    return found;
+  }
+  function moveAcross(editor, fromDsp, blockName, toDsp, row, col) {
+    // A block to an empty place of the other path, as HX Edit's own drag between the paths does it: the block is
+    // copied to the drag's own store (store 2, not the clipboard: +0xb8, as the chain's drag start 0x416de7), pasted
+    // on the other path (+0xc4 with 0x100, as the chain's drop of a block from the other path 0x412af1), and
+    // removed from its own (+0xb0, as the drag's end 0x41200b), the paste and the removal as one undo step (+0xd4
+    // opens it, +0xd8 closes it with the outcome, as the drop does). Nothing is changed when the paste is refused.
+    if (!editorReady(editor) || ![0, 1].includes(fromDsp) || ![0, 1].includes(toDsp) || fromDsp === toDsp ||
+        !/^block\d{1,2}$/.test(blockName) || ![0, 1].includes(row) || !Number.isInteger(col) || col < 0 || col > 7) fail('unsupported block or place');
+    const copy = new NativeFunction(editorEntry(editor, 0xb8, 0x5034b0, 'copy-block'), 'int', ['pointer', 'int', 'int', 'pointer'], 'thiscall');
+    const canPaste = new NativeFunction(editorEntry(editor, 0xc8, 0x500320, 'can-paste'), 'int', ['pointer', 'int', 'int', 'pointer', 'uint'], 'thiscall');
+    const paste = new NativeFunction(editorEntry(editor, 0xc4, 0x513620, 'paste'), 'int', ['pointer', 'int', 'int', 'pointer', 'uint'], 'thiscall');
+    const remove = new NativeFunction(editorEntry(editor, 0xb0, 0x514bc0, 'remove-block'), 'int', ['pointer', 'int', 'pointer', 'uint'], 'thiscall');
+    const open = new NativeFunction(editorEntry(editor, 0xd4, 0x4ffa80, 'undo-open'), 'int', ['pointer', 'uint'], 'thiscall');
+    const close = new NativeFunction(editorEntry(editor, 0xd8, 0x5044b0, 'undo-close'), 'int', ['pointer', 'int'], 'thiscall');
+    let name = null;
+    const cell = emptyVariant();
+    try {
+      name = string(blockName);
+      cell.writeU32(5); cell.add(8).writeU32(((row << 16) | col) >>> 0);
+      let result = copy(editor, 2, fromDsp, name);
+      if (result < 0) fail(`copying the block was rejected (${result})`);
+      // Lane B of a path that has only lane A: HX Edit's paste refuses it (seen 2026-11-22, -4), a move within a
+      // path does not. Then the block is pasted on an empty place of lane A (its own place first) and moved down
+      // there, as a drag within that path moves it.
+      let via = null;
+      result = canPaste(editor, 2, toDsp, cell, 0);
+      if (result < 0 && row === 1) {
+        const taken = blockCells(editor, toDsp).map(b => b.path + ':' + b.position);
+        for (const place of [col, 0, 1, 2, 3, 4, 5, 6, 7]) {
+          if (taken.includes('0:' + place)) continue;
+          cell.add(8).writeU32(place >>> 0);
+          if (canPaste(editor, 2, toDsp, cell, 0) >= 0) { via = place; result = 0; break; }
+        }
+      }
+      if (result < 0) fail(`the other path refused the block (${result})`);
+      const model = peekModel(editor, fromDsp, blockName), before = via === null ? [] : blockCells(editor, toDsp).map(b => b.name);
+      open(editor, 0x80000000);
+      try {
+        result = paste(editor, 2, toDsp, cell, 0x100);
+        // The paste with 0x100 takes the block from its own path itself (seen 2026-11-22: a removal after it was
+        // refused, -4, and closing the undo step with that lost it). Removed here only if it is still there.
+        const left = result >= 0 ? peekModel(editor, fromDsp, blockName) : null;
+        if (left && model && left.model === model.model) result = remove(editor, fromDsp, name, 0);
+      } finally {
+        close(editor, result);
+      }
+      if (result < 0) fail(`moving the block to the other path was rejected (${result})`);
+      // Pasted on lane A for lane B: the caller moves it down later (moveBlock), once the Floor has the block. Moved
+      // down at once, inside the paste's undo step or right after it, HX Edit had it on lane B but the Floor never
+      // got the move (seen twice on 2026-11-22: the Floor kept it on lane A). {down: its name now, lane, place}.
+      if (via !== null) {
+        const made = blockCells(editor, toDsp).find(b => !before.includes(b.name) && b.path === 0 && b.position === via);
+        if (!made) fail('the block reached the other path but could not be found there');
+        return {down: made.name, dsp: toDsp, from: via, lane: 1, place: col};
+      }
+    } finally {
+      if (name) destroyVariant(name);
+    }
+    return true;
+  }
+  return { capture, read, restore, release, peekSlot, peekModel, peekValue, peekGlobal, peekTree, writeTree, recallSnapshot, renameSnapshot, setValue, setIndex, setModel, addModel, addCapture, undo, redo, canRedo,
+           removeBlock, moveBlock, moveAcross, moveSplit, selectNode, removeNode, restoreNode };
 }
 
 if (typeof module !== 'undefined' && module.exports) {

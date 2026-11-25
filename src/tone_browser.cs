@@ -157,7 +157,7 @@ sealed class ToneBrowser : Form
     readonly Panel targetBar = new Panel { Dock = DockStyle.Top, Height = 38 };
     readonly Label targetLabel = new Label { Dock = DockStyle.Fill, ForeColor = Color.Gainsboro,
         Padding = new Padding(8, 0, 4, 0), TextAlign = ContentAlignment.MiddleLeft,
-        Text = "Select a NAM block in HX Edit", AutoEllipsis = true };
+        Text = "Select a NAM block to hear a tone", AutoEllipsis = true };
     readonly Button popOut = new Button { Text = "Pop out", AutoSize = true, Height = 26 };
     readonly Button endPreview = new Button { Text = "End preview", AutoSize = true, Height = 26, Visible = false };
     readonly ToolTip hints = new ToolTip();
@@ -305,17 +305,21 @@ sealed class ToneBrowser : Form
         foreach (var button in new[] { endPreview, popOut })
         {
             button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderColor = Color.FromArgb(81, 66, 87);
-            button.BackColor = Color.FromArgb(48, 39, 52);
-            button.ForeColor = Color.WhiteSmoke;
+            button.FlatAppearance.BorderColor = Color.FromArgb(42, 46, 56);
+            button.BackColor = Color.FromArgb(28, 31, 38);
+            button.ForeColor = Color.FromArgb(236, 238, 242);
             button.Margin = new Padding(4, 0, 0, 0);
             targetActions.Controls.Add(button);
         }
         endPreview.Click += (sender, args) => SendAction("end");
         popOut.Click += (sender, args) => ChangePresentation(
             windowMode == WindowMode.Embedded ? WindowMode.Floating : WindowMode.Embedded, true);
-        targetBar.BackColor = Color.FromArgb(33, 29, 37);
+        // The banner over the site, in the Workbench's own colours (its panel and line): which block a preview
+        // plays on, in plain words, and Pop out.
+        targetBar.BackColor = Color.FromArgb(20, 22, 27);
+        targetLabel.ForeColor = Color.FromArgb(201, 205, 214);
         targetBar.Controls.Add(targetLabel);
+        targetBar.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = Color.FromArgb(42, 46, 56) });
         if (Icon != null)
             targetBar.Controls.Add(new PictureBox { Dock = DockStyle.Left, Width = 32,
                 Image = Icon.ToBitmap(), SizeMode = PictureBoxSizeMode.CenterImage });
@@ -762,16 +766,28 @@ sealed class ToneBrowser : Form
         return message.TryGetValue(key, out value) && value is bool && (bool)value;
     }
 
+    // A block as the banner names it: "Deluxe Reverb · Path 1" from tone_view.js's own
+    // "DSP 1 · block0 · Deluxe Reverb · User IR 127" (boundTargetLabel); anything else as it came.
+    internal static string PlainTarget(string label)
+    {
+        var parts = (label ?? "").Split(new[] { " · " }, StringSplitOptions.None);
+        int dsp;
+        if (parts.Length == 4 && parts[0].StartsWith("DSP ") && parts[1].StartsWith("block") && parts[3].StartsWith("User IR ") &&
+            Int32.TryParse(parts[0].Substring(4), NumberStyles.None, CultureInfo.InvariantCulture, out dsp) && parts[2].Length > 0)
+            return parts[2] + " · Path " + dsp.ToString(CultureInfo.InvariantCulture);
+        return label ?? "";
+    }
+
     internal static string TargetText(Dictionary<string, object> message)
     {
         object label;
         if (Flag(message, "bound") && message.TryGetValue("label", out label) &&
             !String.IsNullOrEmpty(Convert.ToString(label)))
-            return "Selected: " + Convert.ToString(label);
+            return "Preview plays on " + PlainTarget(Convert.ToString(label));
         if (Flag(message, "quarantined")) return "Preview retained · select End preview";
         if (message.TryGetValue("selected", out label) && !String.IsNullOrEmpty(Convert.ToString(label)))
-            return "Selected: " + Convert.ToString(label);
-        return "Select a NAM block in HX Edit";
+            return "Selected: " + PlainTarget(Convert.ToString(label));
+        return "Select a NAM block to hear a tone";
     }
 
     void LayoutPane(bool raiseForNativeChange = false)

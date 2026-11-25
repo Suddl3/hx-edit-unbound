@@ -392,7 +392,7 @@ class PaneDriverTests(unittest.TestCase):
         self.assertTrue(self.wait(lambda: self.panes))
         self.assertEqual(self.panes[0].command[1], '4242')
         self.assertTrue(self.wait(lambda: self.lines('C')))
-        self.assertEqual(self.lines('C')[-1], {'visible': True, 'x': 0, 'y': 41, 'w': 1920, 'h': 913})
+        self.assertEqual(self.lines('C')[-1], {'visible': True, 'raise': True, 'x': 0, 'y': 41, 'w': 1920, 'h': 913})
 
     def test_the_bars_dsp_meters_and_snapshot_choice(self):
         self.view.set_on(True)
@@ -495,7 +495,7 @@ class PaneDriverTests(unittest.TestCase):
         self.view.receive({'type': 'focusState', 'state': {'blocks': [{'dsp': 0}], 'selected': None, 'values': {}}})
         self.assertTrue(self.wait(lambda: len(self.lines('P')) >= 3))
         self.view.set_on(False)
-        self.assertTrue(self.wait(lambda: self.lines('C')[-1] == {'visible': False, 'x': 0, 'y': 41, 'w': 1920, 'h': 913}))
+        self.assertTrue(self.wait(lambda: self.lines('C')[-1] == {'visible': False, 'raise': True, 'x': 0, 'y': 41, 'w': 1920, 'h': 913}))
         self.assertFalse(self.view.receive({'type': 'navigationBanner'}))   # not one of this pane's messages
 
     def test_a_value_set_in_the_page_is_one_control_of_the_shown_block_inside_its_range(self):
@@ -634,6 +634,18 @@ class ScriptTests(unittest.TestCase):
         idle = run_js(['focus_view.js'], f'focusValues({self.READER}, {json.dumps(blocks)}, {{dsp: -1, block: ""}}, {{}}, [])')
         self.assertIsNone(idle['selected'])
 
+    def test_captures_stay_named_while_hx_edit_rechecks_the_slots(self):
+        before = [{'slot': 16, 'name': 'Klon'}, {'slot': 25, 'name': 'Tweed'}, {'slot': 30, 'name': 'Gone'}]
+        call = lambda found, inventory: run_js(['focus_view.js'], f'focusCaptures({json.dumps(found)}, {json.dumps(before)}, {json.dumps(inventory)})')
+        # A chain change: the checked list is empty, the slots it still shows keep their captures (30 was deleted).
+        refreshing = {'state': 'refreshing', 'entries': [[16, 'a'], [25, 'b']]}
+        self.assertEqual([c['name'] for c in call([], refreshing)], ['Klon', 'Tweed'])
+        self.assertEqual([c['name'] for c in call([{'slot': 25, 'name': 'New'}], refreshing)], ['Klon', 'New'])  # checked wins
+        # Checked (or disconnected): only what the check found.
+        self.assertEqual(call([], {'state': 'verified', 'entries': [[16, 'a']]}), [])
+        self.assertEqual(call([], {'state': 'unverified', 'entries': []}), [])
+        self.assertEqual(call([], None), [])
+
     def test_a_block_is_selected_by_a_click_on_its_cell_of_hx_edits_chain(self):
         box = '{x: 318, y: 45, w: 1592, h: 120}'
         point = lambda block: run_js(['focus_view.js'], f'focusChainPoint({box}, {json.dumps(block)})')
@@ -671,7 +683,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("targetBinding.recallSnapshot(editor, command.index)", script)
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@current_snapshot')", script)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        self.assertIn('focus.checked_snapshot(value)', launcher)
+        self.assertIn("'snapshot': view.checked_snapshot", launcher)          # (pane_request: Focus Mode's and the Workbench's)
 
     def test_a_preset_with_nothing_selected_shows_its_first_block_never_an_input(self):
         blocks = [{'dsp': 0, 'id': 'inputA', 'position': None, 'path': 0}, {'dsp': 0, 'id': 'split', 'position': 0, 'path': 0},
@@ -706,11 +718,11 @@ class ScriptTests(unittest.TestCase):
         for write in ('write', 'selectRow', 'clearSelection', 'appendRow', 'postMessage'):   # reading only
             self.assertNotIn(write, names)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        load = script[script.index("} else if (command.action === 'preset') {"):script.index('} else if (command.action) swap(command)')]
+        load = script[script.index("} else if (command.action === 'preset') {"):script.index("} else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) change(command);")]
         self.assertLess(load.index("endDrag('a preset change')"), load.index("send({type: 'focusPreset', number: command.number})"))
         self.assertNotIn('targetBinding', load)                                      # nothing is written to load it
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        for piece in ('focus.checked_preset(value)', 'nam_level.load_preset(number)', 'Thread(target=focus_load, args=(value,), daemon=True).start()'):
+        for piece in ("'preset': view.checked_preset", 'nam_level.load_preset(number)', 'Thread(target=focus_load, args=(value, view), daemon=True).start()'):
             self.assertIn(piece, launcher)
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
         for piece in ("ask('preset', 'previous')", "ask('preset', 'next')", "ask('preset', index)", "message.type === 'notice'"):
@@ -776,8 +788,17 @@ class ScriptTests(unittest.TestCase):
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
         self.assertIn('if(focusMode){ if(unboundButton!=null)unboundButton.Show(Rectangle.Empty); shown=false; ShowWindow(Handle,0); return; }', helper)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
-        self.assertIn('if ((string)name == "undo") { PressInEditor(0x5A, false); return; }', pane)   # Ctrl+Z in HX Edit's window
-        self.assertIn('if ((string)name == "redo") { PressInEditor(0x5A, true); return; }', pane)    # Ctrl+Shift+Z, as its Edit menu
+        self.assertNotIn('if ((string)name == "undo")', pane)   # undo: HX Edit's own entry through the launcher, as redo
+        self.assertIn("editorEntry(editor, 0xdc, 0x51aaf0, 'undo')", (ROOT / 'target_binding.js').read_text(encoding='utf-8'))
+        self.assertNotIn('if ((string)name == "redo")', pane)    # redo: HX Edit's own entry through the launcher (Ctrl+Shift+Z did not reach it)
+        self.assertIn("elif name in ('undo', 'redo'):", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn("} else if (command.action === 'redo' || command.action === 'undo') {", script)
+        self.assertIn("if (command.action === 'undo') targetBinding.undo(editor); else targetBinding.redo(editor);", script)
+        self.assertIn('state.redo = targetBinding.canRedo(editor);', script)
+        binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
+        self.assertIn("editorEntry(editor, 0xe0, 0x514bb0, 'redo')", binding)
+        self.assertIn("editorEntry(editor, 0xe4, 0x504630, 'can-undo-redo')", binding)
         self.assertIn('if (shift) keybd_event(0x10, 0, 0, UIntPtr.Zero);', pane)
         self.assertNotIn('Ctrl+Y', pane + (ROOT / 'focus_view.html').read_text(encoding='utf-8'))
         page = (ROOT / 'focus_view.html').read_text(encoding='utf-8')
@@ -807,7 +828,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.setValue(target, dsp, id, key, value, 'refresh')", script)
-        self.assertEqual(script.count('finish('), 5)                       # defined once; after a single change, each way a drag ends, a capture
+        self.assertEqual(script.count('finish('), 9)   # (and a value in another snapshot, a capture added in one step, an IR)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
 
     def test_the_pane_never_outlives_hx_edit(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
@@ -861,25 +882,32 @@ class WiringTests(unittest.TestCase):
 
     def test_the_script_writes_only_values_and_a_selection_is_a_click_on_the_chain(self):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        for other in ('addModel', 'writeValue', '.restore(', 'Interceptor.replace', 'writePointer', 'writeU32'):
+        for other in ('writeValue', '.restore(', 'Interceptor.replace', 'writePointer', 'writeU32'):
             self.assertNotIn(other, script)
+        # The Workbench's chain changes, each once, only inside change() (test_workbench has their checks).
+        body = script[script.index('function change(command)'):script.index('function followAdd(')]
+        # (moveBlock also in followDown: a block pasted on the other path's lane A going down to lane B)
+        for call, times in (('targetBinding.addModel(', 1), ('targetBinding.removeBlock(', 1), ('targetBinding.moveBlock(', 2)):
+            self.assertEqual(script.count(call), times, call)
+            self.assertIn(call, body)
         # A model or a capture from the pane's list: HX Edit's own picker calls, on a block of the chain, room checked first.
-        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (1, 1))
+        self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 3))   # (a swap, the split's type; a capture added, an IR)
         swap = script[script.index('function swap(command)'):script.index('function finish(') if script.index('function finish(') > script.index('function swap(command)') else script.index('function endDrag(')]
         self.assertLess(swap.index('focusRoom('), swap.index('targetBinding.setModel('))
         self.assertIn('!chainBlock.test(block.id)', swap)
         # Every write is a value of a block the pane shows, one of its model's controls or its bypass.
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
-        self.assertEqual(script.count('targetBinding.setValue('), 4)      # the write, a drag closed for the pane (twice), the refresh
+        self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
-        self.assertIn('if (full) { onFloor = captures(); header = presetHeader(); }', script)   # the captures are listed whatever the preset holds
+        self.assertIn('onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs);', script)   # the captures are listed whatever the preset holds
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')
         click = view[view.index('clickChainPoint(x, y)'):view.index('// Main-window client coordinates of the pointer')]
         self.assertIn('!inChain(x, y)', click)                            # never a click outside the chain
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("'action': 'select'", launcher)
-        self.assertIn('focus.checked_set(value)', launcher)             # a value from the page is checked before it is sent
-        self.assertIn("check = focus.checked_model if name == 'model' else focus.checked_capture", launcher)
+        # a value, a model or a capture from the page is checked before it is sent (pane_request, for either pane)
+        for piece in ("'set': view.checked_set", "'model': view.checked_model", "'capture': view.checked_capture", 'command = check(value) if shown else None'):
+            self.assertIn(piece, launcher)
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         peek = binding[binding.index('function peekValue'):binding.index("// Focus Mode's top bar: a value of the preset itself")]
         self.assertIn('parameter(', peek)
@@ -900,7 +928,9 @@ class WiringTests(unittest.TestCase):
         self.assertEqual(page.count('https://'), 0)                      # no font, script or picture from the internet
         self.assertIn("ask('exit')", page)
         self.assertIn("ask('select', {dsp: b.dsp, id: b.id})", page)
-        self.assertIn("ask('set', {dsp: block.dsp, id: block.id, key, value, phase})", page)
+        shared = (ROOT / 'pane_controls.js').read_text(encoding='utf-8')               # its controls' writes, shared with the Workbench
+        self.assertIn('<script src="pane_controls.js"></script>', page)
+        self.assertIn("ask('set', {dsp: block.dsp, id: block.id, key, value, phase})", shared)
         self.assertIn("ask('model', {dsp: block.dsp, id: block.id, symbol})", page)
         self.assertIn("ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot})", page)
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')

@@ -2,7 +2,7 @@
 from dataclasses import replace
 import unittest
 
-from nam_navigation import NavigationBlocked, NavigationSession, Target
+from nam_navigation import NavigationAsk, NavigationBlocked, NavigationSession, Target
 
 
 class NavigationTests(unittest.TestCase):
@@ -51,6 +51,23 @@ class NavigationTests(unittest.TestCase):
         self.bind()
         with self.assertRaises(NavigationBlocked):
             self.start(empty=False)
+
+    def test_an_occupied128_is_asked_about_once_unless_it_is_a_preview_of_ours(self):
+        # Batch 3 (2026-11-24): a leftover of ours (its name is one this editor gave a preview) is replaced without
+        # asking; anything else is asked about, and replaced only once the player said so.
+        self.bind()
+        with self.assertRaises(NavigationAsk) as asked:
+            self.start(empty=False)
+        self.assertEqual((str(asked.exception), asked.exception.slot), ('Slot 128 is in use. Replace it to preview?', 128))
+        ours = self.nav.begin_preview('Tweed', compatible_engines=('HD2_AmpNAMLite',), slot128_empty=False, slot128_ours=True)
+        self.assertEqual(ours.slot, 128)
+        said = self.nav.begin_preview('Tweed', compatible_engines=('HD2_AmpNAMLite',), slot128_empty=False, replace_confirmed=True)
+        self.assertEqual(said.slot, 128)
+        # the other guards stay first: a target not bound, another engine, a cleanup waiting
+        for nav, engines in ((NavigationSession(), ('HD2_AmpNAMLite',)), (self.nav, ('HD2_AmpNAMPedal',))):
+            with self.assertRaises(NavigationBlocked) as blocked:
+                nav.begin_preview('X', compatible_engines=engines, slot128_empty=False, slot128_ours=True, replace_confirmed=True)
+            self.assertNotIsInstance(blocked.exception, NavigationAsk)
 
     def test_repeat_preview_reuses_owned128(self):
         self.preview()

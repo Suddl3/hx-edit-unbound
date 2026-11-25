@@ -13,6 +13,11 @@ class NavigationBlocked(ValueError):
     pass
 
 
+class NavigationAsk(NavigationBlocked):
+    """Blocked until the player answers: slot128 holds something that is not a preview of ours."""
+    slot = 128
+
+
 @dataclass(frozen=True)
 class Target:
     connection: str
@@ -93,18 +98,23 @@ class NavigationSession:
         self.notice = 'Ready to audition on the selected NAM block.'
         return self.bound
 
-    def begin_preview(self, capture, *, compatible_engines, slot128_empty, owned_preview_verified=False):
+    def begin_preview(self, capture, *, compatible_engines, slot128_empty, owned_preview_verified=False,
+                      slot128_ours=False, replace_confirmed=False):
         if self.cleanup:
             raise NavigationBlocked('The previous preview needs verified cleanup.')
         if not self.bound or self.bound != self.selected:
             raise NavigationBlocked('Choose Use selected block before auditioning.')
         if self.bound.engine not in compatible_engines:
             raise NavigationBlocked('This capture needs a different supported engine.')
-        # Ownership comes from a prior successful preview, never a filename or a
-        # free-slot guess. No fallback to127, another free slot or an overwrite.
+        # This session's own preview: from a prior successful preview on this very target. No fallback to127,
+        # another free slot or an overwrite of anything else.
         owned = bool(owned_preview_verified and self.preview is not None and self.preview.target == self.bound)
-        if not slot128_empty and not owned:
-            raise NavigationBlocked('Preview slot128 is occupied and is not owned by this session.')
+        # Batch 3 (2026-11-24), replacing "refuse when occupied and not owned by this session": slot128 also holds a
+        # preview of ours when its name is one this editor gave one of its previews (slot128_ours: the random tag,
+        # remembered from one launch to the next), and then it is replaced without asking. Anything else is asked about
+        # once (NavigationAsk) and replaced only once the player said so (replace_confirmed).
+        if not slot128_empty and not (owned or slot128_ours or replace_confirmed):
+            raise NavigationAsk('Slot 128 is in use. Replace it to preview?')
         self.generation += 1
         self.pending = PreviewTicket(self.generation, self.bound, capture)
         self.notice = 'Preparing preview for the named target.'

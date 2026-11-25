@@ -361,8 +361,9 @@ class NavigationNativeTests(unittest.TestCase):
           let active={navigation:true,bound:true,valid:true,context:4,targetVersion:1,controller:'A',block:'block0',position:'A',
             tile:{block:'NAM A2 Lite'},transfer:{slot:128},origin:{slot:9},nativeTarget:{valid:true,originalSlot:9}};
           const namView={modelSlot:()=>slot,selectProfile:s=>{slot=s.slot;undo++;return true;},
-            clearPreview:()=>{empty=true;return true;},canClearPreview:()=>true,previewSlotEmpty:()=>empty,
+            clearPreview:()=>{empty=true;return true;},canClearPreview:()=>true,previewUse:()=>'unused',previewSlotEmpty:()=>empty,
             stopPreview:()=>{},freeSlots:()=>[2],previewName:()=>true};
+          let previewEnd=null;
           const atTarget=()=>true,undoIndex=()=>undo,poll=(_r,next)=>callbacks.push(next),publishTarget=()=>{},releaseTarget=()=>{};
           const captureTarget=()=>{active.nativeTarget={valid:true,originalSlot:slot};calls.push(['capture',slot]);};
           const cleanupTrace=()=>{},targetOnScreen=()=>false; // the old block is not the one on screen
@@ -393,11 +394,13 @@ class NavigationNativeTests(unittest.TestCase):
               if(c.context!==4)throw Error('expired context');return{slot:blocks.A.Model};},
               restore:(_b,slot,c)=>{calls.push(['restore-old',slot]);blocks.A.Model=slot;return true;}};
             const namView={previewName:()=>mode!=='owner-changed',canClearPreview:()=>mode!=='referenced-elsewhere',
+              previewUse:()=>mode==='referenced-elsewhere'?'used':'unused',
               clearPreview:()=>{calls.push(['clear',128]);empty=true;return true;},previewSlotEmpty:()=>empty,stopPreview:()=>{}};
             const poll=(_r,next)=>pending.push(next),publishTarget=()=>{},releaseTarget=()=>{},resume=()=>{};
             const cleanupTrace=()=>{},atTarget=()=>false,targetOnScreen=()=>false,forgetPreview=()=>{};
-            let response;const reply=(_r,value)=>response=value;
-        ''' + function('afterRestore') + function('restoreOwnedPreview') + function('restoreBoundPreview') + '''
+            let response,previewEnd=null;const reply=(_r,value)=>response=value;
+        ''' + function('afterRestore') + function('restoreOwnedPreview') + function('slotGone') + function('slotTaken') + \
+            function('restoreBoundPreview') + '''
             restoreBoundPreview({action:'autoEnd'});
             if(mode==='context-changed')contextVersion=5;
             while(pending.length)pending.shift()(false);
@@ -407,8 +410,15 @@ class NavigationNativeTests(unittest.TestCase):
         ''')
         self.assertEqual(result[0]['calls'], [['restore-old', 16], ['clear', 128]])
         self.assertTrue(result[0]['response']['ended'])
+        # (live check 2026-11-24 11:47: with the old block back, a 128 that cannot be cleared no longer holds the
+        # session: the preview has ended, said plainly; the slot stays, named as ours)
         self.assertEqual(result[1]['calls'], [['restore-old', 16]])
+        self.assertTrue(result[1]['response']['ended'])
+        self.assertIn('another block or snapshot of this preset uses it', result[1]['response']['notice'])
+        # something else in 128: nothing of ours left, the preview has ended, left as it is
         self.assertEqual(result[2]['calls'], [])
+        self.assertTrue(result[2]['response']['ended'])
+        self.assertIn('Slot 128 holds something else now', result[2]['response']['notice'])
         self.assertEqual(result[3]['calls'], [['restore-old', 16]])
         for i, state in enumerate(result):
             self.assertEqual(state['blocks']['B'], {'Model': 11, 'Input': 8, 'Bass': 5})
@@ -417,9 +427,10 @@ class NavigationNativeTests(unittest.TestCase):
             self.assertTrue(state['open'])
             self.assertFalse(state['bound'])
             self.assertFalse(state['cleanup'])
-            if i:
+            if i == 3:
                 self.assertFalse(state['response']['ended'])
                 self.assertTrue(state['response']['retained'])
+
 
     def test_selection_change_queues_automatic_cleanup_after_native_event_unwinds(self):
         result = js('''

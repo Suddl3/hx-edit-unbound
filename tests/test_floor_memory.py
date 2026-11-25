@@ -263,6 +263,8 @@ const tree={global:{'@tempo':120,odd:{unread:7}},globalNodes:{footswitch:{x:{unr
 assert.ok(presetIrSlots(tree,ir).reason);
 assert.deepEqual([...presetIrSlotsLenient(tree,ir).slots].sort((a,b)=>a-b),[9,12,40]);   // not 128: the preview slot
 assert.deepEqual([...presetIrSlotsLenient({global:{},globalNodes:{},dsp0:{},dsp1:{}},ir).slots],[]);
+// (a Workbench Clear's check counts 128 too: a preset playing a preview from it uses it)
+assert.deepEqual([...presetIrSlotsLenient(tree,ir,128).slots].sort((a,b)=>a-b),[9,12,40,128]);
 '''
         run = subprocess.run(['node'], input=code, capture_output=True, text=True, encoding='utf-8', timeout=15)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
