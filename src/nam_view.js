@@ -1924,6 +1924,35 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     },
     // Focus Mode: a DSP's chain panel in the window ({x, y, w, h}, or null when it is not showing), and a plain
     // click at a point of the chain, as the user's own click on a block (it selects the block; nothing else).
+    // HX Edit's own edit panel (res/editor.xml "insp"): its tab row "emtb" (EDIT | BYPASS/CONTROLLER ASSIGN) and the two
+    // views it switches, "etvw" (EDIT: the model list and the parameter pane PRVW) and "cavw" (the assign view). After
+    // Focus Mode HX Edit was found on the assign tab (live 2026-11-25 14:05): no parameter pane, and its panel no
+    // longer follows the selected block, which TONE3000 and the Library's Preview / Put on the Floor bind to.
+    editPanelTab() {
+      const view = sidebar();
+      if (!view) return null;
+      const insp = canonical(findWidget(view.editor, 0x696e7370, 1));                   // insp
+      if (insp.isNull()) return null;
+      const editView = canonical(findWidget(insp, 0x65747677, 1)), assignView = canonical(findWidget(insp, 0x63617677, 1));   // etvw, cavw
+      return {edit: !editView.isNull() && !!isVisible(editView, 1), assign: !assignView.isNull() && !!isVisible(assignView, 1)};
+    },
+    // A click on HX Edit's own EDIT tab (the left half of "emtb"), posted as a chain click is. True when posted.
+    showEditTab() {
+      const view = sidebar();
+      if (!view || sidebarHost.isNull()) return false;
+      const insp = canonical(findWidget(view.editor, 0x696e7370, 1));
+      const tabs = insp.isNull() ? NULL : canonical(findWidget(insp, 0x656d7462, 1));     // emtb
+      if (tabs.isNull() || !isVisible(tabs, 1)) return false;
+      widgetOrigin(tabs, chainPoint);
+      const size = box(tabs);
+      if (!(size.w > 0 && size.h > 0)) return false;
+      const x = chainPoint.readS32() + Math.round(size.w / 4), y = chainPoint.add(4).readS32() + Math.round(size.h / 2);
+      const at = ptr(((y & 0xffff) << 16 | (x & 0xffff)) >>> 0);
+      postMessage(sidebarHost, 0x200, NULL, at);          // WM_MOUSEMOVE
+      postMessage(sidebarHost, 0x201, ptr(1), at);        // WM_LBUTTONDOWN, MK_LBUTTON
+      postMessage(sidebarHost, 0x202, NULL, at);          // WM_LBUTTONUP
+      return true;
+    },
     chainBox(dsp) {
       const view = sidebar();
       if (!view || !chainIds[dsp]) return null;

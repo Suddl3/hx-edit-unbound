@@ -373,6 +373,23 @@ function installFocusView(options, parts) {
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
   let selectAsked = null;   // the page's last pick, until a reading has it selected (trace "select-shown")
+  // HX Edit's own panel tab while a pane covers HX Edit: traced on each change ("hx-tab"), and put back on EDIT when it is
+  // on BYPASS/CONTROLLER ASSIGN ("hx-tab-edit"), at most once a second: the panes have their own Bypass and
+  // controllers tab, and HX Edit's EDIT tab is what TONE3000 and the Library bind the selected block through. Classic
+  // (no pane) is the player's own: not touched there.
+  let hxTab = '', hxTabFixedAt = 0;
+  function keepEditTab() {
+    let tab = null;
+    try { tab = namView.editPanelTab ? namView.editPanelTab() : null; } catch (_) { tab = null; }
+    const word = !tab ? 'unknown' : tab.assign ? 'assign' : tab.edit ? 'edit' : 'none';
+    if (word !== hxTab) { hxTab = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab', tab: word}); }
+    if (word === 'assign' && Date.now() - hxTabFixedAt > 1000) {
+      hxTabFixedAt = Date.now();
+      let clicked = false;
+      try { clicked = namView.showEditTab ? namView.showEditTab() : false; } catch (_) { clicked = false; }
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab-edit', clicked});
+    }
+  }
   let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [], assign = null, assignTraced = '';
   let header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null], setlists: null};   // the top bar's preset, snapshot names and preset list (full readings)
   // The Workbench's look at another setlist (focusLookStep), and a preset of another setlist asked of HX Edit's list.
@@ -772,6 +789,7 @@ function installFocusView(options, parts) {
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
+    keepEditTab();
     // A block the page picked: clicked before this reading rather than after it, so the reading itself carries HX
     // Edit's new selection (its click fires HX Edit's own events, which make it a full reading): one turn of HX Edit's
     // UI thread less between the click and the page's panel. (The first block of a preset is still picked after.)

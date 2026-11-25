@@ -768,5 +768,39 @@ class LevelsSaysWhatTests(unittest.TestCase):
         self.assertLess(empty.index('LEVELS_WHAT'), empty.index('The amp stays silent'))
 
 
+class EditTabTests(unittest.TestCase):
+    """After Focus Mode HX Edit's own panel was on BYPASS/CONTROLLER ASSIGN (live 2026-11-25 14:05, owner-trials
+    20261125-140350-61f39929): no parameter pane, and the TONE3000 session could not bind the selected block."""
+
+    def test_hx_edits_tab_is_read_from_its_own_views(self):
+        view = text('nam_view.js')
+        read = between(view, 'editPanelTab() {', '\n    },')
+        self.assertIn('findWidget(view.editor, 0x696e7370, 1)', read)                       # insp
+        self.assertIn('findWidget(insp, 0x65747677, 1)', read)                               # etvw: EDIT
+        self.assertIn('findWidget(insp, 0x63617677, 1)', read)                               # cavw: the assign view
+        click = between(view, 'showEditTab() {', '\n    },')
+        self.assertIn('findWidget(insp, 0x656d7462, 1)', click)                              # emtb: the tab row
+        self.assertIn('chainPoint.readS32() + Math.round(size.w / 4)', click)               # (EDIT: its left half)
+        self.assertIn('postMessage(sidebarHost, 0x201, ptr(1), at);', click)
+        res = Path(r'E:\Dev\HelixNam\research\hx-edit-nam-review\floor-port\navigation-build-20261112\live\app\res\editor.xml')
+        if res.is_file():
+            xml = res.read_text(encoding='utf-8', errors='replace')
+            for wid in ('id="insp"', 'id="emtb"', 'id="etvw"', 'id="cavw"', '<label>EDIT</label>', '<label>BYPASS/CONTROLLER ASSIGN</label>'):
+                self.assertIn(wid, xml)
+            self.assertLess(xml.index('<label>EDIT</label>'), xml.index('<label>BYPASS/CONTROLLER ASSIGN</label>'))
+
+    def test_while_a_pane_covers_hx_edit_its_tab_goes_back_to_edit_and_is_traced(self):
+        script = text('focus_view.js')
+        keep = between(script, 'function keepEditTab() {', '\n  }\n')
+        self.assertIn("send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab', tab: word});", keep)
+        self.assertIn("if (word === 'assign' && Date.now() - hxTabFixedAt > 1000) {", keep)
+        self.assertIn("send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab-edit', clicked});", keep)
+        refresh = between(script, 'function refresh(window) {', '  function select(target) {')
+        self.assertIn('keepEditTab();', refresh)
+        sidebar = text('nam_sidebar.js')
+        self.assertIn("stage:'hx-tab-edit',clicked:!!namView.showEditTab?.(),before:'tone3000'", sidebar)
+        self.assertLess(sidebar.index("before:'tone3000'"), sidebar.index('placed,asked:value.id'))
+
+
 if __name__ == '__main__':
     unittest.main()
