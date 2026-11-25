@@ -370,5 +370,46 @@ class ClickRuleTests(unittest.TestCase):
         self.assertIn('s.captures.map(c => [c.slot, c.name, c.icon, c.gear]), lined, replaced] : null,', page)
 
 
+class ScenePinTests(unittest.TestCase):
+    """B11: Rig on stage's pin beside "Scene: <name>" (reveal-stage-scene-pin.png): on (the default) one scene for the
+    preset, off the picked block's, as before. Kept in settings.json like the layout."""
+
+    def test_b11_the_setting(self):
+        from workbench import SCENE_PIN, checked_scene_pin, scene_pin_of
+        self.assertEqual(SCENE_PIN, 'workbenchScenePin')
+        self.assertTrue(scene_pin_of({}))
+        self.assertTrue(scene_pin_of(None))
+        self.assertTrue(scene_pin_of({SCENE_PIN: 'no'}))
+        self.assertFalse(scene_pin_of({SCENE_PIN: False}))
+        self.assertIs(checked_scene_pin(False), False)
+        self.assertIsNone(checked_scene_pin('false'))
+        self.assertIsNone(checked_scene_pin(0))
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("'scenePin': scene_pin_kept()}", launcher)
+        self.assertIn("if name == 'scenePin':", launcher)
+        self.assertIn('nam_catalog.save_setting(SCENE_PIN, choice)', launcher)
+
+    def test_b11_the_page(self):
+        page = text('workbench.html')
+        scene = between(page, 'function stageScene() {', '\n}')
+        # the preset's own scene first, then with the pin one for the preset, without it the picked block's kind's
+        self.assertLess(scene.index('if (whole) return whole;'), scene.index('if (look && scenePinned()) return presetScene();'))
+        self.assertIn("if (look) return defaultSceneOf(now && isChain(now) ? kindKeyOf(now) : 'default');", scene)
+        self.assertIn('const scenePinned = () => options.scenePin !== false;', page)
+        whole = between(page, 'function presetScene() {', '\n}')
+        # worked out once per preset and Floor look defaults (not per pick, add or remove)
+        self.assertIn('key = JSON.stringify([p ? [p.setlist, p.number, p.name] : null, look.assign]);', whole)
+        self.assertIn('if (pinnedScene && pinnedScene.key === key) return pinnedScene.name;', whole)
+        self.assertNotIn('current()', whole)
+        head = between(page, 'function stageHead() {', '\n}')
+        self.assertIn("pin = el('button', 'glassbtn scenepin' + (pinned ? ' on' : ''));", head)
+        self.assertIn("'One scene for this preset. Click to let the scene follow the picked block.'", head)
+        self.assertIn("'The scene follows the picked block. Click to keep one scene for this preset.'", head)
+        self.assertIn("ask('scenePin', !pinned);", head)
+        self.assertIn('const stageKey = () => [stageScene(), !!look, scenePinned()];', page)
+        # Focus Mode is not changed
+        self.assertNotIn('scenePin', text('focus_view.html'))
+
+
 if __name__ == '__main__':
     unittest.main()

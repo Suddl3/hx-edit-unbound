@@ -921,6 +921,8 @@
   .glassbtn { height: 34px; padding: 0 14px; border-radius: 9px; display: inline-flex; align-items: center; gap: 9px; background: rgb(12 13 17 / .62); border: 1px solid rgb(255 255 255 / .16);
               backdrop-filter: blur(10px); font-weight: 600; white-space: nowrap; }
   .glassbtn:hover { border-color: rgb(255 255 255 / .4); }
+  .glassbtn.scenepin { width: 34px; padding: 0; justify-content: center; margin-left: -4px; color: rgb(255 255 255 / .55); }
+  .glassbtn.scenepin.on { color: #fff; background: rgb(255 255 255 / .2); border-color: rgb(255 255 255 / .38); }
   .glassbtn svg { width: 16px; height: 16px; }
   .lay-stage .path .tag { align-self: flex-start; height: auto; width: 92px; margin: calc(var(--gh, 120px) - 46px) 12px 0 0; padding: 9px 10px; border-radius: 10px; background: rgb(10 11 14 / .62);
                           border: 1px solid rgb(255 255 255 / .14); backdrop-filter: blur(10px); }
@@ -2741,8 +2743,10 @@ function setLayout(name, mine) {
 // and outputs, the "+" places, every drag and drop and its asks), drawn as gear on a common floor line: its sizes
 // follow the room the stage has (stageSizes, worked out when the chain is drawn, never per frame), the pictures are
 // the large renders Focus Mode shows (the Floor look picture where one was given), loaded once the stage shows.
-// The scene is the one Floor look gives the loaded preset: its own, else the selected block's kind's default (Focus
-// Mode's own rule), the high-resolution plate where this PC has it. "Scene: X" opens Floor look.
+// The scene is the one Floor look gives the loaded preset: its own, else (Reveal B11) with the pin on, one for the
+// preset (presetScene), with it off the selected block's kind's default (Focus Mode's own rule); the high-resolution
+// plate where this PC has it. "Scene: X" opens Floor look; the pin beside it switches (options.scenePin, kept in
+// settings.json "workbenchScenePin", on by default). Focus Mode is not changed.
 const STAGE_BIG = new Set(['amp', 'preamp', 'cab']), STAGE_BIG_GEAR = new Set(['amp', 'preamp', 'amp-cab', 'amp-pedal-cab', 'cab']);
 function gearClass(block) {
   // (amps and cabs stand full height, pedals and the rest smaller: the gear's own sizes, roughly)
@@ -2765,13 +2769,29 @@ function stagePictures(block) {
   const big = TILE_TOP * (window.devicePixelRatio || 1) > 240;
   return big ? urls.concat(own) : urls.slice().reverse().concat(own.slice().reverse());
 }
+const scenePinned = () => options.scenePin !== false;
 function stageScene() {
   const now = current(), mine = look && presetLook(), whole = mine && usableScene(mine.scene);
   if (whole) return whole;
+  if (look && scenePinned()) return presetScene();
   if (look) return defaultSceneOf(now && isChain(now) ? kindKeyOf(now) : 'default');
   return (now && usableScene(model(now).scene)) || Object.keys((catalog && catalog.scenes) || {})[0] || null;
 }
-const stageKey = () => [stageScene(), !!look];
+const stageKey = () => [stageScene(), !!look, scenePinned()];
+// One scene for the preset when it has none of its own: the default of its main amp's kind (its first amp or preamp,
+// a NAM block counting as an amp unless its capture is a pedal, path 1 first), else the default scene; worked out
+// once the preset's blocks are read, then kept while blocks are picked, added or removed, until the preset or the
+// Floor look's defaults change.
+let pinnedScene = null;
+function presetScene() {
+  const p = state.preset, key = JSON.stringify([p ? [p.setlist, p.number, p.name] : null, look.assign]);
+  if (pinnedScene && pinnedScene.key === key) return pinnedScene.name;
+  const chain = state.blocks.filter(isChain).sort((a, b) => a.dsp - b.dsp || (a.path || 0) - (b.path || 0) || a.position - b.position);
+  const ampish = b => { const c = capture(b); return c && 'gear' in c ? /amp/.test(String(c.gear)) : ['amp', 'preamp'].includes(kindKeyOf(b)); };
+  const amp = chain.find(ampish), name = defaultSceneOf(amp ? kindKeyOf(amp) : 'default');
+  if (chain.length) pinnedScene = {key, name};
+  return name;
+}
 let shownScene = '';
 function syncStage() {
   const box = $('stageScene'), on = layout === 'stage' && !!catalog;
@@ -2790,7 +2810,13 @@ function stageHead() {
   button.innerHTML = RAIL_ICON.floor; button.append('Scene: ' + (name ? sceneName(name) : 'none'));
   button.title = 'The scene behind the gear: Floor look (this preset’s own, else its kind’s default)';
   button.onclick = () => setView('open', 'look');
-  head.append(button);
+  // (the pin: one scene for the preset, or the picked block's; no words in the bar, the tooltip says which)
+  const pinned = scenePinned(), pin = el('button', 'glassbtn scenepin' + (pinned ? ' on' : ''));
+  pin.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6z"/><path d="M12 15v5"/></svg>';
+  pin.title = pinned ? 'One scene for this preset. Click to let the scene follow the picked block.' : 'The scene follows the picked block. Click to keep one scene for this preset.';
+  pin.setAttribute('aria-pressed', pinned); pin.setAttribute('aria-label', 'One scene for this preset');
+  pin.onclick = () => { options = {...options, scenePin: !pinned}; ask('scenePin', !pinned); shownChain = ''; drawChain(true); syncStage(); };
+  head.append(button, pin);
   return head;
 }
 // The chooser's small pictures (the mock-up's own, research/modern-ui/batch4/mock.js)

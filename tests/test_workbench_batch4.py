@@ -50,7 +50,7 @@ class ChooserTests(unittest.TestCase):
         handler = between(text, "if name == 'layout':", "if name == 'menu':")
         for piece in ('choice = checked_layout(value)', 'nam_catalog.save_setting(LAYOUT, choice)', 'workbench.show_options(menu_options())'):
             self.assertIn(piece, handler)
-        self.assertIn("'layout': layout_kept()}", text)
+        self.assertIn("'layout': layout_kept(),", text)
         kept = between(text, 'def layout_kept():', 'def menu_options():')
         self.assertIn('return layout_of(nam_catalog.load_settings())', kept)
         self.assertIn("return 'workbench'", kept)                                  # (unreadable: the default)

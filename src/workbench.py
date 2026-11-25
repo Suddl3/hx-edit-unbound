@@ -293,6 +293,20 @@ def checked_layout(value):
     return value if isinstance(value, str) and value in LAYOUTS else None
 
 
+SCENE_PIN = 'workbenchScenePin'       # settings.json: Rig on stage's scene pin (Reveal B11): one scene for the preset
+
+
+def scene_pin_of(settings):
+    """Whether Rig on stage keeps one scene for the preset (the default) rather than the picked block's."""
+    found = settings.get(SCENE_PIN) if isinstance(settings, dict) else None
+    return found if isinstance(found, bool) else True
+
+
+def checked_scene_pin(value):
+    """The pin's state the page asked for, or None for anything that is not one."""
+    return value if isinstance(value, bool) else None
+
+
 def setting_on(settings):
     """Whether the Workbench is shown at launch: only once it has been switched on (settings.json "workbench": true)."""
     return isinstance(settings, dict) and settings.get(SETTING) is True

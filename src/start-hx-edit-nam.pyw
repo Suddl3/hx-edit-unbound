@@ -355,8 +355,16 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     return layout_of(nam_catalog.load_settings())
                 except Exception:
                     return 'workbench'
+            def scene_pin_kept():
+                # Rig on stage's scene pin (Reveal B11), settings.json "workbenchScenePin"; on when it cannot be read
+                try:
+                    from workbench import scene_pin_of
+                    return scene_pin_of(nam_catalog.load_settings())
+                except Exception:
+                    return True
             def menu_options():
-                return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept(), 'layout': layout_kept()}
+                return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept(), 'layout': layout_kept(),
+                        'scenePin': scene_pin_kept()}
             def frame_show():
                 try:
                     frame.apply(focus_on[0] or workbench_on[0], menu_bar_kept())
@@ -715,6 +723,13 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         nam_catalog.save_setting(LAYOUT, choice)
                         workbench.show_options(menu_options())
                     return
+                if name == 'scenePin':
+                    # Rig on stage's pin (Reveal B11): one scene for the preset, or the picked block's; kept in settings.json
+                    choice = checked_scene_pin(value)
+                    if choice is not None:
+                        nam_catalog.save_setting(SCENE_PIN, choice)
+                        workbench.show_options(menu_options())
+                    return
                 if name == 'menu':
                     # The page's Editor | Focus switch and its Unbound menu. The tools are panels of HX Edit's own
                     # screen, which the pane would cover: the Workbench steps aside for them.
@@ -741,7 +756,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             if workbench is not None:
                 workbench.on_action = workbench_action
                 workbench.show_options(menu_options())
-                from workbench import (LAYOUT, LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_layout, checked_library, import_files,
+                from workbench import (LAYOUT, SCENE_PIN, checked_scene_pin, LEVEL_COMMANDS, PINS, PREFS, SESSION_PAGES, checked_chosen, checked_floor, checked_layout, checked_library, import_files,
                                        library_view, pinned, pins_after, prefs, prefs_after, previews_view, usage_view)
                 workbench.show_pins(pinned(nam_catalog.load_settings()))
                 workbench.show_prefs(prefs(nam_catalog.load_settings()))
