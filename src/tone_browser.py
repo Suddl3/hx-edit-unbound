@@ -130,6 +130,26 @@ def write_browser_icon(executable, destination):
     return destination
 
 
+def stock_editor_exe():
+    """HX Edit 3.82's own executable, for the window's icon: the prepared copy (src/prepare-hx-edit.ps1) when there is
+    one, else the installed HX Edit as nam_catalog.prepare_copy finds it (HX_EDIT_SOURCE_DIRECTORY, else the default
+    folder), its hash checked. None when neither is there. (A fresh clone has no prepared copy: TONE3000 did not open
+    there, install check 2026-11-25.)"""
+    prepared = ROOT / 'build' / 'HX Edit' / 'HX Edit.exe'
+    if prepared.is_file():
+        return prepared
+    from hashlib import sha256
+    from nam_catalog import EXE_HASH
+    program_files = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))
+    installed = Path(os.environ.get('HX_EDIT_SOURCE_DIRECTORY') or program_files / 'Line6' / 'HX Edit') / 'HX Edit.exe'
+    try:
+        if installed.is_file() and sha256(installed.read_bytes()).hexdigest() == EXE_HASH:
+            return installed
+    except OSError:
+        pass
+    return None
+
+
 def prepare_browser():
     source = ROOT / 'tone_browser.cs'
     build = ROOT / 'build' / f'tone-browser-{SDK_VERSION}'
@@ -144,11 +164,12 @@ def prepare_browser():
     references = ['System.Windows.Forms.dll', 'System.Drawing.dll', 'System.Web.Extensions.dll']
     references.extend(str(build / Path(name).name) for name in SDK_ASSETS[:2])
     icon = build / 'ToneBrowser.ico'
-    stock = ROOT / 'build' / 'HX Edit' / 'HX Edit.exe'
-    if stock.is_file():
+    stock = stock_editor_exe()
+    if stock is not None:
         write_browser_icon(stock, icon)
     if not icon.is_file():
-        raise ToneError('The local HX Edit application icon is unavailable. Rebuild the prepared editor copy.')
+        raise ToneError('HX Edit 3.82 was not found, so the TONE3000 window has no icon. Install Line 6 HX Edit 3.82 '
+                        'in its default folder (or set HX_EDIT_SOURCE_DIRECTORY to where it is).')
     temporary = build / 'ToneBrowser-new.exe'
     result = subprocess.run(
         [str(compiler), '/nologo', '/target:winexe', '/platform:x86', '/codepage:65001', f'/out:{temporary}',

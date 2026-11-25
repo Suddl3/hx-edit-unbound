@@ -26,6 +26,22 @@ from tone_browser import ToneBrowser
 CARD = Path(__file__).with_name('tone_card.html')
 KEY_HELP = ('Set T3K_PUBLISHABLE_KEY to the publishable key from TONE3000 → Settings → API Keys '
             'and restart HX Edit Unbound.')
+# The key saved once (setup.ps1 asks for it), read when T3K_PUBLISHABLE_KEY is not set: as the macOS launcher reads its
+# own (start-hx-edit-nam-macos.py, Application Support).
+KEY_FILE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'tone3000-publishable-key'
+
+
+def publishable_key(environ=None, key_file=None):
+    """The TONE3000 Publishable Key: T3K_PUBLISHABLE_KEY when it is set (it wins), else the saved key file. Only a
+    "t3k_pub_" key with no whitespace in it is returned; '' otherwise (never a Secret Key)."""
+    environ = os.environ if environ is None else environ
+    key = (environ.get('T3K_PUBLISHABLE_KEY') or '').strip()
+    if not key:
+        try:
+            key = Path(key_file or KEY_FILE).read_text(encoding='utf-8-sig').strip()
+        except (OSError, UnicodeDecodeError):
+            key = ''
+    return key if key.startswith('t3k_pub_') and not any(c.isspace() for c in key) else ''
 
 
 class _LibraryActionSession:
@@ -501,7 +517,7 @@ class TonePreview:
         started = monotonic()
         self._trace('browser', 'started', session)
         try:
-            client_id = (self.client_id or os.environ.get('T3K_PUBLISHABLE_KEY', '')).strip()
+            client_id = (self.client_id or publishable_key()).strip()
             if not client_id.startswith('t3k_pub_'):
                 if not self.library:
                     raise ToneError(KEY_HELP)

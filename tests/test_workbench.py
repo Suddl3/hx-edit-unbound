@@ -274,10 +274,12 @@ class CatalogTests(unittest.TestCase):
         (self.res / 'HelixControls.json').write_text('{}', encoding='utf-8')
         self.assertEqual(workbench.route_names(self.res), {'inputs': [], 'outputs': [], 'ledColors': []})
 
-    def test_the_workbench_is_shown_at_launch_only_once_it_was_switched_on(self):
-        self.assertFalse(workbench.setting_on({}))
+    def test_a_first_launch_opens_the_workbench_and_classic_stays_when_chosen(self):
+        # (Nick, 2026-11-25: a new player starts in the Workbench; Classic chosen in the menu stays)
+        self.assertTrue(workbench.setting_on({}))
+        self.assertTrue(workbench.setting_on(None))
+        self.assertTrue(workbench.setting_on({'chainModelArt': True}))
         self.assertFalse(workbench.setting_on({'workbench': False}))
-        self.assertFalse(workbench.setting_on(None))
         self.assertTrue(workbench.setting_on({'workbench': True}))
 
     def test_the_menu_offers_only_hx_edits_own_screen_focus_mode_and_the_launchers_tools(self):

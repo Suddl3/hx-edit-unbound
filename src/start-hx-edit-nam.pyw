@@ -997,8 +997,19 @@ def main():
     parser.add_argument('--navigation', action='store_true',
                         help='Experimental Floor header browser and verified native slot discovery.')
     parser.add_argument('--nam-category', action='store_true',
-                        help='Experimental: NAM Amp / Amp + cab / Pedal / Other categories in the block selector.')
+                        help='NAM Amp / Amp + cab / Pedal / Other categories in the block selector and the 3D gear '
+                             'pictures (on with --navigation; kept so older commands still run).')
+    parser.add_argument('--no-nam-category', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--unbound', action='store_true',
+                        help='Everything on for a Floor with HX Unbound firmware: the same as --floor-reference '
+                             '--navigation --nam-category (start.ps1 uses it).')
     args = parser.parse_args()
+    # One launch with everything on (install check 2026-11-25: the documented --floor-reference --navigation left out
+    # the NAM categories and the 3D gear set, so the Workbench showed HX Edit's own icons).
+    if args.unbound:
+        args.floor_reference = args.navigation = True
+    if args.navigation and not args.no_nam_category:
+        args.nam_category = True
 
     if args.navigation and not args.floor_reference:
         parser.error('--navigation requires --floor-reference')

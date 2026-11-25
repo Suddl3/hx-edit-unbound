@@ -17,7 +17,7 @@ from pathlib import Path
 import dsp_costs
 import focus_view
 
-SETTING = 'workbench'                  # settings.json: the Workbench is on (shown at launch) unless false or missing
+SETTING = 'workbench'                  # settings.json: the Workbench is on (shown at launch) unless false
 # The kinds of NAM capture a model category offers as its own "Captures" tab (the names are focus_view.NAM_KINDS);
 # every capture is under "All captures" in any case.
 CAPTURE_TABS = {'Amp': ('NAM Amp', 'NAM Amp + cab'), 'Preamp': ('NAM Amp',), 'Cab': ('NAM Cab',),
@@ -308,8 +308,10 @@ def checked_scene_pin(value):
 
 
 def setting_on(settings):
-    """Whether the Workbench is shown at launch: only once it has been switched on (settings.json "workbench": true)."""
-    return isinstance(settings, dict) and settings.get(SETTING) is True
+    """Whether the Workbench is shown at launch: yes on a first launch (no settings, or no "workbench" in them: Nick,
+    2026-11-25, a new player starts in the Workbench) and once switched on; no only when Classic was chosen
+    (settings.json "workbench": false)."""
+    return not (isinstance(settings, dict) and settings.get(SETTING) is False)
 
 
 class WorkbenchView(focus_view.FocusView):
