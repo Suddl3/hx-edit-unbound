@@ -1380,14 +1380,15 @@ class UnboundButton : Form
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
-    // Full: the three buttons, two with their names. Compact (a narrow window): the three marks only.
-    public const int Gap = 4, FocusWidth = 72, ToolsWidth = 104, GearWidth = 30, MarkWidth = 28;
-    public const int Width = FocusWidth + ToolsWidth + GearWidth + 2 * Gap, CompactWidth = 3 * MarkWidth + 2 * Gap;
-    // The three buttons in a window this wide, left to right: Focus, tools, options.
+    // Full: the two buttons with their names. Compact (a narrow window): their marks only. (R6: the options button
+    // that sat third is gone; its choices are in the UNBOUND menu.)
+    public const int Gap = 4, FocusWidth = 72, ToolsWidth = 104, MarkWidth = 28;
+    public const int Width = FocusWidth + ToolsWidth + Gap, CompactWidth = 2 * MarkWidth + Gap;
+    // The two buttons in a window this wide, left to right: Focus, UNBOUND.
     public static Rectangle[] Parts(int width,int height){
         bool full=width>=Width;
-        int focus=full?FocusWidth:MarkWidth, tools=full?ToolsWidth:MarkWidth, gear=full?GearWidth:MarkWidth;
-        return new[]{ new Rectangle(0,0,focus,height), new Rectangle(focus+Gap,0,tools,height), new Rectangle(focus+tools+2*Gap,0,gear,height) };
+        int focus=full?FocusWidth:MarkWidth, tools=full?ToolsWidth:MarkWidth;
+        return new[]{ new Rectangle(0,0,focus,height), new Rectangle(focus+Gap,0,tools,height) };
     }
     // The UNBOUND menu (Reveal B12: Classic's own chooser, as a native menu): the layouts, Classic ticked (the button
     // shows only on Classic, HX Edit's own screen); the chain pictures as a ticked pair; then the tools. (label, output)
@@ -1402,11 +1403,11 @@ class UnboundButton : Form
         Tuple.Create("Floor look…", "look"),
         Tuple.Create("NAM library…", "library"),
     };
-    static readonly string[] Tips = { "Focus Mode: the selected block, large, with its own controls", "HX Edit Unbound: the layout, the chain pictures and the tools", "HX Unbound options" };
+    static readonly string[] Tips = { "Focus Mode: the selected block, large, with its own controls", "HX Edit Unbound: the layout, the chain pictures, the IR list and the tools" };
     static readonly Color Back = Color.FromArgb(29, 29, 29), Face = Color.FromArgb(48, 48, 48), Hover = Color.FromArgb(66, 66, 66),
         Ink = Color.FromArgb(225, 225, 225), Dim = Color.FromArgb(112, 112, 112);
     readonly IntPtr parent;
-    readonly ContextMenuStrip tools = NewMenu(), options = NewMenu();
+    readonly ContextMenuStrip tools = NewMenu();
     readonly ToolTip tip = new ToolTip();
     // The menus belong to this helper, not to HX Edit, so a click in HX Edit does not close them on its
     // own: while one is open, a mouse press anywhere outside it (or outside these buttons) closes it.
@@ -1415,7 +1416,7 @@ class UnboundButton : Form
     bool placed;
     // The options: a tick is part of the label (the menus have no image margin). An option that only matters while
     // another is on sits indented under it and is dimmed while that one is off; it keeps its own tick meanwhile.
-    ToolStripMenuItem irDots, chainArt, chainLarge, chainNames, chainGlow, chainIcons, chainGear;
+    ToolStripMenuItem irDots, chainLarge, chainNames, chainGlow, chainIcons, chainGear;
     bool dots = true, art, large = true, names = true, glow;   // as a first launch has them (Reveal B12: HX Edit's icons)
     public void SetIrDots(bool on){ dots=on; Ticks(); }
     public void SetChainArt(bool on){ art=on; Ticks(); }
@@ -1424,8 +1425,7 @@ class UnboundButton : Form
     public void SetChainGlow(bool on){ glow=on; Ticks(); }
     public static string Tick(int level,bool on,string text){ return new string('\u2003',level*2)+(on?"\u2713":"\u2003")+"  "+text; }
     void Ticks(){
-        if(chainArt==null)return;
-        chainArt.Text=Tick(0,art,"3D pictures of the gear");
+        if(chainGear==null)return;
         chainIcons.Text=Tick(0,!art,"HX Edit\u2019s icons"); chainGear.Text=Tick(0,art,"3D gear");
         chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;
         chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;
@@ -1458,31 +1458,27 @@ class UnboundButton : Form
             if(choice.Item2=="")item.ToolTipText="HX Edit\u2019s own screen: the one in use";
         }
         tools.Items.Add(new ToolStripSeparator());
+        // (R6: one menu. The options button's choices live here: 3D gear's own three under it, dimmed while it is off)
         Heading(tools,"CHAIN PICTURES");
         chainIcons=Item(tools,"","chainIcons");
         chainGear=Item(tools,"","chainGear");
+        chainLarge=Item(tools,"","chainLarge");
+        chainNames=Item(tools,"","chainNames");
+        chainGlow=Item(tools,"","chainGlow");
+        tools.Items.Add(new ToolStripSeparator());
+        Heading(tools,"IR LIST");
+        irDots=Item(tools,"","irDots");
         tools.Items.Add(new ToolStripSeparator());
         Heading(tools,"TOOLS");
         foreach(var choice in Choices)Item(tools,choice.Item1,choice.Item2);
-        Heading(options,"SIGNAL CHAIN");
-        chainArt=Item(options,"","chainArt");
-        chainLarge=Item(options,"","chainLarge");
-        chainNames=Item(options,"","chainNames");
-        chainGlow=Item(options,"","chainGlow");
-        options.Items.Add(new ToolStripSeparator());
-        Heading(options,"IR LIST");
-        irDots=Item(options,"","irDots");
         Ticks();
         outside.Tick+=(sender,e)=>{
-            if(!tools.Visible&&!options.Visible){outside.Stop();return;}
+            if(!tools.Visible){outside.Stop();return;}
             if(Control.MouseButtons==MouseButtons.None||RectangleToScreen(ClientRectangle).Contains(Cursor.Position))return;
-            foreach(var menu in new[]{tools,options})
-                if(menu.Visible&&!menu.Bounds.Contains(Cursor.Position))menu.Close();
+            if(!tools.Bounds.Contains(Cursor.Position))tools.Close();
         };
-        foreach(var menu in new[]{tools,options}){
-            menu.Opened+=(sender,e)=>{outside.Start();Invalidate();};
-            menu.Closed+=(sender,e)=>Invalidate();
-        }
+        tools.Opened+=(sender,e)=>{outside.Start();Invalidate();};
+        tools.Closed+=(sender,e)=>Invalidate();
         var handle=Handle;
     }
     // The highlight is painted here rather than left to the colour table: on this system the
@@ -1530,7 +1526,7 @@ class UnboundButton : Form
         placed=!place.IsEmpty;
         if(GetParent(Handle)!=parent)SetParent(Handle,parent);
         if(placed)SetWindowPos(Handle,IntPtr.Zero,place.X,place.Y,place.Width,place.Height,0x0010|0x0040);
-        else { tools.Close(); options.Close(); ShowWindow(Handle,0); }
+        else { tools.Close(); ShowWindow(Handle,0); }
         Invalidate();
     }
     int At(Point point){
@@ -1546,12 +1542,10 @@ class UnboundButton : Form
     protected override void OnMouseLeave(EventArgs args){ over=-1; Invalidate(); base.OnMouseLeave(args); }
     protected override void OnMouseClick(MouseEventArgs args){
         int at=args.Button==MouseButtons.Left?At(args.Location):-1;
-        if(at==0){ tools.Close(); options.Close(); Say("focusMode"); }   // one click into Focus Mode
-        else if(at>0){
-            var menu=at==1?tools:options;
-            (at==1?options:tools).Close();
-            if(menu.Visible)menu.Close();
-            else menu.Show(this,new Point(Parts(ClientSize.Width,ClientSize.Height)[at].X,ClientSize.Height));
+        if(at==0){ tools.Close(); Say("focusMode"); }   // one click into Focus Mode
+        else if(at==1){
+            if(tools.Visible)tools.Close();
+            else tools.Show(this,new Point(Parts(ClientSize.Width,ClientSize.Height)[1].X,ClientSize.Height));
         }
         base.OnMouseClick(args);
     }
@@ -1586,7 +1580,7 @@ class UnboundButton : Form
         bool full=ClientSize.Width>=Width;
         for(int index=0;index<parts.Length;index++){
             var box=new RectangleF(parts[index].X+0.5f,1.5f,parts[index].Width-1.5f,ClientSize.Height-3.5f);
-            bool lit=over==index||(index==1&&tools.Visible)||(index==2&&options.Visible);
+            bool lit=over==index||(index==1&&tools.Visible);
             // Square-cornered like HX Edit's own buttons (TONE3000, the preset bar).
             using(var path=Rounded(box,2f)){
                 using(var brush=new SolidBrush(lit?Hover:Face))g.FillPath(brush,path);
@@ -1614,24 +1608,6 @@ class UnboundButton : Form
                     g.DrawLines(pen,new[]{new PointF(cx+MarkSize-0.6f,cy-4.6f),new PointF(cx+MarkSize-4.4f,cy),new PointF(cx+MarkSize-0.6f,cy+4.6f)});
                 }
                 if(named)DrawName(g,box,cx+MarkSize,"UNBOUND");
-            }else{
-                // Options: a cog (a toothed wheel with a hole), not a sun: eight square teeth on a solid ring.
-                float mx=cx+MarkSize/2f;
-                using(var cog=new System.Drawing.Drawing2D.GraphicsPath(System.Drawing.Drawing2D.FillMode.Alternate)){
-                    const int Teeth=8; const float Outer=5.6f, Root=4.1f, Hole=1.8f;
-                    var points=new PointF[Teeth*4];
-                    double step=2*Math.PI/Teeth, half=step*0.24, slope=step*0.10;      // a tooth's half width at its tip, and its flank
-                    for(int tooth=0;tooth<Teeth;tooth++){
-                        double mid=tooth*step-Math.PI/2;
-                        double[] angles={mid-half-slope,mid-half,mid+half,mid+half+slope};
-                        float[] radii={Root,Outer,Outer,Root};
-                        for(int corner=0;corner<4;corner++)
-                            points[tooth*4+corner]=new PointF(mx+(float)Math.Cos(angles[corner])*radii[corner],cy+(float)Math.Sin(angles[corner])*radii[corner]);
-                    }
-                    cog.AddPolygon(points);
-                    cog.AddEllipse(mx-Hole,cy-Hole,2*Hole,2*Hole);
-                    using(var fill=new SolidBrush(Ink))g.FillPath(fill,cog);
-                }
             }
         }
     }
@@ -2020,8 +1996,8 @@ class DspMeter : Form
            UnboundButton.Choices.Length!=3||UnboundButton.Choices[0].Item2!="level")throw new Exception("Unbound menu");
         // Three buttons, left to right, inside the window they are drawn in, named or as marks.
         var named=UnboundButton.Parts(UnboundButton.Width,24); var marks=UnboundButton.Parts(UnboundButton.CompactWidth,24);
-        if(named.Length!=3||named[0].X!=0||named[1].X!=named[0].Right+UnboundButton.Gap||named[2].Right!=UnboundButton.Width||
-           named[0].Width!=UnboundButton.FocusWidth||marks[2].Right!=UnboundButton.CompactWidth||marks[1].Width!=UnboundButton.MarkWidth)throw new Exception("Unbound button parts");
+        if(named.Length!=2||named[0].X!=0||named[1].X!=named[0].Right+UnboundButton.Gap||named[1].Right!=UnboundButton.Width||
+           named[0].Width!=UnboundButton.FocusWidth||marks[1].Right!=UnboundButton.CompactWidth||marks[1].Width!=UnboundButton.MarkWidth)throw new Exception("Unbound button parts");
         if(UnboundButton.Tick(0,true,"A")!="\u2713  A"||UnboundButton.Tick(1,false,"B")!="\u2003\u2003\u2003  B")throw new Exception("Unbound option labels");
         // HX Edit Unbound's title and icon colours on HX Edit's window.
         if(UnboundLook.Retitled("HX Edit - Helix Floor")!="HX Edit Unbound - Helix Floor"||UnboundLook.Retitled("HX Edit Unbound - Helix Floor")!="HX Edit Unbound - Helix Floor"||

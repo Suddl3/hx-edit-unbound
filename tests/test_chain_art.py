@@ -92,7 +92,8 @@ class ChainOptionTests(unittest.TestCase):
         self.assertIn("recv('chainArt'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
         # the options menu: what depends on another option sits under it and is dimmed while that one is off
-        for piece in ('chainArt.Text=Tick(0,art,"3D pictures of the gear");', 'chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;',
+        # (R6: one menu; the switch itself is Chain pictures' pair, its three options sit under 3D gear)
+        for piece in ('chainIcons.Text=Tick(0,!art,"HX Edit\\u2019s icons"); chainGear.Text=Tick(0,art,"3D gear");', 'chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;',
                       'chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;', 'irDots.Text=Tick(0,dots,"Mark NAM slots");',
                       'chainGlow.Text=Tick(2,glow,"Glow behind them"); chainGlow.Enabled=art&&large;'):
             self.assertIn(piece, helper)

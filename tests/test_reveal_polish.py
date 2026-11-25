@@ -426,7 +426,7 @@ class ClassicChooserTests(unittest.TestCase):
                          ['Tuple.Create("Workbench", "layout:workbench"),', 'Tuple.Create("Classic+", "layout:classicplus"),',
                           'Tuple.Create("Rig on stage", "layout:stage"),', 'Tuple.Create("Classic", ""),'])
         self.assertNotIn('Workbench (the modern screen)', helper)
-        build = between(helper, 'Heading(tools,"LAYOUT");', 'Heading(options,"SIGNAL CHAIN");')
+        build = between(helper, 'Heading(tools,"LAYOUT");', 'Ticks();')
         self.assertIn('Item(tools,Tick(0,choice.Item2=="",choice.Item1),choice.Item2);', build)     # (Classic ticked)
         self.assertLess(build.index('Heading(tools,"CHAIN PICTURES");'), build.index('Heading(tools,"TOOLS");'))
         self.assertIn('chainIcons=Item(tools,"","chainIcons");', build)
@@ -559,6 +559,29 @@ class ChainSwitchTests(unittest.TestCase):
         switch = between(tone, 'function setChainArt(on) {', '\n  }')
         self.assertIn('for (const [key, entry] of [...chainItems]) {', switch)
         self.assertIn('chainRedraw(entry.item);', switch)
+
+
+class OneMenuTests(unittest.TestCase):
+    def test_r6_one_menu_and_no_options_button(self):
+        helper = text('NamLibrary.cs')
+        button = between(helper, 'class UnboundButton : Form', '\n}\n')
+        self.assertNotIn('options', between(button, 'readonly ContextMenuStrip', ';'))
+        self.assertNotIn('GearWidth', helper)
+        self.assertNotIn('a cog', button)
+        self.assertIn('return new[]{ new Rectangle(0,0,focus,height), new Rectangle(focus+Gap,0,tools,height) };', button)
+        # LAYOUT / CHAIN PICTURES (the pair, then 3D gear's three) / IR LIST / TOOLS, each choice once
+        menu = between(button, 'Heading(tools,"LAYOUT");', 'Ticks();')
+        order = [menu.index(x) for x in ('Heading(tools,"CHAIN PICTURES");', 'chainIcons=Item(tools,"","chainIcons");', 'chainGear=Item(tools,"","chainGear");',
+                                         'chainLarge=Item(tools,"","chainLarge");', 'chainNames=Item(tools,"","chainNames");', 'chainGlow=Item(tools,"","chainGlow");',
+                                         'Heading(tools,"IR LIST");', 'irDots=Item(tools,"","irDots");', 'Heading(tools,"TOOLS");')]
+        self.assertEqual(order, sorted(order))
+        for output in ('"chainIcons"', '"chainGear"', '"chainLarge"', '"chainNames"', '"chainGlow"', '"irDots"'):
+            self.assertEqual(button.count(output), 1, output)
+        self.assertNotIn('"chainArt"', button)                                   # (3D pictures of the gear: Chain pictures)
+        # 3D gear's own options are indented under it and dimmed while it is off, as before
+        self.assertIn('chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;', button)
+        self.assertIn('chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;', button)
+        self.assertIn('chainGlow.Text=Tick(2,glow,"Glow behind them"); chainGlow.Enabled=art&&large;', button)
 
 
 if __name__ == '__main__':
