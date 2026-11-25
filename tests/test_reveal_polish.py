@@ -757,5 +757,16 @@ class UndoAtOnceTests(unittest.TestCase):
         self.assertIn('@media (prefers-reduced-motion: reduce) { .icon.busy { animation: none; } }', page)
 
 
+class LevelsSaysWhatTests(unittest.TestCase):
+    def test_s6_levels_says_what_it_is_for_first(self):
+        page = text('workbench.html')
+        self.assertIn("const LEVELS_WHAT = 'Evens out the volume of your presets and snapshots, so they are all as loud as each other.';", page)
+        # the head of its panel (under the chain: its card's line; full view: its subtitle), then the empty state
+        self.assertIn("level: {title: 'Levels', sub: 'Evens out the volume of your presets and snapshots', half: LEVELS_WHAT,", page)
+        self.assertIn("empty.append(el('b', '', running ? 'Scanning…' : 'Nothing measured yet'), el('span', 'lvwhat', LEVELS_WHAT));", page)
+        empty = between(page, "const empty = el('div', 'lvempty');", 'list.append(empty);')
+        self.assertLess(empty.index('LEVELS_WHAT'), empty.index('The amp stays silent'))
+
+
 if __name__ == '__main__':
     unittest.main()

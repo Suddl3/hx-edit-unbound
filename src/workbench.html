@@ -275,6 +275,7 @@
   .lvprog u i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: #b070e0; }
   .lvempty { padding: 28px 20px; color: var(--dim); line-height: 1.5; max-width: 620px; }
   .lvempty b { color: var(--ink); display: block; font-size: 16px; margin-bottom: 4px; }
+  .lvempty .lvwhat { display: block; color: var(--ink); margin-bottom: 6px; }   /* what Levels is for (S6) */
   /* ---- NAM library: every capture on this PC; filters, picture cards, one capture's side ------------------------- */
   .lib2 { display: grid; grid-template-columns: 196px minmax(0, 1fr) 372px; height: 100%; min-height: 0; }
   .lf { border-right: 1px solid var(--line); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; }
@@ -3091,11 +3092,14 @@ const DRAWERS = {
 let view = {drawer: '', half: '', full: ''};
 let capKind = '', capQuery = '', shownDrawer = '', shownRail = '', presetQuery = '';
 // Each thing's words. half: the line under its name in the lower half's card; shrink: the full view's button back.
+// What Levels is for, in one plain line first (S6; Nick: "this levels, or normalizes, the volume of your presets and
+// snapshots"): the head of its panel and its empty state
+const LEVELS_WHAT = 'Evens out the volume of your presets and snapshots, so they are all as loud as each other.';
 const THINGS = {
   presets: {title: 'Presets', sub: 'The whole setlist on one screen', icon: 'presets', shrink: 'Show as a side list', ready: true},
   look: {title: 'Floor look', sub: "What the Floor's own screen shows behind each block", half: 'Focus screen backgrounds', icon: 'floor',
          hint: 'Click a block in the chain to see its kind here. Pick a kind, then a scene from the strip.', shrink: 'Show under the chain'},
-  level: {title: 'Levels', sub: 'Bring presets and snapshots to one loudness, without touching the tone', half: 'Level presets', icon: 'level',
+  level: {title: 'Levels', sub: 'Evens out the volume of your presets and snapshots', half: LEVELS_WHAT, icon: 'level',
           hint: 'The amp stays silent while it measures (the Floor plays to USB only). Nothing changes until you Apply.', shrink: 'Show under the chain'},
   library: {title: 'NAM library', sub: 'Every capture you have, on the Floor or only on this PC', icon: 'library'},
   tone: {title: 'TONE3000', sub: 'Find captures and send them to the Floor', icon: 'cloud'},
@@ -4150,7 +4154,7 @@ function drawLevels() {
     if (left && left.length) list.append(el('span', 'note2', 'Not scanned: snapshot' + (left.length === 1 ? ' ' : 's ') + left.join(', ') + '. Choose All in use to include ' + (left.length === 1 ? 'it' : 'them') + '.'));
   }
   if (!rows.length) {
-    const empty = el('div', 'lvempty'); empty.append(el('b', '', running ? 'Scanning…' : 'Nothing measured yet'));
+    const empty = el('div', 'lvempty'); empty.append(el('b', '', running ? 'Scanning…' : 'Nothing measured yet'), el('span', 'lvwhat', LEVELS_WHAT));
     empty.append(full ? 'Choose the presets and snapshots on the left, then Scan. The amp stays silent: the Floor plays to USB only while it measures. Nothing changes until you Apply.'
                       : 'Scan measures this preset’s snapshots. The amp stays silent: the Floor plays to USB only while it measures. Nothing changes until you Apply. Full view scans a range of presets.');
     list.append(empty);
