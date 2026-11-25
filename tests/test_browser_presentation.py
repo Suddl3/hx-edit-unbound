@@ -63,6 +63,7 @@ class PresentationRoundTrips {
     readonly List<string> notifications = new List<string>();
 
     class Part { public string Text; public bool Enabled = true, Visible = true; public int Height; }
+    void ReadTargetChoices(Dictionary<string, object> message) {}      // the strip's chooser (its own checks)
     class Hints { public void SetToolTip(Part control, string text) {} }
     class Core {
         public string Source;

@@ -372,6 +372,20 @@
   .np .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .np .acts .btn { justify-content: center; }
   .np .acts .wide { grid-column: 1 / -1; }
+  /* which block plays it: asked once when the preset has two or more NAM blocks and none is picked (Batch 2 sheet) */
+  .pickwho { border-radius: 12px; padding: 12px; background: var(--panel); border: 1px solid #f0c94a66; display: grid; gap: 10px; }
+  .pickwho > div > b { font-weight: 600; }
+  .pickwho > div > small { display: block; color: var(--dim); margin-top: 3px; line-height: 1.4; font-size: 12px; }
+  .pickwho .tiles { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pickwho .tiles button { width: 92px; border-radius: 9px; padding: 8px 6px 6px; background: #15181e; border: 1px solid var(--line); display: grid; justify-items: center; gap: 4px; font-size: 11.5px; color: var(--ink); text-align: center; overflow-wrap: anywhere; }
+  .pickwho .tiles button:hover { border-color: #f0c94a99; }
+  .pickwho .tiles button img { width: 46px; height: 40px; object-fit: contain; }
+  .pickwho .tiles button small { color: var(--dim); font-size: 10.5px; }
+  .nonam { border-radius: 12px; padding: 12px; border: 1px dashed var(--line); color: var(--dim); font-size: 12.5px; line-height: 1.45; }
+  .nonam b { color: var(--ink); font-weight: 600; display: block; margin-bottom: 3px; }
+  /* the view head's chain: the block the preview plays on (TONE3000) */
+  .mini button.tgt { box-shadow: 0 0 0 2px #b070e0; position: relative; }
+  .mini button.tgt::after { content: ''; position: absolute; top: -4px; right: -4px; width: 8px; height: 8px; border-radius: 50%; background: #b070e0; border: 2px solid var(--bg, #0f1115); }
   .tray .bar { border-top: 1px solid var(--line); margin: 0 -18px; padding: 12px 18px; display: flex; align-items: center; gap: 10px; color: var(--dim); font-size: 12.5px; }
   .tray .bar b { color: var(--ink); } .tray .bar .sp { flex: 1; }
 
@@ -3220,10 +3234,16 @@ function miniRows() {
   });
 }
 const miniKey = rows => JSON.stringify([rows.map(r => r.blocks.map(b => [b.id, b.model, b.slot, b.enabled])), (state.captures || []).map(c => [c.slot, c.icon])]);
+// The block a TONE3000 preview plays on, while its view is open (the tray's session: tone_view.js steerPreview).
+function toneTarget() {
+  const t = view.full === 'tone' && toneTray ? toneTray.target : null;
+  return t && state ? (state.blocks || []).find(b => same(b, t)) || null : null;
+}
 function miniButton(block, now) {
-  const b = el('button', (block.enabled ? '' : 'off') + (same(block, now) ? ' on' : ''));
+  const target = same(block, toneTarget());
+  const b = el('button', (block.enabled ? '' : 'off') + (same(block, now) ? ' on' : '') + (target ? ' tgt' : ''));
   b.style.setProperty('--c', tint(block).join(' '));
-  b.title = title(block) + ': back to the chain with this block';
+  b.title = title(block) + (target ? ' (the preview plays on this block)' : '') + ': back to the chain with this block';
   b.append(image(pictures(block), '', true));
   b.onclick = () => { setView('goto'); pickBlock(block); };
   return b;
@@ -3232,7 +3252,8 @@ function drawMini() {
   const box = $('vhead').querySelector('.mini');
   if (!box || !catalog || !state) return;
   const now = current(), rows = miniRows();
-  const key = JSON.stringify([miniKey(rows), now && [now.dsp, now.id]]);
+  const aim = toneTarget();
+  const key = JSON.stringify([miniKey(rows), now && [now.dsp, now.id], aim && [aim.dsp, aim.id]]);
   if (key === shownMini) return;
   shownMini = key;
   reusable = gather(box);
@@ -4797,8 +4818,30 @@ function drawTray() {
   // The one playing now, in a card of its own: what it is, which block plays it, and what Stop does. The preview plays
   // on the NAM block that was selected when the tone was picked (the banner over the site names it).
   const playing = all.find(i => i.state === 'ready' && i.trial === t.trial) || null, items = all.filter(i => i !== playing);
+  // Which block plays it (Batch 2 rules): the session names its target; with two or more NAM blocks and none picked the
+  // tray asks once (a pick lasts until TONE3000 is closed or another preset loads); with none, it says so.
+  const aim = toneTarget();
+  if (!playing && t.ask && Array.isArray(t.choices) && t.choices.length > 1) {
+    const box = el('div', 'pickwho'), words = el('div'), tiles = el('div', 'tiles');
+    words.append(el('b', '', 'Which block should play it?'),
+                 el('small', '', 'This preset has ' + t.choices.length + ' NAM blocks and none is selected. The preview borrows one and puts its capture back when you stop.'));
+    for (const c of t.choices) {
+      const block = (state.blocks || []).find(b => same(b, c)), tile = el('button');
+      tile.title = 'Play the preview on ' + (block ? title(block) : c.name) + ', Path ' + (c.dsp + 1);
+      tile.append(image(block ? pictures(block) : captureUrls({}), '', true), block ? title(block) : c.name || 'NAM', el('small', '', 'Path ' + (c.dsp + 1)));
+      tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});
+      tiles.append(tile);
+    }
+    box.append(words, tiles);
+    list.append(box);
+  } else if (!playing && t.none) {
+    const box = el('div', 'nonam');
+    box.append(el('b', '', 'This preset has no NAM block'), 'Add one to hear a tone here. Nothing is added for you, and nothing on the Floor changes.');
+    list.append(box);
+  }
   if (playing) {
-    const now = current(), where = now && isChain(now) && isNam(now) ? 'the NAM block on Path ' + (now.dsp + 1) : 'the selected NAM block';
+    const now = current();
+    const where = aim ? title(aim) + ', Path ' + (aim.dsp + 1) : now && isChain(now) && isNam(now) ? 'the NAM block on Path ' + (now.dsp + 1) : 'the selected NAM block';
     const card = el('div', 'np'), row = el('div', 'row'), words = el('div'), acts = el('div', 'acts'), line = el('small'), eq = el('span', 'eq');
     for (const height of [5, 10, 7]) { const bar = el('i'); bar.style.height = height + 'px'; eq.append(bar); }
     line.append(eq, 'Playing on ', el('em', '', where));
@@ -4830,7 +4873,8 @@ function drawTray() {
   const groups = [['Getting ready', items.filter(i => i.state === 'getting' || i.state === 'failed')],
                   ['Heard this session', items.filter(i => i.state === 'ready')], ['On the Floor', items.filter(i => i.state === 'floor')]];
   for (const [title, these] of groups) if (these.length) list.append(el('h5', '', title), ...these.map(i => item(i, false)));
-  if (!all.length) list.append(el('span', 'note2', 'Pick a tone on the site. It shows here while it gets ready; then you can load it on the Floor. ' + (t.bound === false ? 'Select a NAM block in the chain first: the preview plays on it.' : '')));
+  if (!all.length) list.append(el('span', 'note2', 'Pick a tone on the site. It shows here while it gets ready; then you can load it on the Floor. ' +
+    (t.ask || t.none ? '' : aim && !t.bound ? 'It plays on ' + title(aim) + ', Path ' + (aim.dsp + 1) + '.' : t.bound === false ? 'Select a NAM block in the chain first: the preview plays on it.' : '')));
   if (t.text) list.append(el('span', 'note2', t.text));
   const bar = el('div', 'bar'), used = (state.captures || []).length + (state.irs || []).length, open = el('button', 'btn sm', 'Open the library');
   open.onclick = () => setView('open', 'library');
@@ -5000,7 +5044,7 @@ function receive(message) {
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
   else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
-  else if (message.type === 'session' && message.kind === 'tone') { toolArrived(); toneTray = message.data || null; shownTray = ''; drawTray(); return; }
+  else if (message.type === 'session' && message.kind === 'tone') { toolArrived(); toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); return; }
   else if (message.type === 'session' && message.kind === 'toolOpen') { toolArrived(); return; }
   else if (message.type === 'session' && message.kind === 'presentation') { toolPresentation(message.data && message.data.mode); return; }
   else if (message.type === 'session' && message.kind === 'notice') { stickyNote(message.data && message.data.text); return; }

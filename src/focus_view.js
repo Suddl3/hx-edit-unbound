@@ -814,10 +814,13 @@ function installFocusView(options, parts) {
       // (the selection as the preset itself keeps it, which follows every click on HX Edit's chain; the edit panel's
       // own, which the Workbench read before, stands still while HX Edit's Bypass/Controller Assign tab is open)
       const cursor = focusCursor(panelCursor, targetBinding.peekGlobal(editor, 'global', '@cursor_dsp'), targetBinding.peekGlobal(editor, 'global', '@cursor_group'));
+      // A TONE3000 session's preview block (toneView.steerPreview): HX Edit may have it selected while the pane shows
+      // its own block (shown); steerTo: the click on HX Edit's chain that puts the preview's block there (or back).
+      const {shown, steerTo} = focusSteer(cursor);
       const began = Date.now(), peek = (dsp, place, key) => targetBinding.peekValue(editor, dsp, place, key);
-      let state = !changed && known && began - knownAt < FULL_MS ? focusValues(peek, known, cursor, parameters, namEngines) : null;
+      let state = !changed && known && began - knownAt < FULL_MS ? focusValues(peek, known, shown, parameters, namEngines) : null;
       const full = !state;
-      if (full) { state = focusSnapshot(peek, cursor, parameters, namEngines); knownAt = began; changed = false; }
+      if (full) { state = focusSnapshot(peek, shown, parameters, namEngines); knownAt = began; changed = false; }
       known = state.blocks;
       if (full && addFollow) { try { followAdd(known); } catch (error) { addFollow = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'add-follow-failed', error: String(error.message)}); } }
       if (downFollow) {
@@ -938,24 +941,50 @@ function installFocusView(options, parts) {
       lastPicked = state.selected ? state.selected.id : '';
       publish(state);
       if (wanted) select(wanted);
+      else if (steerTo) chainClick(steerTo, 'preview-select');
     } catch (error) {
       if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: 'read-failed', error: String(error.message)}); }
     }
   }
+  function focusSteer(cursor) {
+    let shown = cursor, steerTo = null;
+    if (!known || !toneView.steerPreview) return {shown, steerTo};
+    const nams = known.filter(block => namEngines.includes(block.model) && /^block\d{1,2}$/.test(block.id));
+    const mine = cursor && cursor.block ? {dsp: cursor.dsp, id: cursor.block} : null;
+    const steer = toneView.steerPreview({nams, cursor: mine});
+    if (!steer) return {shown, steerTo};
+    const page = steer.page;
+    if (!(page ? mine && page.dsp === mine.dsp && page.id === mine.id : !mine)) {
+      shown = {...(cursor || {}), dsp: page ? page.dsp : -1, block: page ? page.id : ''};
+    }
+    steerTo = steer.click || null;
+    return {shown, steerTo};
+  }
   function select(target) {
-    // A block picked in the pane's chain strip: a click on that block in HX Edit's own chain.
+    // A block picked in the pane's chain strip: a click on that block in HX Edit's own chain. While a TONE3000 session
+    // keeps its preview's block selected in HX Edit (toneView.pagePick), the pane only shows the picked one.
     wanted = null;
+    let pageOnly = false;
+    try { pageOnly = !!(toneView.pagePick && toneView.pagePick({dsp: target.dsp, id: target.id})); } catch (_) { pageOnly = false; }
+    if (pageOnly) {
+      changed = true;
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'select-page-only', dsp: target.dsp, block: target.id});
+      return;
+    }
+    chainClick(target, 'select');
+  }
+  function chainClick(target, stage) {
     const block = (known || []).find(item => item.dsp === target.dsp && item.id === target.id);
     if (block && (block.id === 'split' || block.id === 'join')) {
       // (the split or the mixer: selected as HX Edit's own drop selects one, target_binding selectNode)
       targetBinding.selectNode(editor, block.dsp, block.id);
       changed = true;
-      send({type: 'toneTrace', reason: 'focus-view', stage: 'select', dsp: target.dsp, block: target.id});
+      send({type: 'toneTrace', reason: 'focus-view', stage, dsp: target.dsp, block: target.id});
       return;
     }
     const spot = block && focusChainPoint(namView.chainBox(block.dsp), block);
     const clicked = !!spot && namView.clickChainPoint(spot.x, spot.y);
-    send({type: 'toneTrace', reason: 'focus-view', stage: clicked ? 'select' : 'select-skipped', dsp: target.dsp, block: target.id});
+    send({type: 'toneTrace', reason: 'focus-view', stage: clicked ? stage : stage + '-skipped', dsp: target.dsp, block: target.id});
   }
   function publish(state) {
     const text = JSON.stringify(state);

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_workbench import NODE, run_js  # noqa: E402
+from test_focus_view import run_js_source  # noqa: E402
 
 
 def text(name):
@@ -818,6 +819,183 @@ class EditTabTests(unittest.TestCase):
         sidebar = text('nam_sidebar.js')
         self.assertIn("stage:'hx-tab-edit',clicked:!!namView.showEditTab?.(),before:'tone3000'", sidebar)
         self.assertLess(sidebar.index("before:'tone3000'"), sidebar.index('placed,asked:value.id'))
+
+
+class PreviewTargetTests(unittest.TestCase):
+    """Which block a TONE3000 preview plays on (Batch 2 rules sheet rows 2 and 3, 2026-11-25): HX Edit's selected block
+    still plays (it has the only parameter view a preview binds through); while a pane covers HX Edit the session puts
+    its target there with a click on HX Edit's chain, and the Workbench keeps showing its own block."""
+
+    STUBS = """
+let active = {navigation: true, id: 1}, command = null, workflowRequest = null, toneImport = null;
+const traces = [], replies = [];
+const send = m => traces.push(m), reply = (r, v) => replies.push(v), publishTarget = () => {};
+const namView = {profileLabel: s => ({9: 'Deluxe Reverb', 10: 'Klon Gain=0'})[s] || '', slotName: () => ''};
+"""
+    SCENES = """
+const out = {}, copy = v => JSON.parse(JSON.stringify(v === undefined ? null : v));
+const one = [{dsp: 0, id: 'block1', slot: 9, path: 0, position: 2}];
+// row 2: an amp is selected and the preset has one NAM block
+out.t1 = steerPreview({nams: one, cursor: {dsp: 0, id: 'block0'}});
+out.t1target = copy(active.steer.target);
+out.t1b = steerPreview({nams: one, cursor: {dsp: 0, id: 'block1'}});
+out.pick = pagePick({dsp: 0, id: 'block2'});
+out.t1c = steerPreview({nams: one, cursor: {dsp: 0, id: 'block1'}});
+// the Floor's knob moves HX Edit's selection: followed, and not steered back
+out.floor = steerPreview({nams: one, cursor: {dsp: 0, id: 'block4'}});
+out.floorSteer = copy({target: active.steer.target, aside: active.steer.aside});
+out.floor2 = steerPreview({nams: one, cursor: {dsp: 0, id: 'block4'}});
+// row 3: two NAM blocks, none selected: asked; a choice is clicked on HX Edit's chain
+active = {navigation: true, id: 2};
+const two = [{dsp: 0, id: 'block1', slot: 9}, {dsp: 1, id: 'block3', slot: 10}];
+out.t2 = steerPreview({nams: two, cursor: {dsp: 0, id: 'block0'}});
+out.t2steer = copy({ask: active.steer.ask, target: active.steer.target});
+chooseTarget({dsp: 1, block: 'block3'});
+out.t2b = steerPreview({nams: two, cursor: {dsp: 0, id: 'block0'}});
+out.t2b2 = steerPreview({nams: two, cursor: {dsp: 1, id: 'block3'}});
+// while a preview plays: the chooser waits for Stop, a NAM block picked in the Workbench is only shown
+active.transfer = {slot: 128};
+try { chooseTarget({dsp: 0, block: 'block1'}); out.refused = ''; } catch (error) { out.refused = error.message; }
+out.namWhilePlaying = pagePick({dsp: 0, id: 'block1'});
+out.t2c = steerPreview({nams: two, cursor: {dsp: 1, id: 'block3'}});
+active.transfer = null;
+// a NAM block picked in the Workbench (nothing playing) plays from then on; HX Edit selects it as before
+out.namPick = pagePick({dsp: 0, id: 'block1'});
+out.t2d = steerPreview({nams: two, cursor: {dsp: 0, id: 'block1'}});
+out.t2dTarget = active.steer.target.id;
+// the session ends: HX Edit gets the Workbench's block back
+active = {navigation: true, id: 3};
+out.p1 = steerPreview({nams: one, cursor: {dsp: 0, id: 'block0'}});
+out.p2 = steerPreview({nams: one, cursor: {dsp: 0, id: 'block1'}});
+active = null;
+out.back = steerPreview({nams: one, cursor: {dsp: 0, id: 'block1'}});
+out.after = steerPreview({nams: one, cursor: {dsp: 0, id: 'block0'}});
+// no NAM block: said, nothing clicked
+active = {navigation: true, id: 4};
+out.none = steerPreview({nams: [], cursor: {dsp: 0, id: 'block0'}});
+out.noneSteer = copy({none: active.steer.none, ask: active.steer.ask});
+// the Library's own (headless) session and the Workbench's Levels session are not steered
+active = {navigation: true, id: 5, headless: true};
+out.headless = steerPreview({nams: one, cursor: {dsp: 0, id: 'block0'}});
+out.stages = traces.map(t => t.stage);
+out.replies = replies;
+out
+"""
+
+    def scenes(self):
+        tone = text('tone_view.js')
+        piece = between(tone, '  let previewHold = null;', '  function parameterPanel(')
+        return run_js_source(self.STUBS + piece, '(() => {' + self.SCENES.replace('\nout\n', '\nreturn out;\n') + '})()')
+
+    def test_row2_one_nam_block_plays_while_the_workbench_keeps_its_own_block(self):
+        out = self.scenes()
+        b = lambda dsp, id: {'dsp': dsp, 'id': id}
+        self.assertEqual(out['t1'], {'page': b(0, 'block0'), 'click': b(0, 'block1')})
+        self.assertEqual(out['t1target']['name'], 'Deluxe Reverb')
+        self.assertEqual(out['t1b'], {'page': b(0, 'block0'), 'click': None})       # HX Edit has it: the page keeps block0
+        self.assertTrue(out['pick'])                                                 # another block: only shown
+        self.assertEqual(out['t1c'], {'page': b(0, 'block2'), 'click': None})
+        self.assertEqual(out['floor'], {'page': b(0, 'block4'), 'click': None})     # the Floor moved it: followed
+        self.assertEqual(out['floorSteer'], {'target': None, 'aside': True})
+        self.assertEqual(out['floor2'], {'page': b(0, 'block4'), 'click': None})    # and not fought
+
+    def test_row3_two_nam_blocks_ask_once_and_the_choice_is_selected_in_hx_edit(self):
+        out = self.scenes()
+        b = lambda dsp, id: {'dsp': dsp, 'id': id}
+        self.assertEqual(out['t2'], {'page': b(0, 'block0'), 'click': None})
+        self.assertEqual(out['t2steer'], {'ask': True, 'target': None})
+        self.assertEqual(out['t2b'], {'page': b(0, 'block0'), 'click': b(1, 'block3')})
+        self.assertEqual(out['t2b2'], {'page': b(0, 'block0'), 'click': None})
+        self.assertEqual(out['refused'], 'Stop the preview first, then choose the block it plays on.')
+        self.assertTrue(out['namWhilePlaying'])
+        self.assertEqual(out['t2c'], {'page': b(0, 'block1'), 'click': None})       # playing: the target does not move
+        self.assertFalse(out['namPick'])                                             # HX Edit selects it as before
+        self.assertEqual(out['t2d'], {'page': b(0, 'block1'), 'click': None})
+        self.assertEqual(out['t2dTarget'], 'block1')
+        self.assertEqual(out['replies'], [{'target': True}])
+
+    def test_the_workbench_block_goes_back_when_the_session_ends_and_none_or_headless_are_left_alone(self):
+        out = self.scenes()
+        b = lambda dsp, id: {'dsp': dsp, 'id': id}
+        self.assertEqual(out['p1'], {'page': b(0, 'block0'), 'click': b(0, 'block1')})
+        self.assertEqual(out['p2'], {'page': b(0, 'block0'), 'click': None})
+        self.assertEqual(out['back'], {'page': b(0, 'block0'), 'click': b(0, 'block0')})
+        self.assertEqual(out['after'], {'page': b(0, 'block0'), 'click': None})
+        self.assertEqual(out['none'], {'page': b(0, 'block0'), 'click': None})
+        self.assertEqual(out['noneSteer'], {'none': True, 'ask': False})
+        self.assertEqual(out['headless'], {'page': b(0, 'block0'), 'click': None})
+        for stage in ('select', 'page-only', 'moved-outside', 'chosen', 'picked-nam', 'hold-back'):
+            self.assertIn(stage, out['stages'])
+
+    def test_the_target_rides_the_sessions_word_and_clean_up_rules_are_untouched(self):
+        tone = text('tone_view.js')
+        publish = between(tone, '  function publishTarget(', '  function observeController(')
+        self.assertIn("choices: steer ? steer.nams.map(named) : [], target: steer && steer.target ? named(steer.target) : null,", publish)
+        self.assertIn("ask: !!steer?.ask && !bound, none: !!steer?.none, held: !!steer?.held,", publish)
+        self.assertIn("'This preset has no NAM block: add one to hear a tone here.'", publish)
+        run = between(tone, '  function run(request) {', '      if (!active.bound || active.quarantined || !atTarget()')
+        self.assertIn("request.action !== 'bind' && request.action !== 'target'", run)
+        self.assertIn("if (request.action === 'target') return chooseTarget(request);", run)
+        # a preset load forgets the choice and the hold
+        self.assertIn('previewHold = null; steerClick = null; steerAside = false; steerSeen = undefined;', tone)
+        # the selection-change clean-up and atTarget are as they were
+        self.assertIn("invalidate('selection-changed');", between(tone, 'function observeController(', 'function openBrowser('))
+        self.assertIn('active.controller.equals(selectedController)', between(tone, 'function atPosition(', 'function atTarget('))
+        api = between(tone, 'return { openBrowser,', 'cursorBlock: () => {')
+        self.assertIn('steerPreview: reading =>', api)
+        self.assertIn('pagePick: pick =>', api)
+
+    def test_the_workbench_reads_its_own_block_and_picks_go_page_only_while_held(self):
+        script = text('focus_view.js')
+        refresh = between(script, 'function refresh(window) {', '  function focusSteer(cursor) {')
+        self.assertIn('const {shown, steerTo} = focusSteer(cursor);', refresh)
+        self.assertIn('focusValues(peek, known, shown, parameters, namEngines)', refresh)
+        self.assertIn('state = focusSnapshot(peek, shown, parameters, namEngines);', refresh)
+        self.assertIn("else if (steerTo) chainClick(steerTo, 'preview-select');", refresh)
+        steer = between(script, '  function focusSteer(cursor) {', '  function select(target) {')
+        self.assertIn("known.filter(block => namEngines.includes(block.model) && /^block\\d{1,2}$/.test(block.id))", steer)
+        select = between(script, '  function select(target) {', '  function chainClick(target, stage) {')
+        self.assertIn('toneView.pagePick({dsp: target.dsp, id: target.id})', select)
+        self.assertIn("stage: 'select-page-only'", select)
+        self.assertLess(select.index('pagePick'), select.index("chainClick(target, 'select');"))
+
+    def test_the_tray_asks_and_names_the_block_and_the_head_marks_it(self):
+        page = text('workbench.html')
+        tray = between(page, 'function drawTray() {', 'function libraryRow(')
+        self.assertIn("el('b', '', 'Which block should play it?')", tray)
+        self.assertIn("'This preset has ' + t.choices.length + ' NAM blocks and none is selected. The preview borrows one and puts its capture back when you stop.'", tray)
+        self.assertIn("tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", tray)
+        self.assertIn("el('b', '', 'This preset has no NAM block')", tray)
+        self.assertIn("title(aim) + ', Path ' + (aim.dsp + 1)", tray)
+        self.assertLess(tray.index('Which block should play it?'), tray.index('if (playing) {'))
+        mini = between(page, 'function miniButton(block, now) {', 'function drawMini() {')
+        self.assertIn("(target ? ' tgt' : '')", mini)
+        self.assertIn('.mini button.tgt { box-shadow: 0 0 0 2px #b070e0;', page)
+        self.assertIn("toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); return;", page)
+
+    def test_the_choice_travels_from_the_tray_and_the_strip(self):
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("preview.tone_action(f\"target:{value['dsp']}:{value['id']}\")", launcher)
+        preview = text('tone_preview.py')
+        self.assertIn(r"re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}', action)", preview)
+        self.assertIn("reply = self.command(session, 'target', dsp=int(dsp), block=block)", preview)
+        self.assertIn("'ask': bool(state.get('ask')), 'none': bool(state.get('none')),", preview)
+        strip = text('tone_browser.cs')
+        self.assertIn('targetLabel.Click += (sender, args) => ShowTargetMenu();', strip)
+        self.assertIn('if (targetChoices.Count < 2 || targetCanEnd || closing || IsDisposed) return;', strip)
+        self.assertIn('item.Click += (sender, args) => SendAction(action);', strip)
+
+    def test_tone_action_takes_a_target_only_in_its_shape(self):
+        sys.path.insert(0, str(ROOT))
+        from tone_preview import TonePreview
+        put = []
+        fake = type('B', (), {'actions': type('Q', (), {'put': lambda self, v: put.append(v)})()})()
+        preview = TonePreview.__new__(TonePreview)
+        preview.workbench, preview.bounds_override, preview.browser = False, (0, 0, 10, 10), fake
+        self.assertTrue(preview.tone_action('target:1:block3'))
+        for bad in ('target:2:block3', 'target:0:split', 'target:0:block123', 'target:0:block1;end'):
+            self.assertFalse(preview.tone_action(bad))
+        self.assertEqual(put, ['target:1:block3'])
 
 
 if __name__ == '__main__':

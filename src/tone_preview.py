@@ -329,10 +329,11 @@ class TonePreview:
     def tone_action(self, action):
         """The Workbench tray's request for the TONE3000 window sitting in it: Keep on this PC or Load on Floor for
         the preview now (the window's own "keep:<trial>" / "save:<trial>:<slot>", checked there as from its card), or
-        Stop preview (the window's own "end": the block gets its own capture back)."""
+        Stop preview (the window's own "end": the block gets its own capture back), or the block the next preview
+        plays on ("target:<dsp>:<block>", as the window's own chooser sends it)."""
         browser = self.browser
         if (not self.workbench and self.bounds_override is not None and browser is not None and isinstance(action, str)
-                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end', action)):
+                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}', action)):
             browser.actions.put(action)
             return True
         return False
@@ -658,12 +659,20 @@ class TonePreview:
                 item.update(values)
                 tray_out()
 
+        waiting_tone = [False]      # a tone clicked while the tray asked which block plays it
+
         def tray_out():
             if self.workbench or self.bounds_override is None or not self.workbench_sink:
                 return
+            state = self.navigation_state
             self._to_workbench('tone', {'tray': [dict(item) for item in tray[:20]], 'text': text, 'trial': trial,
                                         'free_slots': list(free_slots), 'current': tray_now['key'] if tray_now else None,
-                                        'bound': bool(self.navigation_state.get('bound'))})
+                                        'bound': bool(state.get('bound')),
+                                        # which block a preview plays on (tone_view.js steerPreview): the preset's NAM
+                                        # blocks, the one it goes to, and the tray's question or "no NAM block"
+                                        'choices': list(state.get('choices') or [])[:16], 'target': state.get('target'),
+                                        'ask': bool(state.get('ask')), 'none': bool(state.get('none')),
+                                        'preview': bool(state.get('preview'))})
 
         def select():
             nonlocal reopen
@@ -830,7 +839,12 @@ class TonePreview:
                 current, selected = candidate, index
                 if not library:
                     browser.send('card', html=render_card(tone, models, library=bool(self.library)), has_tone=True)
-                status('Tone selected for browsing. Select a NAM block in HX Edit, then audition this profile.')
+                # (two or more NAM blocks and none picked: the tray and the strip ask which; the tone plays once one is)
+                state = self.navigation_state
+                if state.get('ask'):
+                    waiting_tone[0] = True
+                status(state.get('text') if state.get('ask') or state.get('none') else
+                       'Tone selected for browsing. Select a NAM block in HX Edit, then audition this profile.')
                 return
             mode = tone_mode(f'tone:{tone.get("id")}', tone.get('title') or 'TONE3000 profile')
             if mode is None:
@@ -1291,6 +1305,12 @@ class TonePreview:
                             if not state.get('preview'):
                                 slot = None
                         status(state.get('text') or '' if not state.get('bound') else text)
+                        tray_out()
+                        # The tone clicked while the tray asked which block plays it: heard once one is chosen.
+                        if (waiting_tone[0] and state.get('bound') and not state.get('preview') and current is not None
+                                and slot is None):
+                            waiting_tone[0] = False
+                            audition(current, max(0, selected))
                 if light is not None and 'light' in action:
                     light_event(action['light'])
                 if optimizing is not None and 'optimize' in action:
@@ -1300,6 +1320,18 @@ class TonePreview:
                 if leveling is not None and 'levelChanged' in action:
                     view = leveling.view()
                     status(view['progress'] or view['message'], busy=bool(view['running']))
+                continue
+            if self.navigation and isinstance(action, str) and re.fullmatch(r'target:[01]:block\d{1,2}', action):
+                # the strip's chooser or the tray's question: the block the next preview plays on
+                _, dsp, block = action.split(':')
+                try:
+                    reply = self.command(session, 'target', dsp=int(dsp), block=block)
+                    if reply.get('error'):
+                        status(reply['error'])
+                    elif current is not None and slot is None:
+                        waiting_tone[0] = True
+                except ToneError as error:
+                    status(str(error))
                 continue
             if self.navigation and action in ('bind', 'end'):
                 try:

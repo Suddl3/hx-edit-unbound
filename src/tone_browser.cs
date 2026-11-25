@@ -161,6 +161,12 @@ sealed class ToneBrowser : Form
     readonly Button popOut = new Button { Text = "Pop out", AutoSize = true, Height = 26 };
     readonly Button endPreview = new Button { Text = "End preview", AutoSize = true, Height = 26, Visible = false };
     readonly ToolTip hints = new ToolTip();
+    // The strip's chooser: the preset's NAM blocks ("name · Path n"), the one the next preview plays on checked. A pick
+    // sends "target:<dsp>:<block>" (tone_view.js chooseTarget). Not while a preview plays: Stop first.
+    readonly ContextMenuStrip targetMenu = new ContextMenuStrip { ShowImageMargin = false, ShowCheckMargin = true,
+        BackColor = Color.FromArgb(28, 31, 38), ForeColor = Color.FromArgb(236, 238, 242) };
+    readonly List<KeyValuePair<string, string>> targetChoices = new List<KeyValuePair<string, string>>();
+    string targetChosen = "";
     Rectangle dock;
     Rectangle applied;
     Uri callback;
@@ -312,6 +318,7 @@ sealed class ToneBrowser : Form
             targetActions.Controls.Add(button);
         }
         endPreview.Click += (sender, args) => SendAction("end");
+        targetLabel.Click += (sender, args) => ShowTargetMenu();
         popOut.Click += (sender, args) => ChangePresentation(
             windowMode == WindowMode.Embedded ? WindowMode.Floating : WindowMode.Embedded, true);
         // The banner over the site, in the Workbench's own colours (its panel and line): which block a preview
@@ -339,7 +346,7 @@ sealed class ToneBrowser : Form
             if (!hostClosing) RequestCancel("window-close");
         };
         FormClosed += (sender, args) => {
-            timer.Dispose(); hints.Dispose();
+            timer.Dispose(); hints.Dispose(); targetMenu.Dispose();
             if (floatingHost != null) floatingHost.Dispose();
         };
     }
@@ -703,6 +710,7 @@ sealed class ToneBrowser : Form
             object text;
             hints.SetToolTip(targetLabel, message.TryGetValue("text", out text) ? Convert.ToString(text) : targetLabel.Text);
             targetCanEnd = Flag(message, "preview") || Flag(message, "quarantined");
+            ReadTargetChoices(message);
             UpdateTargetButtons();
             LayoutPane(true);
             return;
@@ -785,9 +793,76 @@ sealed class ToneBrowser : Form
             !String.IsNullOrEmpty(Convert.ToString(label)))
             return "Preview plays on " + PlainTarget(Convert.ToString(label));
         if (Flag(message, "quarantined")) return "Preview retained · select End preview";
+        if (Flag(message, "none")) return "This preset has no NAM block: add one to hear a tone here";
+        if (Flag(message, "ask")) return "Preview plays on: Choose a block";
+        // (on its way to the chosen block: HX Edit selects it, then the preview binds it)
+        var target = message.TryGetValue("target", out label) ? label as Dictionary<string, object> : null;
+        if (ChoiceAction(target) != null) return "Preview plays on " + ChoiceText(target);
         if (message.TryGetValue("selected", out label) && !String.IsNullOrEmpty(Convert.ToString(label)))
             return "Selected: " + PlainTarget(Convert.ToString(label));
         return "Select a NAM block to hear a tone";
+    }
+
+    // "target:<dsp>:<block>" for one of the preset's NAM blocks as tone_view.js lists them, or null.
+    internal static string ChoiceAction(Dictionary<string, object> block)
+    {
+        object dsp, id;
+        if (block == null || !block.TryGetValue("dsp", out dsp) || !block.TryGetValue("id", out id)) return null;
+        int number;
+        var name = Convert.ToString(id, CultureInfo.InvariantCulture) ?? "";
+        if (dsp is bool || !Int32.TryParse(Convert.ToString(dsp, CultureInfo.InvariantCulture), NumberStyles.None,
+                CultureInfo.InvariantCulture, out number) || number < 0 || number > 1) return null;
+        if (!Regex.IsMatch(name, @"^block\d{1,2}$")) return null;
+        return "target:" + number.ToString(CultureInfo.InvariantCulture) + ":" + name;
+    }
+
+    // "Deluxe Reverb · Path 1": the capture the block plays, and its path (DSP 1 is Path 1).
+    internal static string ChoiceText(Dictionary<string, object> block)
+    {
+        object name, dsp;
+        var text = block != null && block.TryGetValue("name", out name) && !String.IsNullOrEmpty(Convert.ToString(name))
+            ? Convert.ToString(name) : "NAM";
+        int number = 0;
+        if (block != null && block.TryGetValue("dsp", out dsp))
+            Int32.TryParse(Convert.ToString(dsp, CultureInfo.InvariantCulture), NumberStyles.None, CultureInfo.InvariantCulture, out number);
+        return text + " · Path " + (number + 1).ToString(CultureInfo.InvariantCulture);
+    }
+
+    // The chooser's list from the session's word (tone_view.js publishTarget "choices", "target"): with two or more NAM
+    // blocks the strip's words open it ("  ▾"); not while a preview plays (targetCanEnd: End preview shows).
+    void ReadTargetChoices(Dictionary<string, object> message)
+    {
+        targetChoices.Clear();
+        object choices, chosen;
+        if (message.TryGetValue("choices", out choices) && choices is System.Collections.IEnumerable)
+            foreach (var item in (System.Collections.IEnumerable)choices)
+            {
+                var choice = item as Dictionary<string, object>;
+                var action = ChoiceAction(choice);
+                if (action != null) targetChoices.Add(new KeyValuePair<string, string>(action, ChoiceText(choice)));
+            }
+        targetChosen = message.TryGetValue("target", out chosen) ? ChoiceAction(chosen as Dictionary<string, object>) ?? "" : "";
+        bool choosable = targetChoices.Count > 1;
+        targetLabel.Cursor = choosable && !targetCanEnd ? Cursors.Hand : Cursors.Default;
+        if (!choosable) return;
+        targetLabel.Text += "  \u25BE";
+        hints.SetToolTip(targetLabel, targetCanEnd ? "Stop the preview to choose another block." :
+            "Choose the NAM block the preview plays on.");
+    }
+
+    void ShowTargetMenu()
+    {
+        if (targetChoices.Count < 2 || targetCanEnd || closing || IsDisposed) return;
+        targetMenu.Items.Clear();
+        foreach (var choice in targetChoices)
+        {
+            var action = choice.Key;
+            var item = new ToolStripMenuItem(choice.Value) { Checked = action == targetChosen,
+                BackColor = targetMenu.BackColor, ForeColor = targetMenu.ForeColor };
+            item.Click += (sender, args) => SendAction(action);
+            targetMenu.Items.Add(item);
+        }
+        targetMenu.Show(targetLabel, new Point(targetLabel.Padding.Left, targetLabel.Height - 4));
     }
 
     void LayoutPane(bool raiseForNativeChange = false)

@@ -5,6 +5,7 @@ import ctypes
 from datetime import datetime
 import json
 import os
+import re
 from pathlib import Path
 import tempfile
 from threading import Event, Thread, Timer
@@ -663,6 +664,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     trial, slot = value.get('trial'), value.get('slot')
                     if preview is not None and value.get('do') == 'end':
                         preview.tone_action('end')
+                    elif (preview is not None and value.get('do') == 'target' and value.get('dsp') in (0, 1)
+                          and not isinstance(value.get('dsp'), bool) and isinstance(value.get('id'), str)
+                          and re.fullmatch(r'block\d{1,2}', value['id'])):
+                        preview.tone_action(f"target:{value['dsp']}:{value['id']}")   # the tray's "Which block?"
                     elif preview is not None and isinstance(trial, int) and not isinstance(trial, bool):
                         if value.get('do') == 'keep':
                             preview.tone_action(f'keep:{trial}')

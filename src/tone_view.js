@@ -501,8 +501,13 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const selected = selectedTarget();
     const payloadCanBind = target => !!target && !active.transfer && !active.pendingTransfer && !active.quarantined;
     const bound = active.bound && !active.quarantined && atTarget();
+    // Which block plays it (steerPreview): the preset's NAM blocks, the one the preview goes to, and whether the
+    // player is asked (two or more, none picked) or there is none.
+    const steer = active.steer || null, named = b => ({dsp: b.dsp, id: b.id, name: b.name, slot: b.slot, lane: b.lane});
     const payload = { type: 'toneTarget', session: active.id, version: active.targetVersion,
       bound: !!bound, label: bound ? active.targetLabel : '',
+      choices: steer ? steer.nams.map(named) : [], target: steer && steer.target ? named(steer.target) : null,
+      ask: !!steer?.ask && !bound, none: !!steer?.none, held: !!steer?.held,
       // What the bound block plays (the library's Original | Pedal switch shows it): its model and capture slot.
       blockModel: bound ? boundModel() : null, blockSlot: bound ? boundSlot() : null,
       selected: selected ? selected.label : '', canBind: payloadCanBind(selected),
@@ -515,6 +520,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         // A NAM block is selected and Preview binds it: after a snapshot change or reselecting the
         // block the card said "Select a NAM block" while Preview worked (Floor, November 13).
         payloadCanBind(selected) ? 'Ready to audition on the selected NAM block.' :
+        steer?.none ? 'This preset has no NAM block: add one to hear a tone here.' :
+        steer?.ask ? 'Which block should play it? Choose one of the preset’s NAM blocks.' :
         'Select a NAM block to audition.') };
     // Native control notifications often repeat without changing the target.
     // Compare the entire visible state; a new session has no cached snapshot.
@@ -641,6 +648,133 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function bindSelected(request) {
     bindSelectedTarget();
     reply(request, { target: true, version: active.targetVersion });
+  }
+
+  // ---- Which block a TONE3000 preview plays on (Batch 2 rules sheet, rows 2 and 3) ----------------------------------
+  // HX Edit has a parameter view (a controller) for its selected block only, and a preview binds, auditions, applies and
+  // restores through it (atTarget, the Model slider), so the block that plays is still HX Edit's selected block. What
+  // is new is WHICH block that is while the Workbench (or the Focus pane) covers HX Edit: the session's target, put
+  // there with a click on HX Edit's own chain (a selection: no undo step, no unsaved dot), while the Workbench keeps
+  // showing and editing its own block (it reads and writes by DSP and block name). The pane's refresh calls
+  // steerPreview with its reading, on HX Edit's UI thread. Classic (no pane) is as before: the selected block plays.
+  //   target: the player's choice (the strip's chooser, the tray's question), else the Workbench's block when it is a
+  //   NAM block, else the preset's only NAM block; none with two or more and none picked (the tray asks).
+  // The choice lasts the session (TONE3000 closed, in the view or popped out, ends it) or until a preset loads. While a
+  // preview plays the target does not move: the chooser waits for Stop (the safe one of the two the sheet allowed).
+  let previewHold = null;            // {page, target}: HX Edit has the target selected, the Workbench shows page
+  let steerClick = null;             // {dsp, id, at, tries}: the last click asked for, on HX Edit's chain
+  // HX Edit's selection as last seen, a Workbench pick that HX Edit selects as before ({dsp, id, at}), and "aside": HX
+  // Edit's selection moved by itself (the Floor's knob, an add): not steered again until the player picks a block in
+  // the Workbench or chooses one, so the session never fights the Floor.
+  let steerSeen, steerPicked = null, steerAside = false, steerSession = 0;
+  const steerNames = new Map();
+  let steerNamesAt = 0;
+  const sameBlock = (a, b) => !!a && !!b && a.dsp === b.dsp && a.id === b.id;
+  const plainBlock = b => b ? {dsp: b.dsp, id: b.id} : null;
+  function toneSession() { return !!active && !!active.navigation && !active.headless && !active.workbench && !active.abandoned; }
+  function previewBusy() {
+    return !!(active && (active.transfer || active.pendingTransfer || active.orphanTransfer || active.quarantined ||
+      active.cleanupRequested || active.restoring || active.applying || active.inserting || command || workflowRequest || toneImport));
+  }
+  function steerName(slot) {
+    if (!Number.isInteger(slot)) return 'NAM';
+    if (Date.now() - steerNamesAt > 4000) { steerNames.clear(); steerNamesAt = Date.now(); }
+    if (!steerNames.has(slot)) {
+      let name = '';
+      try { name = namView.profileLabel?.(slot) || namView.slotName(slot) || ''; } catch (_) { name = ''; }
+      steerNames.set(slot, name || 'NAM');
+    }
+    return steerNames.get(slot);
+  }
+  function steerPreview(reading) {
+    // reading: {nams: [{dsp, id, slot}] (the preset's NAM blocks), cursor: {dsp, id} or null (HX Edit's own)}.
+    // Returns {page, click}: the block the Workbench shows, and one to click on HX Edit's chain now (or null).
+    const at = reading && reading.cursor;
+    const cursor = at && [0, 1].includes(at.dsp) && typeof at.id === 'string' ? {dsp: at.dsp, id: at.id} : null;
+    if (toneSession() && active.id !== steerSession) {      // (a new session: what it first sees is where it starts)
+      steerSession = active.id; steerSeen = cursor; steerAside = false; steerPicked = null; steerClick = null;
+    }
+    const moved = steerSeen !== undefined && (cursor ? !sameBlock(cursor, steerSeen) : !!steerSeen);
+    const ours = (steerClick && sameBlock(cursor, steerClick)) ||
+                 (steerPicked && sameBlock(cursor, steerPicked) && Date.now() - steerPicked.at < 3000);
+    steerSeen = cursor;
+    if (moved && !ours && toneSession()) {
+      // HX Edit's selection moved by itself (the Floor, a click on HX Edit): the Workbench follows it again.
+      send({type:'toneTrace', reason:'preview-target', stage:'moved-outside', cursor, held: previewHold});
+      previewHold = null; steerAside = true; steerClick = null;
+    }
+    if (!toneSession()) {
+      steerClick = null; steerPicked = null; steerAside = false;
+      if (previewHold && !sameBlock(cursor, previewHold.target)) previewHold = null;   // (moved since: nothing to put back)
+      if (!previewHold) return {page: cursor, click: null};
+      // The session is over: HX Edit gets the Workbench's block back (after any clean-up of a closing preview).
+      if (active && (active.cleanupRequested || active.restoring || active.transfer)) return {page: previewHold.page, click: null};
+      const back = previewHold.page;
+      previewHold = null;
+      send({type:'toneTrace', reason:'preview-target', stage:'hold-back', block: back});
+      return {page: back, click: back};
+    }
+    const nams = (reading.nams || []).filter(b => b && [0, 1].includes(b.dsp) && /^block\d{1,2}$/.test(b.id))
+      .map(b => ({dsp: b.dsp, id: b.id, slot: Number.isInteger(b.slot) ? b.slot : null, lane: b.path === 1 ? 1 : 0,
+                  position: Number.isInteger(b.position) ? b.position : null, name: steerName(b.slot)}));
+    const page = previewHold ? previewHold.page : cursor;
+    if (active.choice && !nams.some(b => sameBlock(b, active.choice))) active.choice = null;
+    const own = nams.find(b => sameBlock(b, page));
+    const target = steerAside ? own || null :
+      (active.choice && nams.find(b => sameBlock(b, active.choice))) || own || (nams.length === 1 ? nams[0] : null);
+    active.steer = {nams, target: target || null, ask: !steerAside && !target && nams.length > 1, none: !nams.length, aside: steerAside};
+    let click = null;
+    if (target && !sameBlock(target, cursor) && !previewBusy() && !steerAside) {
+      const again = steerClick && sameBlock(steerClick, target);
+      if (!again || (Date.now() - steerClick.at > 1500 && steerClick.tries < 3)) {
+        steerClick = {dsp: target.dsp, id: target.id, at: Date.now(), tries: again ? steerClick.tries + 1 : 1};
+        click = plainBlock(target);
+        previewHold = sameBlock(page, target) ? null : {page: plainBlock(page), target: plainBlock(target)};
+        send({type:'toneTrace', reason:'preview-target', stage:'select', dsp: target.dsp, block: target.id,
+              page: plainBlock(page), tries: steerClick.tries, chosen: !!active.choice});
+      }
+    } else if (target && sameBlock(target, cursor)) {
+      steerClick = null;
+      if (sameBlock(page, target)) previewHold = null;
+    }
+    active.steer.held = !!previewHold;
+    publishTarget();
+    return {page, click};
+  }
+  function pagePick(pick) {
+    // A block picked in the Workbench while a TONE3000 session is open. True when the Workbench only shows it and HX
+    // Edit keeps the target selected; false when HX Edit selects it as before.
+    if (!toneSession() || !pick) return false;
+    steerAside = false;
+    const steer = active.steer, target = steer && steer.target;
+    const asBefore = () => { steerPicked = {dsp: pick.dsp, id: pick.id, at: Date.now()}; previewHold = null; return false; };
+    if (!target || sameBlock(pick, target)) return asBefore();
+    const nam = steer.nams.find(b => sameBlock(b, pick));
+    if (nam && !previewBusy()) {
+      // a NAM block picked: the preview plays on it from now on (a selected NAM block wins)
+      active.choice = plainBlock(nam);
+      steerClick = null;
+      send({type:'toneTrace', reason:'preview-target', stage:'picked-nam', dsp: nam.dsp, block: nam.id});
+      return asBefore();
+    }
+    // another block, or a NAM block while a preview plays: the Workbench shows it, the target stays selected in HX Edit
+    previewHold = {page: plainBlock(pick), target: plainBlock(target)};
+    send({type:'toneTrace', reason:'preview-target', stage:'page-only', page: previewHold.page, target: previewHold.target,
+          playing: previewBusy()});
+    return true;
+  }
+  function chooseTarget(request) {
+    if (!toneSession()) throw new Error('This TONE3000 selection is no longer active.');
+    if (active.transfer || active.pendingTransfer || active.orphanTransfer || active.quarantined || active.cleanupRequested) {
+      throw new Error('Stop the preview first, then choose the block it plays on.');
+    }
+    const nam = (active.steer?.nams || []).find(b => b.dsp === request.dsp && b.id === request.block);
+    if (!nam) throw new Error('That block is not one of this preset\u2019s NAM blocks now.');
+    active.choice = plainBlock(nam);
+    steerClick = null; steerAside = false;
+    send({type:'toneTrace', reason:'preview-target', stage:'chosen', dsp: nam.dsp, block: nam.id});
+    publishTarget();
+    reply(request, {target: true});
   }
 
   function parameterPanel(list) {
@@ -3464,6 +3598,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
           modelLocks.clear(); plainMarks.clear(); pendingPlain = null;
         }
       }
+      // Another preset: the block chosen for TONE3000's preview was this preset's, and the Workbench follows HX Edit.
+      if (/^EditBuffer_(?:TargetDeviceChanged|DevicePresetChanged|PresetChanged|PresetContentsWillChange)$/.test(event) &&
+          (previewHold || active?.choice)) {
+        if (active) active.choice = null;
+        previewHold = null; steerClick = null; steerAside = false; steerSeen = undefined;
+      }
       if (!contextEvent.test(event)) return;
       if (!profile.navigation) {
         if (this.ours) invalidate(event);
@@ -4658,7 +4798,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       try { result = levelAction(request); } catch (error) { result = { error: String(error.message) }; }
       return reply(request, result);
     }
-    if (active.navigation && request.action !== 'bind') {
+    if (active.navigation && request.action !== 'bind' && request.action !== 'target') {
       workflowRequest = {id:request.id, session:request.session};
       namView.setWorkflowBusy(true); // no new automatic export may race this operation
       if (namView.inventoryBusy()) {
@@ -4675,6 +4815,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     if (active.navigation) {
       if (request.action === 'bind') return bindSelected(request);
+      if (request.action === 'target') return chooseTarget(request);
       if (request.action === 'end' || request.action === 'close' || request.action === 'autoEnd') {
         if (active.orphanTransfer && !active.transfer && active.orphanTransfer.slot !== 128) {
           const slot = active.orphanTransfer.slot;
@@ -4833,6 +4974,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   listen();
   return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook,
            previewEnded: () => previewEnd,
+           // Which block a TONE3000 preview plays on, while a pane covers HX Edit (steerPreview, pagePick).
+           steerPreview: reading => { try { return steerPreview(reading); } catch (error) {
+             send({type:'toneTrace', reason:'preview-target', stage:'failed', error:String(error.message)}); return null; } },
+           pagePick: pick => { try { return pagePick(pick); } catch (_) { return false; } },
            // A preview is on a block now (or on its way there): the Workbench's Save waits until it has ended (live
            // check 2026-11-24 13:09: a Save then would store the block on 128, which the clean-up empties after).
            previewing: () => !!active && !!(active.transfer || active.pendingTransfer),
