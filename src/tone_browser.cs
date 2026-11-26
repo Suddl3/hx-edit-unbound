@@ -18,6 +18,10 @@ sealed class ToneBrowser : Form
 {
     internal enum WindowMode { Embedded, Floating }
     const string CardUrl = "https://hx-edit-nam.invalid/tone";
+    // The popped-out window's side panel (tone_side.html, sent by tone_preview while the Workbench placed the window):
+    // the Workbench tray's Plays on row and tone card, shown at the right while popped out (T4, 2026-11-25).
+    const string SideUrl = "https://hx-edit-nam.invalid/side";
+    const int SideWidth = 360;
     const string EscapeMessage = "hx-unbound-preview-escape";
     // WebView2 owns a native child message loop. WinForms KeyDown alone does
     // not consistently see keys handled by a focused web document.
@@ -161,12 +165,9 @@ sealed class ToneBrowser : Form
     readonly Button popOut = new Button { Text = "Pop out", AutoSize = true, Height = 26 };
     readonly Button endPreview = new Button { Text = "End preview", AutoSize = true, Height = 26, Visible = false };
     readonly ToolTip hints = new ToolTip();
-    // The strip's chooser: the preset's NAM blocks ("name · Path n"), the one the next preview plays on checked. A pick
-    // sends "target:<dsp>:<block>" (tone_view.js chooseTarget). Not while a preview plays: Stop first.
-    readonly ContextMenuStrip targetMenu = new ContextMenuStrip { ShowImageMargin = false, ShowCheckMargin = true,
-        BackColor = Color.FromArgb(28, 31, 38), ForeColor = Color.FromArgb(236, 238, 242) };
-    readonly List<KeyValuePair<string, string>> targetChoices = new List<KeyValuePair<string, string>>();
-    string targetChosen = "";
+    readonly WebView2 side = new WebView2 { Dock = DockStyle.Fill, Visible = false };
+    readonly ColumnStyle sideColumn = new ColumnStyle(SizeType.Absolute, 0);
+    string sideHtml, sideData;
     Rectangle dock;
     Rectangle applied;
     Uri callback;
@@ -299,12 +300,17 @@ sealed class ToneBrowser : Form
 
         browser.DefaultBackgroundColor = BackColor;
         details.DefaultBackgroundColor = BackColor;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        side.DefaultBackgroundColor = BackColor;
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.ColumnStyles.Add(sideColumn);
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(detailRow);
-        browser.Margin = details.Margin = Padding.Empty;
+        browser.Margin = details.Margin = side.Margin = Padding.Empty;
         layout.Controls.Add(browser, 0, 0);
+        layout.Controls.Add(side, 1, 0);
         layout.Controls.Add(details, 0, 1);
+        layout.SetColumnSpan(details, 2);
         Controls.Add(layout);
         var targetActions = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 5, 6, 0) };
@@ -318,7 +324,6 @@ sealed class ToneBrowser : Form
             targetActions.Controls.Add(button);
         }
         endPreview.Click += (sender, args) => SendAction("end");
-        targetLabel.Click += (sender, args) => ShowTargetMenu();
         popOut.Click += (sender, args) => ChangePresentation(
             windowMode == WindowMode.Embedded ? WindowMode.Floating : WindowMode.Embedded, true);
         // The banner over the site, in the Workbench's own colours (its panel and line): which block a preview
@@ -346,7 +351,7 @@ sealed class ToneBrowser : Form
             if (!hostClosing) RequestCancel("window-close");
         };
         FormClosed += (sender, args) => {
-            timer.Dispose(); hints.Dispose(); targetMenu.Dispose();
+            timer.Dispose(); hints.Dispose();
             if (floatingHost != null) floatingHost.Dispose();
         };
     }
@@ -615,6 +620,24 @@ sealed class ToneBrowser : Form
                 // downloading/converting; a queued plain "finish" is too late.
                 HandleCardAction(ReadWebMessage(args));
             };
+            await side.EnsureCoreWebView2Async(env);
+            if (closing || IsDisposed) return;
+            var panel = side.CoreWebView2;
+            Configure(panel, true);
+            await panel.AddScriptToExecuteOnDocumentCreatedAsync(EscapeScript);
+            panel.NavigationStarting += (sender, args) => args.Cancel = args.Uri != SideUrl;
+            panel.NewWindowRequested += (sender, args) => args.Handled = true;
+            panel.AddWebResourceRequestedFilter(SideUrl, CoreWebView2WebResourceContext.Document);
+            panel.WebResourceRequested += (sender, args) => {
+                if (sideHtml == null || args.Request.Uri != SideUrl) return;
+                args.Response = env.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(sideHtml)), 200, "OK",
+                    "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store");
+            };
+            panel.DOMContentLoaded += (sender, args) => UpdateSide();
+            panel.WebMessageReceived += (sender, args) => {
+                if (args.Source != SideUrl || panel.Source != SideUrl) return;
+                HandleSideAction(ReadWebMessage(args));
+            };
             output.WriteLine("{\"type\":\"ready\"}");
             await Task.Run(() => ReadCommands(input));
         }
@@ -696,6 +719,7 @@ sealed class ToneBrowser : Form
             return;
         }
         if ((string)message["type"] == "chrome") { ApplyChrome(message); return; }
+        if (ReceiveSide(message)) return;
         if ((string)message["type"] == "presentation")
         {
             object value;
@@ -710,7 +734,6 @@ sealed class ToneBrowser : Form
             object text;
             hints.SetToolTip(targetLabel, message.TryGetValue("text", out text) ? Convert.ToString(text) : targetLabel.Text);
             targetCanEnd = Flag(message, "preview") || Flag(message, "quarantined");
-            ReadTargetChoices(message);
             UpdateTargetButtons();
             LayoutPane(true);
             return;
@@ -828,46 +851,64 @@ sealed class ToneBrowser : Form
         return text + " · Path " + (number + 1).ToString(CultureInfo.InvariantCulture);
     }
 
-    // The chooser's list from the session's word (tone_view.js publishTarget "choices", "target"): with two or more NAM
-    // blocks the strip's words open it ("  ▾"); not while a preview plays (targetCanEnd: End preview shows).
-    void ReadTargetChoices(Dictionary<string, object> message)
+    // The popped-out window's side panel: its page ("sidePage") and the tray's data ("side", tone_preview tray_out).
+    bool ReceiveSide(Dictionary<string, object> message)
     {
-        targetChoices.Clear();
-        object choices, chosen;
-        if (message.TryGetValue("choices", out choices) && choices is System.Collections.IEnumerable)
-            foreach (var item in (System.Collections.IEnumerable)choices)
-            {
-                var choice = item as Dictionary<string, object>;
-                var action = ChoiceAction(choice);
-                if (action != null) targetChoices.Add(new KeyValuePair<string, string>(action, ChoiceText(choice)));
-            }
-        targetChosen = message.TryGetValue("target", out chosen) ? ChoiceAction(chosen as Dictionary<string, object>) ?? "" : "";
-        bool choosable = targetChoices.Count > 1;
-        targetLabel.Cursor = choosable && !targetCanEnd ? Cursors.Hand : Cursors.Default;
-        if (!choosable) return;
-        targetLabel.Text += "  \u25BE";
-        hints.SetToolTip(targetLabel, targetCanEnd ? "Stop the preview to choose another block." :
-            "Choose the NAM block the preview plays on.");
+        var type = (string)message["type"];
+        object value;
+        if (type == "sidePage")
+        {
+            if (!message.TryGetValue("html", out value) || !(value is string)) return true;
+            sideHtml = (string)value;
+            if (side.CoreWebView2 != null) side.CoreWebView2.Navigate(SideUrl);
+            LayoutPane(true);
+            return true;
+        }
+        if (type == "side")
+        {
+            if (message.TryGetValue("data", out value)) sideData = json.Serialize(value);
+            UpdateSide();
+            return true;
+        }
+        return false;
     }
 
-    void ShowTargetMenu()
+    void UpdateSide()
     {
-        if (targetChoices.Count < 2 || targetCanEnd || closing || IsDisposed) return;
-        targetMenu.Items.Clear();
-        foreach (var choice in targetChoices)
-        {
-            var action = choice.Key;
-            var item = new ToolStripMenuItem(choice.Value) { Checked = action == targetChosen,
-                BackColor = targetMenu.BackColor, ForeColor = targetMenu.ForeColor };
-            item.Click += (sender, args) => SendAction(action);
-            targetMenu.Items.Add(item);
-        }
-        targetMenu.Show(targetLabel, new Point(targetLabel.Padding.Left, targetLabel.Height - 4));
+        if (closing || IsDisposed || side.IsDisposed || sideData == null) return;
+        var panel = side.CoreWebView2;
+        if (panel == null || panel.Source != SideUrl) return;
+        panel.PostWebMessageAsJson(sideData);
+    }
+
+    // What the side page may ask: the tray's own actions (tone_preview browse: End preview, Keep on this PC, Load on
+    // Floor, the block it plays on, the tone's profile), and Escape.
+    internal static bool IsSideAction(string action)
+    {
+        return action != null && Regex.IsMatch(action,
+            @"^(end|keep:\d{1,6}|save:\d{1,6}:\d{1,3}|target:[01]:block\d{1,2}|model:\d{1,12})$");
+    }
+
+    void HandleSideAction(string action)
+    {
+        if (action == EscapeMessage) RequestCancel("escape");
+        else if (IsSideAction(action)) SendAction(action);
+    }
+
+    // Popped out (floating) with a side page: the side column at the right; docked: none (the Workbench draws its tray).
+    void LayoutSide()
+    {
+        int width = windowMode == WindowMode.Floating && sideHtml != null ? SideWidth : 0;
+        if ((int)sideColumn.Width == width) return;
+        sideColumn.Width = width;
+        side.Visible = width > 0;
+        if (width > 0) UpdateSide();
     }
 
     void LayoutPane(bool raiseForNativeChange = false)
     {
         if (closing || IsDisposed) return;
+        LayoutSide();
         if (!IsWindow(parent)) { CloseFromHost(); return; }
         if (windowMode == WindowMode.Floating)
         {

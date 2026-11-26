@@ -96,7 +96,7 @@ class PopOutTests(unittest.TestCase):
         page = text('workbench.html')
         sync = between(page, 'function syncTool() {', 'function toolClosed() {')
         # out: its frame closing does not close it; the view goes back to the chain
-        self.assertIn("if (toolShown && !toolPopped) { toolShown = ''; ask('toolClose'); }", sync)
+        self.assertIn("if (toolShown && !toolPopped) { if (toolShown === 'tone') toneGone(); toolShown = ''; ask('toolClose'); }", sync)
         self.assertIn("if (out && view.full === toolShown) setView('back');", sync)
         self.assertIn("else if (!out && view.full !== toolShown) setView('open', toolShown);", sync)
         # the rail's TONE3000 button while it is out: back in (its view, with the tray)
@@ -963,28 +963,29 @@ out
     def test_the_tray_asks_and_names_the_block_and_the_head_marks_it(self):
         page = text('workbench.html')
         tray = between(page, 'function drawTray() {', 'function libraryRow(')
-        self.assertIn("el('b', '', 'Which block should play it?')", tray)
-        self.assertIn("'This preset has ' + t.choices.length + ' NAM blocks and none is selected. The preview borrows one and puts its capture back when you stop.'", tray)
-        self.assertIn("tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", tray)
-        self.assertIn("el('b', '', 'This preset has no NAM block')", tray)
+        # (T1, 2026-11-25: the question is the Plays on row's line, the row always at the top)
+        self.assertIn("el('div', 'askline', 'Which block should play it? Click one.')", tray)
+        self.assertIn("if (!on) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", tray)
+        self.assertIn("'This preset has no NAM block: add one to hear a tone here.'", tray)
         self.assertIn("title(aim) + ', Path ' + (aim.dsp + 1)", tray)
         self.assertLess(tray.index('Which block should play it?'), tray.index('if (playing) {'))
         mini = between(page, 'function miniButton(block, now) {', 'function drawMini() {')
         self.assertIn("(target ? ' tgt' : '')", mini)
         self.assertIn('.mini button.tgt { box-shadow: 0 0 0 2px #b070e0;', page)
-        self.assertIn("toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); return;", page)
+        self.assertIn("toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); drawChain(); return;", page)
 
     def test_the_choice_travels_from_the_tray_and_the_strip(self):
         launcher = text('start-hx-edit-nam.pyw')
         self.assertIn("preview.tone_action(f\"target:{value['dsp']}:{value['id']}\")", launcher)
         preview = text('tone_preview.py')
-        self.assertIn(r"re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}', action)", preview)
+        self.assertIn(r"re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}|model:\d{1,12}', action)", preview)
         self.assertIn("reply = self.command(session, 'target', dsp=int(dsp), block=block)", preview)
         self.assertIn("'ask': bool(state.get('ask')), 'none': bool(state.get('none')),", preview)
         strip = text('tone_browser.cs')
-        self.assertIn('targetLabel.Click += (sender, args) => ShowTargetMenu();', strip)
-        self.assertIn('if (targetChoices.Count < 2 || targetCanEnd || closing || IsDisposed) return;', strip)
-        self.assertIn('item.Click += (sender, args) => SendAction(action);', strip)
+        # (T3, 2026-11-25: the strip's menu went; the Plays on row is the one place to choose)
+        self.assertNotIn('ShowTargetMenu', strip)
+        self.assertNotIn('ContextMenuStrip', strip)
+        self.assertIn('else if (IsSideAction(action)) SendAction(action);', strip)
 
     def test_tone_action_takes_a_target_only_in_its_shape(self):
         sys.path.insert(0, str(ROOT))
@@ -1074,6 +1075,126 @@ class PreviewLiveFixTests(unittest.TestCase):
         self.assertIn("previewSteps = {from: origin.undo, to: after, tainted: !!active.previewTainted, context: contextVersion, at: Date.now()};", tone)
         self.assertIn('previewSteps = null;                   // (a new preview', tone)
         self.assertIn('previewSteps: () => previewSteps && previewSteps.context === contextVersion ? {...previewSteps} : null,', tone)
+
+
+class ToneTargetAlwaysTests(unittest.TestCase):
+    """Nick, 2026-11-25 19:15 (mock-up research/modern-ui/reveal/mock-tone-target): the block choice always visible
+    (T1), moving a playing preview (T2), one place to choose (T3), the popped window with the same side panel (T4), a
+    banner on the chain while a preview plays (T5)."""
+
+    def test_t1_the_plays_on_row_is_always_at_the_top(self):
+        page = text('workbench.html')
+        tray = between(page, 'function drawTray() {', 'function libraryRow(')
+        self.assertIn("plays.append(el('h5', '', 'Plays on'));", tray)
+        self.assertIn("'Which block should play it? Click one.'", tray)
+        self.assertIn("'This preset has no NAM block: add one to hear a tone here.'", tray)
+        self.assertIn("'Picked the wrong one? Click the other block: the preview moves there and this block gets its own capture back.'", tray)
+        self.assertIn("if (!on) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", tray)
+        self.assertLess(tray.index("'Plays on'"), tray.index('if (playing) {'))
+        self.assertNotIn('if (!playing && t.ask', tray)                  # (not only before a choice any more)
+        self.assertIn(".plays .tiles button.on::before { content: '\\25B6  plays here';", page)
+
+    def test_t2_another_block_while_playing_moves_the_preview(self):
+        preview = text('tone_preview.py')
+        move = between(preview, "if self.navigation and isinstance(action, str) and re.fullmatch(r'target:[01]:block\\d{1,2}', action):",
+                       'continue\n            if self.navigation and action in')
+        self.assertIn("moving = bool(self.navigation_state.get('preview')) and current is not None", move)
+        self.assertLess(move.index("reply = self.command(session, 'end')"),
+                        move.index("reply = self.command(session, 'target', dsp=int(dsp), block=block)"))
+        self.assertIn('waiting_tone[0] = True', move)
+        self.assertIn("if aim.get('dsp') == int(dsp) and aim.get('id') == block:", move)
+        audition = between(preview, 'def prepared():', 'message = play(prepared, capture, replace')
+        self.assertIn('found = prepared_files.get((key, mode))', audition)
+        self.assertIn('if found and Path(found).is_file():', audition)
+
+    def test_t3_one_place_to_choose_and_one_card(self):
+        strip = text('tone_browser.cs')
+        self.assertNotIn('ShowTargetMenu', strip)
+        self.assertNotIn('\\u25BE', strip)
+        page = text('workbench.html')
+        tray = between(page, 'function drawTray() {', 'function libraryRow(')
+        self.assertIn("line.append(eq, 'Playing on ', el('em', '', where), '. Nothing is saved.'", tray)
+        self.assertIn("pick.onchange = () => { if (pick.value) ask('tray', {do: 'profile', id: Number(pick.value)}); };", tray)
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("preview.tone_action(f\"model:{value['id']}\")", launcher)
+        card = text('tone_card.html')
+        self.assertIn('<body $tray>', card)
+        self.assertIn("document.querySelector('#keepers').hidden = trial == null || trayMode;", card)
+        preview = text('tone_preview.py')
+        self.assertIn('visible = tone is not None and not tray', preview)
+        self.assertEqual(preview.count('tray=self._in_workbench())'), 6)
+        self.assertIn("message = ('Previewing. Nothing is saved yet.' if self.navigation else", preview)
+
+    def test_t4_the_popped_window_has_the_side_panel(self):
+        strip = text('tone_browser.cs')
+        self.assertIn('const string SideUrl = "https://hx-edit-nam.invalid/side";', strip)
+        self.assertIn('int width = windowMode == WindowMode.Floating && sideHtml != null ? SideWidth : 0;', strip)
+        self.assertIn('layout.Controls.Add(side, 1, 0);', strip)
+        self.assertIn('layout.SetColumnSpan(details, 2);', strip)
+        self.assertIn(r'@"^(end|keep:\d{1,6}|save:\d{1,6}:\d{1,3}|target:[01]:block\d{1,2}|model:\d{1,12})$"', strip)
+        preview = text('tone_preview.py')
+        self.assertIn("browser.send('sidePage', html=SIDE.read_text(encoding='utf-8'))", preview)
+        self.assertIn("browser.send('side', data=side)", preview)
+        side = text('tone_side.html')
+        for words in ("el('h5', '', 'Plays on')", "'Which block should play it? Click one.'", "say('target:' + c.dsp + ':' + c.id)",
+                      "say('end')", "say('save:' + t.trial + ':' + free[0])", "say('keep:' + t.trial)", "say('model:' + list.value)",
+                      'img-src data:'):
+            self.assertIn(words, side)
+        self.assertIn("'tone_side.html'", text('build-windows.py'))
+
+    def test_t4_the_side_page_draws_the_same_states(self):
+        side = text('tone_side.html')
+        script = between(side, '<script>', '</script>')[len('<script>'):]
+        dom = '''
+class Node { constructor(tag) { this.tag = tag; this.children = []; this.className = ''; this.textContent = ''; this.title = ''; }
+  append(...kids) { for (const k of kids) this.children.push(typeof k === 'string' ? {text: k} : k); }
+  replaceChildren(...kids) { this.children = []; this.append(...kids); } }
+const boxes = {}; const document = {createElement: tag => new Node(tag), querySelector: id => boxes[id] || (boxes[id] = new Node('section'))};
+class Option { constructor(text, value) { this.text = text; this.value = value; } }
+const window = {};
+const words = node => [node.text || '', node.textContent || '', ...(node.children || []).map(words)].join(' ');
+'''
+        out = run_js_source(dom + script, '''(() => {
+          const choices = [{dsp: 0, id: 'block0', name: 'Deluxe Reverb'}, {dsp: 1, id: 'block2', name: 'Jcm800'}];
+          const tray = [{key: 'a', name: 'Matchless', state: 'ready', trial: 3, kept: false}];
+          const r = {};
+          window.hxToneSide({choices, ask: true, target: null, tray: [], trial: 0});
+          r.ask = words(boxes['#plays']);
+          window.hxToneSide({choices, target: {dsp: 1, id: 'block2'}, tray, trial: 3, free_slots: [29], preview: true});
+          r.chosen = words(boxes['#plays']); r.card = words(boxes['#card']);
+          r.rings = boxes['#plays'].children[1].children.map(b => b.className.trim());
+          window.hxToneSide({none: true, choices: []});
+          r.none = words(boxes['#plays']);
+          return r;
+        })()''')
+        self.assertIn('Which block should play it? Click one.', out['ask'])
+        self.assertIn('Picked the wrong one?', out['chosen'])
+        self.assertEqual(out['rings'], ['', 'on'])
+        self.assertIn('Playing on', out['card'])
+        self.assertIn('Jcm800, Path 2', out['card'])
+        self.assertIn('Load on Floor', out['card'])
+        self.assertIn('This preset has no NAM block: add one to hear a tone here.', out['none'])
+
+    def test_t5_the_chain_shows_a_banner_and_a_preview_tag(self):
+        page = text('workbench.html')
+        banner = between(page, 'function previewBanner() {', 'function dspShare(k) {')
+        self.assertIn("words.textContent = 'Previewing ' + p.tone + (p.block ? ' on ' + title(p.block) + ', Path ' + (p.block.dsp + 1) : '');", banner)
+        for words in ("'Back to TONE3000'", "'Load on Floor'", "'Keep on this PC'", "'Stop'", "ask('toolFront')",
+                      "ask('tray', {do: 'end', trial: p.trial});", "ask('tray', {do: 'keep', trial: p.trial});"):
+            self.assertIn(words, banner)
+        now = between(page, 'function previewNow() {', 'function previewKey()')
+        self.assertIn('if (!t || !t.preview || !state) return null;', now)
+        chain = between(page, 'function drawChain(force) {', 'function dspShare(k) {')
+        self.assertIn('previewKey()]);', chain)
+        self.assertIn('if (banner) head.unshift(banner);', chain)
+        tile = between(page, 'const tileOf = (block, place, y) => {', 'return button;')
+        self.assertIn("if (pv) button.classList.add('previewing');", tile)
+        self.assertIn("if (pv) button.append(el('span', 'pvtag', 'PREVIEW'));", tile)
+        self.assertNotIn('.tile.pv ', page)                              # (.pv is the presets view's own class)
+        self.assertIn('function toneGone() { toneTray = null;', page)
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("if name == 'toolFront':", launcher)
+        self.assertIn('def front_tool(self):', text('tone_preview.py'))
 
 
 if __name__ == '__main__':

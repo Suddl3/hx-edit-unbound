@@ -372,6 +372,31 @@
   .np .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .np .acts .btn { justify-content: center; }
   .np .acts .wide { grid-column: 1 / -1; }
+  /* Plays on (T1): the preset's NAM blocks at the top of the tray, the one the preview plays on ringed */
+  .plays { display: grid; gap: 8px; }
+  .plays .askline { color: #f0c94a; font-size: 12.5px; }
+  .plays .tiles { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 6px; }
+  .plays .tiles button { position: relative; width: 104px; border-radius: 9px; padding: 9px 6px 7px; background: #15181e; border: 1px solid var(--line); display: grid; justify-items: center; gap: 3px; font-size: 12px; color: var(--ink); text-align: center; overflow-wrap: anywhere; }
+  .plays .tiles button:hover { border-color: #5a606c; }
+  .plays .tiles button img { width: 48px; height: 42px; object-fit: contain; }
+  .plays .tiles button small { color: var(--dim); font-size: 11px; }
+  .plays .tiles button.on { border: 2px solid #b070e0; background: rgb(176 112 224 / .12); padding: 8px 5px 6px; cursor: default; }
+  .plays .tiles button.on::before { content: '\25B6  plays here'; position: absolute; top: -9px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #b070e0; color: #fff; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 8px; }
+  .plays .tiles button.off img { opacity: .45; }
+  .plays .tiles.asking button { border-color: #f0c94a66; }
+  .np label.profile { display: grid; gap: 4px; color: var(--dim); font-size: 12px; }
+  .np label.profile select { font: inherit; color: var(--ink); background: #15181e; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; }
+  /* the chain while a preview plays and TONE3000 is not over it (T5): a banner, and the block's PREVIEW tag */
+  .pvbanner { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; border: 1px solid rgb(176 112 224 / .5);
+              background: linear-gradient(90deg, rgb(176 112 224 / .2), rgb(176 112 224 / .06)); font-size: 13px; min-width: 0; }
+  .pvbanner .dot { width: 9px; height: 9px; border-radius: 50%; background: #3fc56b; box-shadow: 0 0 8px #3fc56b; flex: none; }
+  .pvbanner b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .pvbanner small { color: var(--dim); white-space: nowrap; }
+  .pvbanner .sp { flex: 1; }
+  .pvbanner .btn { flex: none; }
+  .pvbanner .stop { color: #ff8a80; }
+  .tile.previewing { border-color: #b070e0; box-shadow: 0 0 0 1px #b070e0, 0 10px 30px rgb(176 112 224 / .25); }
+  .tile .pvtag { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); z-index: 2; background: #b070e0; color: #fff; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; padding: 1px 6px; border-radius: 6px; pointer-events: none; }
   /* which block plays it: asked once when the preset has two or more NAM blocks and none is picked (Batch 2 sheet) */
   .pickwho { border-radius: 12px; padding: 12px; background: var(--panel); border: 1px solid #f0c94a66; display: grid; gap: 10px; }
   .pickwho > div > b { font-weight: 600; }
@@ -1241,7 +1266,7 @@ function drawChain(force) {
   const now = picking && picking.adding ? state.blocks.find(b => b.dsp === picking.dsp && /^block/.test(b.id) && b.position === picking.place && b.path === picking.lane) || {dsp: picking.dsp, id: 'pending'} : current();
   const key = JSON.stringify([width, layout, sizes, paths.map(p => [p.a, p.b, p.from, p.to, p.split, p.join, p.inputB, p.outputB, p.input, p.output].map(x => JSON.stringify(x))),
                               now && [now.dsp, now.id], (state.captures || []).map(c => [c.slot, c.name, c.icon]), (state.irs || []).map(i => [i.slot, i.name]), dsp,
-                              layout === 'stage' ? stageKey() : null]);
+                              layout === 'stage' ? stageKey() : null, previewKey()]);
   if (!force && key === shownChain) return;
   if (dragging) return;                                         // (redrawn when the drag ends)
   shownChain = key;
@@ -1250,9 +1275,43 @@ function drawChain(force) {
     // (Classic+: "Signal flow" with both DSP meters over the paths, as HX Edit's own header has them; the stage: its
     // scene and the button to Floor look over them)
     const head = layout === 'classicplus' ? [flowHead()] : layout === 'stage' ? [stageHead()] : [];
+    const banner = previewBanner();
+    if (banner) head.unshift(banner);
     board.style.setProperty('--gh', TILE_TOP + 'px');
     board.replaceChildren(...head, ...paths.map(p => drawPath(p, geometry(width), now)));
   } finally { reusable = null; }
+}
+// A TONE3000 preview playing now (the session's tray word, toneTray): its tone and the block it plays on, else null.
+function previewNow() {
+  const t = toneTray;
+  if (!t || !t.preview || !state) return null;
+  const playing = (t.tray || []).find(i => i.state === 'ready' && i.trial === t.trial);
+  if (!playing) return null;
+  const block = t.target ? (state.blocks || []).find(b => same(b, t.target)) || null : null;
+  return {tone: playing.name, block, kept: !!playing.kept, trial: t.trial, free: Array.isArray(t.free_slots) ? t.free_slots : []};
+}
+function previewKey() { const p = previewNow(); return p ? [p.tone, p.block && [p.block.dsp, p.block.id], p.kept, p.trial, p.free[0], toolPopped] : null; }
+// The banner over the chain while a preview plays and TONE3000 is not over the chain (popped out, or its view closed
+// with the window still open; T5, 2026-11-25): what plays where, and the tone's actions. It goes with the preview.
+function previewBanner() {
+  const p = previewNow();
+  if (!p) return null;
+  const bar = el('div', 'pvbanner'), words = el('b');
+  words.textContent = 'Previewing ' + p.tone + (p.block ? ' on ' + title(p.block) + ', Path ' + (p.block.dsp + 1) : '');
+  bar.append(el('span', 'dot'), words, el('small', '', 'Nothing is saved.'), el('span', 'sp'));
+  const back = el('button', 'btn sm', 'Back to TONE3000');
+  back.title = toolPopped ? 'Bring the TONE3000 window forward' : 'Open TONE3000 again';
+  back.onclick = () => { if (toolPopped) ask('toolFront'); else setView('rail', 'tone'); };
+  const load = el('button', 'btn sm pri', 'Load on Floor'); load.style.setProperty('--c', '176 112 224');
+  load.disabled = !p.free.length;
+  load.title = p.free.length ? 'Load it into slot ' + p.free[0] + ' (the lowest free one) and keep it on this block. The preset is not saved.' : 'No free slot on the Floor: free one in the NAM library first.';
+  load.onclick = () => ask('tray', {do: 'save', trial: p.trial, slot: p.free[0]});
+  bar.append(back, load);
+  if (!p.kept) { const keep = el('button', 'btn sm', 'Keep on this PC'); keep.onclick = () => ask('tray', {do: 'keep', trial: p.trial}); bar.append(keep); }
+  const stop = el('button', 'btn sm stop', 'Stop'); stop.title = 'End the preview: the block plays its own capture again';
+  stop.onclick = () => ask('tray', {do: 'end', trial: p.trial});
+  bar.append(stop);
+  return bar;
 }
 function dspShare(k) {
   const view = dsp && dsp[k];
@@ -1273,6 +1332,8 @@ function drawPath(p, g, now) {
   const two = !!p.b, out = [], wires = [`<path d="M32 ${YA}H${g.width - 32}"/>`];
   const tileOf = (block, place, y) => {
     const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (same(block, now) ? ' on' : '') + (block.id === 'pending' ? ' coming' : ''));
+    const previewed = previewNow(), pv = previewed && same(block, previewed.block);   // (the block a TONE3000 preview plays on)
+    if (pv) button.classList.add('previewing');
     button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - TILE_TOP}px;width:${g.tile}px;height:${TILE_H}px`;
     if (layout === 'stage') button.classList.add(...gearClass(block));
     button.dataset.dsp = p.dsp; button.dataset.lane = y === YA ? 0 : 1; button.dataset.place = place;   // (laneBranch)
@@ -1281,6 +1342,7 @@ function drawPath(p, g, now) {
     const strip = el('div', 'strip', title(block)); strip.append(el('small', '', kindOf(block)));
     // (the stage: the gear as Floor look and Focus Mode show it, sized for what is shown; elsewhere the small picture)
     button.append(led, layout === 'stage' ? image(stagePictures(block), 'pic', false, true) : image(pictures(block), 'pic', true), strip);
+    if (pv) button.append(el('span', 'pvtag', 'PREVIEW'));
     button.title = title(block) + (capture(block) ? ' (' + model(block).name + ')' : '') + (block.enabled ? '' : ', bypassed');
     button.onclick = () => { if (!dragDone) pickBlock(block); };
     button.onpointerdown = event => liftBlock(event, block, button);
@@ -3235,8 +3297,8 @@ function miniRows() {
 }
 const miniKey = rows => JSON.stringify([rows.map(r => r.blocks.map(b => [b.id, b.model, b.slot, b.enabled])), (state.captures || []).map(c => [c.slot, c.icon])]);
 // The block a TONE3000 preview plays on, while its view is open (the tray's session: tone_view.js steerPreview).
-function toneTarget() {
-  const t = view.full === 'tone' && toneTray ? toneTray.target : null;
+function toneTarget(always) {
+  const t = (always || view.full === 'tone') && toneTray ? toneTray.target : null;
   return t && state ? (state.blocks || []).find(b => same(b, t)) || null : null;
 }
 function miniButton(block, now) {
@@ -3298,7 +3360,7 @@ function frameRect() {
 }
 function syncTool() {
   const want = view.full || view.half, name = visible && OLD_PAGES.has(want) ? want : '';
-  if (!name) { if (toolShown && !toolPopped) { toolShown = ''; ask('toolClose'); } return; }
+  if (!name) { if (toolShown && !toolPopped) { if (toolShown === 'tone') toneGone(); toolShown = ''; ask('toolClose'); } return; }
   const rect = frameRect(), key = JSON.stringify(rect);
   if (toolShown && toolShown !== name && toolPopped) { toolPopped = false; shownRail = ''; drawRail(); }   // (another tool: the launcher closes the one out)
   if (toolShown !== name) { toolShown = name; toolPlaced = key; toolAskedAt = Date.now(); ask('tool', {name, ...rect}); waitForTool(); }
@@ -3315,10 +3377,14 @@ function toolPresentation(mode) {
   else if (!out && view.full !== toolShown) setView('open', toolShown);   // (docked again: its view around it)
   drawRail();
 }
+// The TONE3000 window is gone (closed from the page or from itself): its tray word with it, so the chain's preview
+// banner and PREVIEW tag go too (its clean-up ends the preview).
+function toneGone() { toneTray = null; shownTray = ''; if (state && catalog) drawChain(); }
 function toolClosed() {
   // The tool's window closed. Just after asking for one (a close and an open crossing): ask again. Else it was closed
   // from the window itself (its Close, Esc): its frame closes too.
   const was = toolShown;
+  if (was === 'tone') toneGone();
   toolShown = ''; toolPopped = false; shownRail = ''; drawRail();
   if (Date.now() - toolAskedAt < 2500) { syncTool(); return; }
   if (was) setView('close', was);
@@ -4820,42 +4886,65 @@ function drawTray() {
   const playing = all.find(i => i.state === 'ready' && i.trial === t.trial) || null, items = all.filter(i => i !== playing);
   // Which block plays it (Batch 2 rules): the session names its target; with two or more NAM blocks and none picked the
   // tray asks once (a pick lasts until TONE3000 is closed or another preset loads); with none, it says so.
-  const aim = toneTarget();
-  if (!playing && t.ask && Array.isArray(t.choices) && t.choices.length > 1) {
-    const box = el('div', 'pickwho'), words = el('div'), tiles = el('div', 'tiles');
-    words.append(el('b', '', 'Which block should play it?'),
-                 el('small', '', 'This preset has ' + t.choices.length + ' NAM blocks and none is selected. The preview borrows one and puts its capture back when you stop.'));
-    for (const c of t.choices) {
-      const block = (state.blocks || []).find(b => same(b, c)), tile = el('button');
-      tile.title = 'Play the preview on ' + (block ? title(block) : c.name) + ', Path ' + (c.dsp + 1);
-      tile.append(image(block ? pictures(block) : captureUrls({}), '', true), block ? title(block) : c.name || 'NAM', el('small', '', 'Path ' + (c.dsp + 1)));
-      tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});
+  const aim = toneTarget(true);
+  // Plays on (T1, 2026-11-25): always at the top, one tile per NAM block of the preset, the target ringed ("plays
+  // here"); before a choice the tiles wait unringed under "Which block should play it? Click one."; with no NAM block
+  // it says so. Another tile while a preview plays moves the preview there (tone_preview: End preview, then the same
+  // tone on that block, its file kept from before); otherwise it is where the next preview plays.
+  const choices = Array.isArray(t.choices) ? t.choices : [];
+  const plays = el('div', 'plays');
+  plays.append(el('h5', '', 'Plays on'));
+  if (t.none || !choices.length) plays.append(el('div', 'note2', 'This preset has no NAM block: add one to hear a tone here.'));
+  else {
+    if (t.ask) plays.append(el('div', 'askline', 'Which block should play it? Click one.'));
+    const tiles = el('div', 'tiles' + (t.ask ? ' asking' : ''));
+    for (const c of choices) {
+      const block = (state.blocks || []).find(b => same(b, c)), on = same(c, t.target), tile = el('button', (on ? 'on' : '') + (c.enabled === false ? ' off' : ''));
+      const name = block ? title(block) : c.name || 'NAM';
+      tile.title = on ? 'The preview plays on this block' : 'Play the preview on ' + name + ', Path ' + (c.dsp + 1) + (c.enabled === false ? ' (this block is off: switch it on to hear it)' : '');
+      tile.append(image(block ? pictures(block) : captureUrls({}), '', true), name, el('small', '', 'Path ' + (c.dsp + 1)));
+      if (!on) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});
       tiles.append(tile);
     }
-    box.append(words, tiles);
-    list.append(box);
-  } else if (!playing && t.none) {
-    const box = el('div', 'nonam');
-    box.append(el('b', '', 'This preset has no NAM block'), 'Add one to hear a tone here. Nothing is added for you, and nothing on the Floor changes.');
-    list.append(box);
+    plays.append(tiles);
+    if (t.target && choices.length > 1) plays.append(el('div', 'note2', 'Picked the wrong one? Click the other block: the preview moves there and this block gets its own capture back.'));
   }
+  list.append(plays);
+  // The tone's card: the one place for its actions (T3): playing (what, where, Stop / Load on Floor / Keep on this PC),
+  // or picked with several profiles (its Profile list: the window's bottom bar no longer shows it in the Workbench).
+  const tone = t.tone || null, profiles = tone && Array.isArray(tone.profiles) ? tone.profiles : [];
+  const profileList = () => {
+    const label = el('label', 'profile', 'Profile'), pick = el('select');
+    if (!Number.isInteger(tone.profile)) pick.append(new Option('Choose a profile\u2026', ''));
+    profiles.forEach((p, index) => pick.append(new Option(p.name || 'Profile ' + (index + 1), String(p.id))));
+    if (Number.isInteger(tone.profile) && profiles[tone.profile]) pick.value = String(profiles[tone.profile].id);
+    pick.onchange = () => { if (pick.value) ask('tray', {do: 'profile', id: Number(pick.value)}); };
+    label.append(pick);
+    return label;
+  };
   if (playing) {
-    const now = current();
-    const where = aim ? title(aim) + ', Path ' + (aim.dsp + 1) : now && isChain(now) && isNam(now) ? 'the NAM block on Path ' + (now.dsp + 1) : 'the selected NAM block';
+    const where = aim ? title(aim) + ', Path ' + (aim.dsp + 1) : 'the NAM block';
     const card = el('div', 'np'), row = el('div', 'row'), words = el('div'), acts = el('div', 'acts'), line = el('small'), eq = el('span', 'eq');
     for (const height of [5, 10, 7]) { const bar = el('i'); bar.style.height = height + 'px'; eq.append(bar); }
-    line.append(eq, 'Playing on ', el('em', '', where));
-    words.append(el('b', '', playing.name), line, el('small', '', 'Nothing is saved. Stop puts the block’s own capture back.' + (playing.kept ? ' It is in your library.' : '')));
+    line.append(eq, 'Playing on ', el('em', '', where), '. Nothing is saved.' + (playing.kept ? ' It is in your library.' : ''));
+    words.append(el('b', '', playing.name), line);
     row.append(image(captureUrls({icon: playing.icon}), '', true, true), words);
-    const stop = el('button', 'btn wide', 'Stop preview'); stop.title = 'End the preview: the block plays its own capture again';
+    const stop = el('button', 'btn', 'Stop'); stop.title = 'End the preview: the block plays its own capture again';
     stop.onclick = () => ask('tray', {do: 'end', trial: t.trial});
     const load = el('button', 'btn pri', free.length ? 'Load on Floor \u00b7 slot ' + free[0] : 'Load on Floor'); load.style.setProperty('--c', '176 112 224');
     load.disabled = !free.length; load.title = free.length ? 'Load it into slot ' + free[0] + ' (the lowest free one) and keep it on this block. The preset is not saved.' : 'No free slot on the Floor: free one in the NAM library first.';
     load.onclick = () => ask('tray', {do: 'save', trial: t.trial, slot: free[0]});
     acts.append(stop, load);
-    if (!playing.kept) { const keep = el('button', 'btn', 'Keep on this PC'); keep.title = 'Add it to your library on this PC. Nothing changes on the Floor.'; keep.onclick = () => ask('tray', {do: 'keep', trial: t.trial}); acts.append(keep); }
-    else load.classList.add('wide');
-    card.append(row, acts);
+    if (!playing.kept) { const keep = el('button', 'btn wide', 'Keep on this PC'); keep.title = 'Add it to your library on this PC. Nothing changes on the Floor.'; keep.onclick = () => ask('tray', {do: 'keep', trial: t.trial}); acts.append(keep); }
+    card.append(row);
+    if (profiles.length > 1) card.append(profileList());
+    card.append(acts);
+    list.append(card);
+  } else if (tone && profiles.length > 1) {
+    const card = el('div', 'np'), row = el('div', 'row'), words = el('div');
+    words.append(el('b', '', tone.title), el('small', '', 'Pick a profile to hear it.'));
+    row.append(image(captureUrls({}), '', true, true), words);
+    card.append(row, profileList());
     list.append(card);
   }
   const item = (it, hot) => {
@@ -5044,7 +5133,7 @@ function receive(message) {
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
   else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
-  else if (message.type === 'session' && message.kind === 'tone') { toolArrived(); toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); return; }
+  else if (message.type === 'session' && message.kind === 'tone') { toolArrived(); toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); drawChain(); return; }
   else if (message.type === 'session' && message.kind === 'toolOpen') { toolArrived(); return; }
   else if (message.type === 'session' && message.kind === 'presentation') { toolPresentation(message.data && message.data.mode); return; }
   else if (message.type === 'session' && message.kind === 'notice') { stickyNote(message.data && message.data.text); return; }

@@ -41,6 +41,7 @@
   }
   @media (max-height: 105px) { .details p, .profile label { display: none; } }
 </style>
+<body $tray>
 <main $hidden>
   $cover
   <div class="details">
@@ -91,6 +92,8 @@
   const save = document.querySelector('#save');
   let trial = null;
   const hasTone = !document.querySelector('main').hidden;
+  // In the Workbench (docked or popped out) the tone's actions are in the side panel: this card is the footer only.
+  const trayMode = document.body.hasAttribute('data-tray');
   const host = window.chrome?.webview || window.webkit?.messageHandlers.hxToneCard;
   model.onchange = () => host.postMessage('model:' + model.value);
   source.onclick = () => host.postMessage('source');
@@ -143,7 +146,7 @@
     destination.parentElement.hidden = trial == null;
     keep.hidden = trial == null || !data.keep;
     keep.disabled = !!data.busy;
-    document.querySelector('#keepers').hidden = trial == null;
+    document.querySelector('#keepers').hidden = trial == null || trayMode;
     destination.disabled = save.disabled = !!data.busy || !slots.length || (data.navigation && !data.can_audition);
   };
   host?.addEventListener?.('message', ({data}) => window.hxToneStatus(data));

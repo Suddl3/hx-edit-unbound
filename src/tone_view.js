@@ -508,7 +508,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const bound = active.bound && !active.quarantined && atTarget();
     // Which block plays it (steerPreview): the preset's NAM blocks, the one the preview goes to, and whether the
     // player is asked (two or more, none picked) or there is none.
-    const steer = active.steer || null, named = b => ({dsp: b.dsp, id: b.id, name: b.name, slot: b.slot, lane: b.lane});
+    const steer = active.steer || null, named = b => ({dsp: b.dsp, id: b.id, name: b.name, slot: b.slot, lane: b.lane, enabled: b.enabled !== false});
     const payload = { type: 'toneTarget', session: active.id, version: active.targetVersion,
       bound: !!bound, label: bound ? active.targetLabel : '',
       choices: steer ? steer.nams.map(named) : [], target: steer && steer.target ? named(steer.target) : null,
@@ -733,7 +733,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     const nams = (reading.nams || []).filter(b => b && [0, 1].includes(b.dsp) && /^block\d{1,2}$/.test(b.id))
       .map(b => ({dsp: b.dsp, id: b.id, slot: Number.isInteger(b.slot) ? b.slot : null, lane: b.path === 1 ? 1 : 0,
-                  position: Number.isInteger(b.position) ? b.position : null, name: blockName(b)}));
+                  position: Number.isInteger(b.position) ? b.position : null, name: blockName(b), enabled: b.enabled !== false}));
     const page = previewHold ? previewHold.page : cursor;
     if (active.choice && !nams.some(b => sameBlock(b, active.choice))) active.choice = null;
     const own = nams.find(b => sameBlock(b, page));

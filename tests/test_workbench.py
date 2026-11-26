@@ -421,7 +421,7 @@ class SizeTests(unittest.TestCase):
     def test_the_page_places_an_old_tools_window_over_its_frame_and_closes_it_with_the_frame(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody')", page)
-        self.assertIn("if (!name) { if (toolShown && !toolPopped) { toolShown = ''; ask('toolClose'); } return; }", page)
+        self.assertIn("if (!name) { if (toolShown && !toolPopped) { if (toolShown === 'tone') toneGone(); toolShown = ''; ask('toolClose'); } return; }", page)
         self.assertIn("else if (message.type === 'toolClosed') { toolClosed(); return; }", page)
         self.assertIn("else if (view.full || view.half) setView('escape');", page)
         self.assertIn("if (view.half === 'level' && !view.full) setView('select');", page)
@@ -919,7 +919,8 @@ class ToneTrayTests(unittest.TestCase):
     def test_the_tray_follows_the_windows_own_steps(self):
         src = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
         for piece in ("'state': 'getting'", "tray_mark(tray_now, state='ready', trial=trial, text='')",
-                      "tray_mark(item, state='floor', slot=reply['savedSlot'], kept=True)", "self._to_workbench('tone', {'tray':"):
+                      "tray_mark(item, state='floor', slot=reply['savedSlot'], kept=True)", "self._to_workbench('tone', data)",
+                      "data = {'tray': [dict(item) for item in tray[:20]], 'text': text, 'trial': trial,"):
             self.assertIn(piece, src)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("preview.tone_action(f'keep:{trial}')", launcher)
@@ -934,9 +935,9 @@ class ToneTrayTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         tray = page[page.index('function drawTray() {'):page.index('function libraryRow(')]
         self.assertIn("const playing = all.find(i => i.state === 'ready' && i.trial === t.trial) || null, items = all.filter(i => i !== playing);", tray)
-        for words in ("'Playing on '", "'the NAM block on Path ' + (now.dsp + 1)", "'Stop preview'",
-                      "ask('tray', {do: 'end', trial: t.trial});", "ask('tray', {do: 'keep', trial: t.trial});",
-                      "Stop puts the block\u2019s own capture back."):
+        # (T1/T3, 2026-11-25: "Playing on <block>, Path n. Nothing is saved." with Stop, Load on Floor, Keep on this PC)
+        for words in ("'Playing on '", "el('em', '', where), '. Nothing is saved.'", "el('button', 'btn', 'Stop')",
+                      "ask('tray', {do: 'end', trial: t.trial});", "ask('tray', {do: 'keep', trial: t.trial});"):
             self.assertIn(words, tray)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("if preview is not None and value.get('do') == 'end':\n                        preview.tone_action('end')", launcher)
@@ -1536,7 +1537,7 @@ class WiringTests(unittest.TestCase):
             self.assertIn(script, page)
         import re
         asked = set(re.findall(r"(?:ask|chainAsk|askUndo)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'toolDock', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist', 'clear', 'layout', 'scenePin', 'endpoint'})
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'toolDock', 'toolFront', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist', 'clear', 'layout', 'scenePin', 'endpoint'})
 
     def test_the_menu_is_the_logo_and_holds_the_layout_and_hx_edits_menu_bar(self):
         # Batch 1 (Nick, 2026-11-23): the app icon top left opens the menu, the "Unbound" button is gone, and the menu

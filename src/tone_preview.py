@@ -136,8 +136,39 @@ def import_summary(stats):
     return ' '.join(parts) or 'No NAM files were found to import.'
 
 
-def render_card(tone=None, models=(), library=False):
-    visible = tone is not None
+# The popped-out window's side panel (T4, 2026-11-25): the same Plays on row and tone card as the Workbench's tray.
+SIDE = Path(__file__).with_name('tone_side.html')
+CAPTURE_ICONS = Path(__file__).with_name('nam_capture_icons')
+_picture_uris = {}
+
+
+def picture_uri(icon):
+    """A capture picture (nam_capture_icons/<icon>.png) as a data: URI for the window's side page; '' if none."""
+    if not isinstance(icon, str) or not re.fullmatch(r'[a-z0-9_]{1,48}', icon):
+        return ''
+    if icon not in _picture_uris:
+        try:
+            _picture_uris[icon] = 'data:image/png;base64,' + base64.b64encode(
+                (CAPTURE_ICONS / f'{icon}.png').read_bytes()).decode('ascii')
+        except OSError:
+            _picture_uris[icon] = ''
+    return _picture_uris[icon]
+
+
+def capture_icon(name, gear=None):
+    """The picture id the Workbench gives a capture of this name (capture_icons.pick); '' when it cannot tell."""
+    try:
+        import capture_icons
+        return capture_icons.pick(name or '', gear or None) or ''
+    except (OSError, ValueError, KeyError, IndexError):
+        return ''
+
+
+def render_card(tone=None, models=(), library=False, tray=False):
+    """tray: the window sits in the Workbench (docked or popped out): the tone, its Profile list and its actions are
+    in the side panel (the Workbench's tray, or the popped window's own side page), so the card is only its footer:
+    the status line, NAM library and Close (T4, 2026-11-25)."""
+    visible = tone is not None and not tray
     tone = tone or {}
     cover = (tone.get('images') or [''])[0]
     image = f'<img src="{escape(cover)}" alt="">' if urlsplit(cover).scheme == 'https' else ''
@@ -148,6 +179,7 @@ def render_card(tone=None, models=(), library=False):
         options=''.join(f'<option value="{int(model["id"])}">{escape(model["name"])}</option>'
                         for model in models),
         library='' if library else 'hidden',
+        tray='data-tray' if tray else '',
     )
 
 
@@ -314,6 +346,17 @@ class TonePreview:
         HX Edit's own panel as tone_view reports it."""
         return dict(self.bounds_override) if isinstance(self.bounds_override, dict) else self.bounds
 
+    def _in_workbench(self):
+        """The window is one the Workbench placed (docked in its view or popped out from it)."""
+        return self.bounds_override is not None and not self.workbench and not self.headless
+
+    def front_tool(self):
+        """The chain's banner "Back to TONE3000" while the window is popped out: the window comes forward."""
+        browser = self.browser
+        if self._in_workbench() and browser is not None and getattr(browser, 'window_mode', None) == 'floating':
+            return browser.send('focus') is not False
+        return False
+
     def place_over(self, bounds):
         """The Workbench's lower panel in HX Edit's window ({visible, x, y, w, h}), or None for HX Edit's own panel."""
         self.bounds_override = dict(bounds) if isinstance(bounds, dict) else None
@@ -349,7 +392,7 @@ class TonePreview:
         plays on ("target:<dsp>:<block>", as the window's own chooser sends it)."""
         browser = self.browser
         if (not self.workbench and self.bounds_override is not None and browser is not None and isinstance(action, str)
-                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}', action)):
+                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}|model:\d{1,12}', action)):
             browser.actions.put(action)
             return True
         return False
@@ -540,7 +583,7 @@ class TonePreview:
                 if not self.workbench and self.bounds_override is not None:
                     self._to_workbench('toolOpen', {'ready': True})   # (the Workbench's view stops waiting for it)
                 if not (self.library and (self.initial_library or not client_id)):  # browse() sends the library card
-                    browser.send('card', html=render_card(library=bool(self.library)), has_tone=False)
+                    browser.send('card', html=render_card(library=bool(self.library), tray=self._in_workbench()), has_tone=False)
                 if self.navigation:
                     if self.headless and not self.workbench and not self.target_ready.wait(5):
                         raise ToneError('HX Edit did not report the selected NAM block. Nothing was loaded.')
@@ -676,6 +719,9 @@ class TonePreview:
                 tray_out()
 
         waiting_tone = [False]      # a tone clicked while the tray asked which block plays it
+        prepared_files = {}         # (tone:profile, conversion) -> the file prepared for it this session
+        if self._in_workbench():
+            browser.send('sidePage', html=SIDE.read_text(encoding='utf-8'))   # (shown when popped out)
         ends_seen = [0]             # previews ended, as the session counts them (tone_view.js "ends")
         nav_said = ['']             # the last unbound line the session gave (replaced once a block is bound)
 
@@ -683,14 +729,29 @@ class TonePreview:
             if self.workbench or self.bounds_override is None or not self.workbench_sink:
                 return
             state = self.navigation_state
-            self._to_workbench('tone', {'tray': [dict(item) for item in tray[:20]], 'text': text, 'trial': trial,
-                                        'free_slots': list(free_slots), 'current': tray_now['key'] if tray_now else None,
-                                        'bound': bool(state.get('bound')),
-                                        # which block a preview plays on (tone_view.js steerPreview): the preset's NAM
-                                        # blocks, the one it goes to, and the tray's question or "no NAM block"
-                                        'choices': list(state.get('choices') or [])[:16], 'target': state.get('target'),
-                                        'ask': bool(state.get('ask')), 'none': bool(state.get('none')),
-                                        'preview': bool(state.get('preview'))})
+            # the tone picked now, with its profiles when it has several (the Profile list lives in the tray's card)
+            picked = None
+            if current is not None:
+                tone, models, _ = current
+                picked = {'title': str(tone.get('title') or 'TONE3000 tone'), 'gear': str(tone.get('gear') or ''),
+                          'profiles': [{'id': int(model['id']), 'name': str(model.get('name') or '')}
+                                       for model in models[:40] if isinstance(model.get('id'), int)],
+                          'profile': selected if isinstance(selected, int) and selected >= 0 else None}
+            data = {'tray': [dict(item) for item in tray[:20]], 'text': text, 'trial': trial,
+                    'free_slots': list(free_slots), 'current': tray_now['key'] if tray_now else None,
+                    'bound': bool(state.get('bound')),
+                    # which block a preview plays on (tone_view.js steerPreview): the preset's NAM
+                    # blocks, the one it goes to, and the tray's question or "no NAM block"
+                    'choices': list(state.get('choices') or [])[:16], 'target': state.get('target'),
+                    'ask': bool(state.get('ask')), 'none': bool(state.get('none')),
+                    'preview': bool(state.get('preview')), 'tone': picked}
+            self._to_workbench('tone', data)
+            # the popped-out window's own side panel: the same, with its pictures (tone_side.html)
+            side = dict(data)
+            side['tray'] = [dict(item, pic=picture_uri(item.get('icon'))) for item in data['tray']]
+            side['choices'] = [dict(choice, pic=picture_uri(capture_icon(choice.get('name'))))
+                               for choice in data['choices'] if isinstance(choice, dict)]
+            browser.send('side', data=side)
 
         def select():
             nonlocal reopen
@@ -770,9 +831,9 @@ class TonePreview:
                 browser.send('card', html=render_library(entries, self.library.view_state(), self.library.pictures),
                              has_tone=False, library=True)
             elif current:
-                browser.send('card', html=render_card(*current[:2], library=bool(self.library)), has_tone=True)
+                browser.send('card', html=render_card(*current[:2], library=bool(self.library), tray=self._in_workbench()), has_tone=not self._in_workbench())
             else:
-                browser.send('card', html=render_card(library=bool(self.library)), has_tone=False)
+                browser.send('card', html=render_card(library=bool(self.library), tray=self._in_workbench()), has_tone=False)
             status(text)
 
         def library_signature(entries):
@@ -823,7 +884,7 @@ class TonePreview:
                     raise ToneError(reply['error'])
                 trial += 1
                 kept = capture(path) if self.library else None
-                message = ('Previewing on the selected block. Nothing is saved yet.' if self.navigation else
+                message = ('Previewing. Nothing is saved yet.' if self.navigation else
                            f'Auditioning in User IR {slot}.')
                 if not free_slots:
                     message += ' No other free slot to save to.'
@@ -856,13 +917,14 @@ class TonePreview:
             if self.navigation and not self.navigation_state.get('bound'):
                 current, selected = candidate, index
                 if not library:
-                    browser.send('card', html=render_card(tone, models, library=bool(self.library)), has_tone=True)
+                    browser.send('card', html=render_card(tone, models, library=bool(self.library), tray=self._in_workbench()), has_tone=not self._in_workbench())
                 # (two or more NAM blocks and none picked: the tray and the strip ask which; the tone plays once one is)
                 state = self.navigation_state
                 if state.get('ask'):
                     waiting_tone[0] = True
                 status(state.get('text') if state.get('ask') or state.get('none') else
                        'Tone selected for browsing. Select a NAM block in HX Edit, then audition this profile.')
+                tray_out()
                 return
             mode = tone_mode(f'tone:{tone.get("id")}', tone.get('title') or 'TONE3000 profile')
             if mode is None:
@@ -890,8 +952,16 @@ class TonePreview:
                             name=name, gear=tone.get('gear', ''), source=source, wav=path)
 
             remember_link(models[index]['id'], tone_url(tone))   # the profile's name ends with this model ID
-            message = play(lambda: prepare_model(models[index], token, self.workspace, self.converter, mode), capture,
-                           replace, lambda chosen: audition(candidate, index, chosen))
+            def prepared():
+                # (the same profile and conversion again, e.g. a preview moved to another block: the file made before)
+                found = prepared_files.get((key, mode))
+                if found and Path(found).is_file():
+                    return found
+                found = prepare_model(models[index], token, self.workspace, self.converter, mode)
+                prepared_files[(key, mode)] = found
+                return found
+
+            message = play(prepared, capture, replace, lambda chosen: audition(candidate, index, chosen))
             if trial != trial_before:
                 tray_mark(tray_now, state='ready', trial=trial, text='')
             elif tray_now is not None and tray_now['state'] == 'getting':
@@ -901,7 +971,7 @@ class TonePreview:
             if current is not candidate:
                 current = candidate
                 if not library:
-                    browser.send('card', html=render_card(tone, models, library=bool(self.library)), has_tone=True)
+                    browser.send('card', html=render_card(tone, models, library=bool(self.library), tray=self._in_workbench()), has_tone=not self._in_workbench())
             selected = index
             status(message)
 
@@ -1357,14 +1427,31 @@ class TonePreview:
                     status(view['progress'] or view['message'], busy=bool(view['running']))
                 continue
             if self.navigation and isinstance(action, str) and re.fullmatch(r'target:[01]:block\d{1,2}', action):
-                # the strip's chooser or the tray's question: the block the next preview plays on
+                # the Plays on row (the tray, the popped window's side panel): the block the preview plays on. While a
+                # preview plays it moves there (T2): the block playing it gets its own capture back (the usual clean-up,
+                # End preview), then the same tone plays on the other block (the file prepared before: no download).
                 _, dsp, block = action.split(':')
+                aim = self.navigation_state.get('target') or {}
+                if aim.get('dsp') == int(dsp) and aim.get('id') == block:
+                    continue
                 try:
+                    moving = bool(self.navigation_state.get('preview')) and current is not None
+                    if moving:
+                        reply = self.command(session, 'end')
+                        if reply.get('error') or not reply.get('ended'):
+                            status(reply.get('error') or reply.get('notice') or 'The preview could not be moved.')
+                            continue
+                        slot, free_slots, kept = None, [], None
+                        if tray_now is not None:
+                            tray_now['trial'] = None
+                        tray_out()
                     reply = self.command(session, 'target', dsp=int(dsp), block=block)
                     if reply.get('error'):
                         status(reply['error'])
                     elif current is not None and slot is None:
                         waiting_tone[0] = True
+                        if moving:
+                            status('Moving the preview: the other block gets its own capture back, then it plays here.')
                 except ToneError as error:
                     status(str(error))
                 continue
@@ -1406,9 +1493,10 @@ class TonePreview:
                             # a conversion takes a while: the user picks the profile first (the card's list)
                             current, selected = (tone, models, token), -1
                             if not library:
-                                browser.send('card', html=render_card(tone, models, library=bool(self.library)),
-                                             has_tone=True)
+                                browser.send('card', html=render_card(tone, models, library=bool(self.library), tray=self._in_workbench()),
+                                             has_tone=not self._in_workbench())
                             status(f'{len(models)} profiles in this tone. Pick one under Profile to convert it.')
+                            tray_out()
                         else:
                             audition((tone, models, token), 0)
                     except (ToneError, ValueError, OSError) as error:

@@ -664,6 +664,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     trial, slot = value.get('trial'), value.get('slot')
                     if preview is not None and value.get('do') == 'end':
                         preview.tone_action('end')
+                    elif (preview is not None and value.get('do') == 'profile' and isinstance(value.get('id'), int)
+                          and not isinstance(value.get('id'), bool) and 0 < value['id'] < 10 ** 12):
+                        preview.tone_action(f"model:{value['id']}")                       # the card's Profile list
                     elif (preview is not None and value.get('do') == 'target' and value.get('dsp') in (0, 1)
                           and not isinstance(value.get('dsp'), bool) and isinstance(value.get('id'), str)
                           and re.fullmatch(r'block\d{1,2}', value['id'])):
@@ -753,6 +756,11 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         preview.place_over(place)
                         if preview.dock_tool():
                             workbench.set_raise(False)
+                    return
+                if name == 'toolFront':
+                    # The chain's banner "Back to TONE3000" while the window is popped out: it comes forward.
+                    if preview is not None:
+                        preview.front_tool()
                     return
                 if name == 'toolPlace':
                     # The Workbench was resized while a tool sits over its lower panel: the tool follows.

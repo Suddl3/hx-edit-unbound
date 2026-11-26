@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>TONE3000 side panel</title>
+<!-- The popped-out TONE3000 window's side panel (tone_browser.cs SideUrl): the same Plays on row and tone card as the
+     Workbench's tray beside the docked window (workbench.html drawTray), fed with the same data (tone_preview
+     tray_out, pictures as data: URIs). Its buttons send the window's own actions: target:<dsp>:<block>, end,
+     keep:<trial>, save:<trial>:<slot>, model:<id>. -->
+<style>
+  :root { color-scheme: dark; --bg: #121419; --panel: #1b1e25; --line: #2a2e38; --ink: #eceef2; --dim: #9aa0ab; --faint: #6b717c;
+          --purple: 176 112 224; font: 13px 'Segoe UI', sans-serif; background: var(--bg); color: var(--ink); }
+  body { margin: 0; height: 100vh; overflow-y: auto; border-left: 1px solid var(--line); box-sizing: border-box;
+         padding: 14px 14px 16px; display: grid; align-content: start; gap: 12px; scrollbar-width: thin; }
+  [hidden] { display: none !important; }
+  h5 { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .ask { color: #f0c94a; font-size: 12.5px; }
+  .note { color: var(--dim); font-size: 12px; line-height: 1.45; }
+  .tiles { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tiles button { position: relative; width: 104px; border-radius: 9px; padding: 9px 6px 7px; background: #15181e; border: 1px solid var(--line);
+                  display: grid; justify-items: center; gap: 3px; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; text-align: center; }
+  .tiles button:hover { border-color: #5a606c; }
+  .tiles button img { width: 48px; height: 42px; object-fit: contain; }
+  .tiles button small { color: var(--dim); font-size: 11px; }
+  .tiles button.on { border: 2px solid rgb(var(--purple)); background: rgb(var(--purple) / .12); padding: 8px 5px 6px; cursor: default; }
+  .tiles button.on::before { content: '\25B6  plays here'; position: absolute; top: -9px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+                             background: rgb(var(--purple)); color: #fff; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 8px; }
+  .tiles button.off img { opacity: .45; }
+  .tiles.asking button { border-color: #f0c94a66; }
+  .card { border-radius: 12px; padding: 12px; background: linear-gradient(180deg, rgb(var(--purple) / .16), rgb(var(--purple) / .05));
+          border: 1px solid rgb(var(--purple) / .5); display: grid; gap: 10px; }
+  .card .row { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; align-items: center; }
+  .card .row img { width: 52px; height: 52px; object-fit: contain; }
+  .card b { font-size: 14px; font-weight: 600; display: block; overflow-wrap: anywhere; }
+  .card small { color: var(--dim); font-size: 12px; line-height: 1.4; display: block; }
+  .card small em { font-style: normal; color: var(--ink); }
+  .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .acts .wide { grid-column: 1 / -1; }
+  button.btn { font: inherit; font-size: 12.5px; color: var(--ink); background: #22262e; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  button.btn:hover:not(:disabled) { border-color: #5a606c; }
+  button.btn:disabled { opacity: .45; cursor: default; }
+  button.pri { background: rgb(var(--purple)); border-color: rgb(var(--purple)); color: #fff; }
+  label.profile { display: grid; gap: 4px; color: var(--dim); font-size: 12px; }
+  select { font: inherit; color: var(--ink); background: #15181e; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; }
+  .ti { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 8px 10px; border-radius: 10px;
+        background: var(--panel); border: 1px solid var(--line); }
+  .ti img { width: 40px; height: 40px; object-fit: contain; grid-row: span 2; }
+  .ti b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ti small { color: var(--dim); font-size: 11.5px; }
+  .ti .ok { color: #3fc56b; font-size: 12px; grid-row: span 2; }
+  .wait { color: #f0c94a; }
+  .bad { color: #ff8a80; }
+</style>
+<body>
+<section id="plays"></section>
+<section id="card"></section>
+<section id="list"></section>
+<script>
+  const host = window.chrome?.webview;
+  const say = action => host?.postMessage(action);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const pic = src => { const img = el('img'); img.alt = ''; if (src) img.src = src; return img; };
+  const same = (a, b) => !!a && !!b && a.dsp === b.dsp && a.id === b.id;
+  const where = b => 'Path ' + (b.dsp + 1);
+
+  // Plays on: one tile per NAM block of the preset, the target ringed ("plays here"); asked before a choice; no NAM
+  // block said so. Clicking another tile moves a playing preview there (tone_preview: End preview, then the same tone).
+  function drawPlays(t) {
+    const box = document.querySelector('#plays'), parts = [el('h5', '', 'Plays on')];
+    const choices = Array.isArray(t.choices) ? t.choices : [];
+    if (t.none || !choices.length) {
+      parts.push(el('div', 'note', 'This preset has no NAM block: add one to hear a tone here.'));
+      box.replaceChildren(...parts);
+      return;
+    }
+    if (t.ask) parts.push(el('div', 'ask', 'Which block should play it? Click one.'));
+    const tiles = el('div', 'tiles' + (t.ask ? ' asking' : ''));
+    for (const c of choices) {
+      const on = same(c, t.target), tile = el('button', (on ? 'on' : '') + (c.enabled === false ? ' off' : ''));
+      tile.append(pic(c.pic), c.name || 'NAM', el('small', '', where(c)));
+      tile.title = on ? 'The preview plays on this block' : 'Play the preview on ' + (c.name || 'this block') + ', ' + where(c) +
+        (c.enabled === false ? ' (this block is off: switch it on to hear it)' : '');
+      if (!on) tile.onclick = () => say('target:' + c.dsp + ':' + c.id);
+      tiles.append(tile);
+    }
+    parts.push(tiles);
+    if (t.target && choices.length > 1) {
+      parts.push(el('div', 'note', 'Picked the wrong one? Click the other block: the preview moves there and this block gets its own capture back.'));
+    }
+    box.replaceChildren(...parts);
+  }
+
+  // The tone's card: playing (what, where, Stop / Load on Floor / Keep on this PC), or picked with its Profile list.
+  function drawCard(t) {
+    const box = document.querySelector('#card'), all = t.tray || [], free = Array.isArray(t.free_slots) ? t.free_slots : [];
+    const playing = all.find(i => i.state === 'ready' && i.trial === t.trial) || null;
+    const tone = t.tone || null, profiles = tone && Array.isArray(tone.profiles) ? tone.profiles : [];
+    if (!playing && !(tone && profiles.length > 1)) { box.replaceChildren(); return; }
+    const card = el('div', 'card'), row = el('div', 'row'), words = el('div');
+    const aim = t.target ? (t.choices || []).find(c => same(c, t.target)) || t.target : null;
+    if (playing) {
+      words.append(el('b', '', playing.name));
+      const line = el('small');
+      line.append('▶ Playing on ', el('em', '', aim ? (aim.name || 'the NAM block') + ', ' + where(aim) : 'the NAM block'), '. Nothing is saved.');
+      words.append(line);
+      row.append(pic(playing.pic), words);
+    } else {
+      words.append(el('b', '', tone.title), el('small', '', 'Pick a profile to hear it.'));
+      row.append(pic(''), words);
+    }
+    card.append(row);
+    if (profiles.length > 1) {
+      const label = el('label', 'profile', 'Profile'), list = el('select');
+      if (!Number.isInteger(tone.profile)) list.append(new Option('Choose a profile…', ''));
+      profiles.forEach((p, index) => list.append(new Option(p.name || 'Profile ' + (index + 1), String(p.id))));
+      if (Number.isInteger(tone.profile) && profiles[tone.profile]) list.value = String(profiles[tone.profile].id);
+      list.onchange = () => { if (list.value) say('model:' + list.value); };
+      label.append(list);
+      card.append(label);
+    }
+    if (playing) {
+      const acts = el('div', 'acts'), stop = el('button', 'btn', 'Stop');
+      stop.title = 'End the preview: the block plays its own capture again';
+      stop.onclick = () => say('end');
+      const load = el('button', 'btn pri', free.length ? 'Load on Floor · slot ' + free[0] : 'Load on Floor');
+      load.disabled = !free.length;
+      load.title = free.length ? 'Load it into slot ' + free[0] + ' (the lowest free one) and keep it on this block. The preset is not saved.' : 'No free slot on the Floor: free one in the NAM library first.';
+      load.onclick = () => say('save:' + t.trial + ':' + free[0]);
+      acts.append(stop, load);
+      if (!playing.kept) { const keep = el('button', 'btn wide', 'Keep on this PC'); keep.title = 'Add it to your library on this PC. Nothing changes on the Floor.'; keep.onclick = () => say('keep:' + t.trial); acts.append(keep); }
+      card.append(acts);
+    }
+    box.replaceChildren(card);
+  }
+
+  // What was chosen this session (getting ready, heard, on the Floor), as the tray lists it.
+  function drawList(t) {
+    const box = document.querySelector('#list'), all = t.tray || [];
+    const playing = all.find(i => i.state === 'ready' && i.trial === t.trial) || null;
+    const items = all.filter(i => i !== playing);
+    const parts = [];
+    if (items.length) parts.push(el('h5', '', 'Chosen this session'));
+    for (const it of items) {
+      const row = el('div', 'ti'), sub = el('small');
+      row.append(pic(it.pic), el('b', '', it.name));
+      let end = el('span');
+      if (it.state === 'getting') { sub.textContent = 'getting ready'; sub.className = 'wait'; }
+      else if (it.state === 'failed') { sub.textContent = it.text || 'did not get ready'; sub.className = 'bad'; }
+      else if (it.state === 'floor') { sub.textContent = 'in your library'; end = el('span', 'ok', '✓ slot ' + it.slot); }
+      else sub.textContent = it.kept ? 'in your library' : 'heard, not kept';
+      row.append(end, sub);
+      parts.push(row);
+    }
+    if (!all.length && !(t.tone && (t.tone.profiles || []).length > 1)) {
+      parts.push(el('div', 'note', 'Click a tone on the site to hear it. Nothing changes for good until you say so.'));
+    }
+    box.replaceChildren(...parts);
+  }
+
+  window.hxToneSide = t => { if (!t || typeof t !== 'object') return; drawPlays(t); drawCard(t); drawList(t); };
+  host?.addEventListener?.('message', ({data}) => window.hxToneSide(data));
+</script>
+</body>
+</html>
