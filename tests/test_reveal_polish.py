@@ -326,9 +326,9 @@ class ClickRuleTests(unittest.TestCase):
         choice = between(page, 'function pickChoice(block, s, item, shape) {', '\n}')
         # every choice, in every layout (the picker's cards, Classic+'s rows), goes through pickRule only
         self.assertIn("choice.onclick = () => pickRule(block, item, 'click');", choice)
-        self.assertIn("choice.ondblclick = () => pickRule(block, item, 'double');", choice)
+        self.assertIn("choice.onclick = () => pickRule(block, item, 'click');         // (a second click on it: its double-click, choiceDouble)", choice)
         self.assertNotIn('pickModel(', choice)
-        self.assertEqual(page.count("pickRule(block, item, '"), 2)
+        self.assertEqual(page.count("pickRule(block, item, '"), 1)              # (its double-click: a second click, PR #9 P2)
         rule = between(page, 'function pickRule(block, item, how) {', '\n}')
         # a "+": a click adds at once
         self.assertIn("if (block.isPlace) { item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture); return; }", rule)
@@ -1065,7 +1065,7 @@ class PreviewLiveFixTests(unittest.TestCase):
                 ' focusStepsGone({from: 5, to: 7}, 6, 33), focusStepsGone({from: 5, to: 7}, 9, 33), focusStepsGone({from: 5, to: 7}, 4, 33),'
                 ' focusStepsGone({from: 5, to: 7}, 7, 33)]')
         self.assertEqual(run_js(['focus_view.js'], code), [
-            {'count': 2, 'tainted': False}, {'count': 3, 'tainted': True}, None, {'count': 2, 'tainted': False}, None, None,
+            {'count': 2, 'tainted': False, 'chain': 1}, {'count': 3, 'tainted': True, 'chain': 1}, None, {'count': 2, 'tainted': False, 'chain': 1}, None, None,
             True, False, True, False])
         script = text('focus_view.js')
         undo = between(script, "} else if (command.action === 'redo' || command.action === 'undo') {", "} else if (command.action === 'splitType') {")
@@ -1074,9 +1074,9 @@ class PreviewLiveFixTests(unittest.TestCase):
         self.assertIn('if (!over.tainted)', undo)
         self.assertIn("stage: 'undo-preview-steps'", undo)
         tone = text('tone_view.js')
-        self.assertIn("previewSteps = {from: origin.undo, to: after, tainted: !!active.previewTainted, context: contextVersion, at: Date.now()};", tone)
-        self.assertIn('previewSteps = null;                   // (a new preview', tone)
-        self.assertIn('previewSteps: () => previewSteps && previewSteps.context === contextVersion ? {...previewSteps} : null,', tone)
+        # (every ended preview's steps, kept as a list since the PR #9 review: ReviewFindingsTests)
+        self.assertIn("const steps = {from: origin.undo, to: after, tainted: !!active.previewTainted, context: contextVersion, at: Date.now()};", tone)
+        self.assertIn('previewSteps: () => previewStepsList.filter(s => s.context === contextVersion).map(s => ({...s})),', tone)
 
 
 class ToneTargetAlwaysTests(unittest.TestCase):
@@ -1604,6 +1604,94 @@ class StartFrameDarkTests(unittest.TestCase):
         self.assertIn('setDark(Number(value.window), value.on === true);', menu)
         launcher = text('start-hx-edit-nam.pyw')
         self.assertLess(launcher.index('installWindowKeeper('), launcher.index('installMenuDark()'))   # (both installed before the first show)
+
+
+class ReviewFindingsTests(unittest.TestCase):
+    """PR #9 review (Codex, of 2c2008e): P1 previews stopped in a row and the Workbench's Undo; P2 a double-click on a
+    choice that the first click redraws."""
+
+    SIMULATION = r'''
+    // HX Edit's undo history as a list of steps and a position; a NAM block on slot 10; previews step it to 128 and back
+    function simulate(events, presses) {
+      const hist = [], steps = []; let pos = 0;
+      const state = {slot: 10, edits: []};
+      const apply = s => { if (s.type === 'edit') state.edits.push(s.name); else state.slot = s.to; };
+      const revert = s => { if (s.type === 'edit') state.edits.pop(); else state.slot = s.from; };
+      const make = s => { hist.length = pos; hist.push(s); pos++; apply(s); };
+      for (const e of events) {
+        if (e.startsWith('edit:')) make({type: 'edit', name: e.slice(5)});
+        else {
+          const from = pos;
+          make({type: 'slot', from: state.slot, to: 128});
+          if (e === 'preview+edit') make({type: 'edit', name: 'during'});
+          make({type: 'slot', from: 128, to: 10});
+          steps.push({from, to: pos, tainted: e === 'preview+edit'});
+        }
+      }
+      const undo = () => { if (pos > 0) revert(hist[--pos]); };
+      const redo = () => { if (pos < hist.length) apply(hist[pos++]); };
+      const seen = [];
+      for (const press of presses) {
+        const undoing = press === 'undo', over = focusPreviewChain(steps, pos, 33, undoing, pos < hist.length);
+        if (over) {
+          for (let i = 0; i < over.count; i++) undoing ? undo() : redo();
+          if (!over.tainted && (undoing ? pos > 0 : pos < hist.length)) undoing ? undo() : redo();
+        } else undoing ? undo() : redo();
+        seen.push({slot: state.slot, edits: state.edits.join(','), pos});
+      }
+      return seen;
+    }
+    '''
+
+    def test_p1_undo_and_redo_step_over_every_preview_in_a_row(self):
+        run = lambda events, presses: run_js(['focus_view.js'], '(() => {' + self.SIMULATION + f'return simulate({json.dumps(events)}, {json.dumps(presses)}); }})()')
+        # two previews in a row: one Undo undoes the edit before them, never leaves the block on 128; Redo brings it back
+        two = run(['edit:A', 'preview', 'preview'], ['undo', 'redo', 'redo'])
+        self.assertEqual([s['slot'] for s in two], [10, 10, 10])
+        self.assertEqual([s['edits'] for s in two], ['', 'A', 'A'])
+        self.assertEqual(two[0]['pos'], 0)
+        self.assertEqual(two[2]['pos'], 5)                                  # (Redo again: over both previews, nothing more)
+        # three in a row
+        three = run(['edit:A', 'preview', 'preview', 'preview'], ['undo', 'redo'])
+        self.assertEqual(three, [{'slot': 10, 'edits': '', 'pos': 0}, {'slot': 10, 'edits': 'A', 'pos': 1}])
+        # a real edit between two previews: Undo undoes B, then A, the block never on 128
+        between_ = run(['edit:A', 'preview', 'edit:B', 'preview'], ['undo', 'undo', 'redo', 'redo'])
+        self.assertEqual([s['slot'] for s in between_], [10, 10, 10, 10])
+        self.assertEqual([s['edits'] for s in between_], ['A', '', 'A', 'A,B'])
+        # a change made during a preview: undone with that preview in one press, then the edit before
+        during = run(['edit:A', 'preview', 'preview+edit'], ['undo', 'undo'])
+        self.assertEqual([s['slot'] for s in during], [10, 10])
+        self.assertEqual([s['edits'] for s in during], ['A', ''])
+        # before the fix (only the last preview known) the first Undo left the block on 128
+        old = run_js(['focus_view.js'], '(() => {' + self.SIMULATION.replace('focusPreviewChain(steps,', 'focusPreviewChain(steps.slice(-1),') +
+                     "return simulate(['edit:A', 'preview', 'preview'], ['undo']); })()")
+        self.assertEqual(old[0]['slot'], 128)
+
+    def test_p1_every_preview_is_kept_and_forgotten_one_by_one(self):
+        tone = text('tone_view.js')
+        self.assertIn('let previewStepsList = [];', tone)
+        self.assertNotIn('previewSteps = null;', tone)
+        self.assertIn('.concat([steps]).slice(-16);', tone)
+        self.assertIn('previewSteps: () => previewStepsList.filter(s => s.context === contextVersion).map(s => ({...s})),', tone)
+        script = text('focus_view.js')
+        self.assertIn('list.filter(steps => focusStepsGone(steps, state.undoAt, size))', script)
+        self.assertIn('toneView.forgetPreviewSteps(gone.map(s => ({from: s.from, to: s.to})));', script)
+
+    def test_p2_a_second_click_on_the_same_choice_is_its_double_click(self):
+        out = run_js(['workbench_layout.js'], '''(() => {
+          let last = null; const r = [];
+          for (const [key, at] of [['a', 0], ['a', 300], ['a', 600], ['a', 1200], ['b', 1300], ['a', 1400]]) {
+            const next = workbenchSecondClick(last, key, at); last = next.last; r.push(next.double);
+          }
+          return r;
+        })()''')
+        self.assertEqual(out, [False, True, False, False, False, False])
+        page = text('workbench.html')
+        self.assertNotIn("choice.ondblclick", page)
+        self.assertNotIn("tile.ondblclick = () => endpointRule", page)
+        self.assertIn("if (how === 'click' && choiceDouble(block, choiceKey(item))) how = 'double';", between(page, 'function pickRule(block, item, how) {', '\n}\n'))
+        self.assertIn("if (how === 'click' && choiceDouble(block, 'e:' + choice.route)) how = 'double';", between(page, 'function endpointRule(block, choice, how) {', '\n}\n'))
+        self.assertIn("const next = workbenchSecondClick(choiceClicks, block.dsp + ':' + block.id + ':' + key, Date.now());", page)
 
 
 if __name__ == '__main__':

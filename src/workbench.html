@@ -1650,6 +1650,7 @@ function openEndpointPicker() {
   lined = replaced = null; picking = {endpoint: true}; shownPanel = ''; drawPanel();
 }
 function endpointRule(block, choice, how) {
+  if (how === 'click' && choiceDouble(block, 'e:' + choice.route)) how = 'double';
   if (choice.route === endpointNow(block)) { if (lined) { lined = null; redrawPick(); } return; }
   if (how === 'click') { lined = {dsp: block.dsp, id: block.id, route: choice.route}; replaced = null; redrawPick(); return; }
   replaceEndpoint(block, choice.route);
@@ -1700,8 +1701,7 @@ function drawEndpointPicker(block) {
     const icon = el('span', 'pic io'); icon.innerHTML = ICON.jack; if (!input) icon.firstChild.style.transform = 'scaleX(-1)';
     tile.append(icon, el('i', 'num', on ? 'in use' : ''), el('span', '', c.name));
     tile.title = c.full + (on ? '' : '\nClick to line it up, double-click to set it at once');
-    tile.onclick = () => endpointRule(block, c, 'click');
-    tile.ondblclick = () => endpointRule(block, c, 'double');
+    tile.onclick = () => endpointRule(block, c, 'click');           // (a second click on it: its double-click, choiceDouble)
     cards.append(tile);
   }
   grid.append(top, cards);
@@ -2289,8 +2289,7 @@ function pickChoice(block, s, item, shape) {
   else choice.append(image(f.pics, 'pic', true, true), el('i', 'num', f.mark), el('span', '', f.name));
   choice.dataset.choice = choiceKey(item);
   choice.title = f.words + (block.isPlace || f.inUse ? '' : '\nClick to line it up, double-click to replace at once');
-  choice.onclick = () => pickRule(block, item, 'click');
-  choice.ondblclick = () => pickRule(block, item, 'double');
+  choice.onclick = () => pickRule(block, item, 'click');         // (a second click on it: its double-click, choiceDouble)
   return choice;
 }
 
@@ -2308,8 +2307,17 @@ function linedItem() {
   const c = (state.captures || []).find(x => x.slot === lined.slot);
   return c ? {capture: c} : null;
 }
+// The second click on the same choice of the same block: its double-click (workbenchSecondClick). The list is redrawn by
+// the first click, so the element's own dblclick never reached it (PR #9 review, P2): the picker, Classic+, endpoints.
+let choiceClicks = null;
+function choiceDouble(block, key) {
+  const next = workbenchSecondClick(choiceClicks, block.dsp + ':' + block.id + ':' + key, Date.now());
+  choiceClicks = next.last;
+  return next.double;
+}
 function pickRule(block, item, how) {
   if (block.isPlace) { item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture); return; }
+  if (how === 'click' && choiceDouble(block, choiceKey(item))) how = 'double';
   const f = choiceFacts(block, room(block), item);
   if (f.inUse) { if (lined) { lined = null; redrawPick(); } return; }
   if (how === 'click') {

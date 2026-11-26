@@ -85,11 +85,27 @@ function focusAddMade(blocks, follow, namEngines) {
 // The last ended preview's own undo steps when HX Edit's undo position is right after them (Undo) or right before
 // them with them still to redo (Redo): {count, tainted}; else null (toneView.previewSteps).
 function focusPreviewSteps(steps, at, size, undoing, canRedo) {
-  if (!steps || !Number.isInteger(at) || !(size >= 2 && size <= 1024)) return null;
-  const count = (steps.to - steps.from + size) % size;
-  if (count < 1 || count > 8) return null;
-  if (undoing ? at !== steps.to : at !== steps.from || !canRedo) return null;
-  return {count, tainted: !!steps.tainted};
+  // (steps: one interval or a list of them; the list is followed as a chain: focusPreviewChain)
+  return focusPreviewChain(Array.isArray(steps) ? steps : steps ? [steps] : [], at, size, undoing, canRedo);
+}
+// Every ended preview's own steps joined where one ends and the next begins (two previews stopped in a row: 1->3 then
+// 3->5): Undo at 5 steps over both, back to 1, then undoes the change before them; Redo from 1 the same forward. A
+// preview with a change made during it (tainted) ends the chain: one press undoes it with that change. {count (steps to
+// take), tainted, chain (previews)} or null when the position is not at a preview's edge (PR #9 review, P1). Pure.
+function focusPreviewChain(list, at, size, undoing, canRedo) {
+  if (!Array.isArray(list) || !list.length || !Number.isInteger(at) || !(size >= 2 && size <= 1024)) return null;
+  if (!undoing && !canRedo) return null;
+  let here = at, count = 0, chain = 0, tainted = false;
+  const used = new Set();
+  while (chain < 16) {
+    const index = list.findIndex((s, k) => !used.has(k) && s && (undoing ? s.to === here : s.from === here));
+    if (index < 0) break;
+    const s = list[index], steps = (s.to - s.from + size) % size;
+    if (steps < 1 || steps > 8) break;
+    used.add(index); count += steps; chain++; here = undoing ? s.from : s.to;
+    if (s.tainted) { tainted = true; break; }
+  }
+  return chain ? {count, tainted, chain} : null;
 }
 
 // A finished preview's undo steps no longer in HX Edit's history: with nothing to redo, the undo position is inside
@@ -617,7 +633,7 @@ function installFocusView(options, parts) {
         let more = false;
         if (!over.tainted) { try { more = !!(undoing ? targetBinding.canUndo(editor) : targetBinding.canRedo(editor)); } catch (_) { more = false; } }
         if (more) step();
-        send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-preview-steps', action: command.action, count: over.count, tainted: over.tainted, more});
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-preview-steps', action: command.action, count: over.count, chain: over.chain, tainted: over.tainted, more});
       } else step();
       if (undoAsked) undoAsked.call = Date.now() - began;
     } else if (command.action === 'splitType') {
@@ -970,10 +986,12 @@ function installFocusView(options, parts) {
       // (a preview's steps are forgotten once HX Edit's history no longer holds them: a new step made at or below them,
       // which ends what could be redone, or the ring of records come round)
       try {
-        const steps = toneView.previewSteps ? toneView.previewSteps() : null, size = state.undoSize || 33;
-        if (steps && Number.isInteger(state.undoAt) && state.redo === false && focusStepsGone(steps, state.undoAt, size)) {
-          toneView.forgetPreviewSteps();
-          send({type: 'toneTrace', reason: 'focus-view', stage: 'preview-steps-forgotten', at: state.undoAt, from: steps.from, to: steps.to});
+        const list = toneView.previewSteps ? toneView.previewSteps() : [], size = state.undoSize || 33;
+        const gone = Number.isInteger(state.undoAt) && state.redo === false && Array.isArray(list) ?
+          list.filter(steps => focusStepsGone(steps, state.undoAt, size)) : [];
+        if (gone.length) {
+          toneView.forgetPreviewSteps(gone.map(s => ({from: s.from, to: s.to})));
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'preview-steps-forgotten', at: state.undoAt, gone: gone.map(s => s.from + '-' + s.to)});
         }
       } catch (_) { /* nothing to forget */ }
       // (what HX Edit's Edit menu would offer, on each change: after a preset load it says whether HX Edit cleared its
@@ -1229,5 +1247,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusStepsGone, focusPreviewSteps, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
+  module.exports = { focusStepsGone, focusPreviewSteps, focusPreviewChain, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
 }

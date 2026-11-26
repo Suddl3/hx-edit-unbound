@@ -262,6 +262,16 @@ function workbenchPick(block, held, hxSelected, now) {
 // Nick's habit from Classic, where a double-click replaces): the same choice for the same block within
 // WORKBENCH_SWAP_REPEAT_MS. Asked twice, HX Edit made it twice: two undo steps, and the first Undo seemed to do nothing.
 const WORKBENCH_SWAP_REPEAT_MS = 1500;
+// A click on a choice (the picker's card, Classic+'s row, the input/output chooser's tile): the second click on the
+// same choice within WORKBENCH_DOUBLE_MS is its double-click. The first click lines the choice up and redraws the list,
+// so the browser's own dblclick went to a new element and never fired (PR #9 review, P2). last: {key, at} or null;
+// returns {double, last}: a double clears it (a third click starts afresh). Pure.
+const WORKBENCH_DOUBLE_MS = 500;
+function workbenchSecondClick(last, key, now) {
+  if (last && last.key === key && now - last.at >= 0 && now - last.at <= WORKBENCH_DOUBLE_MS) return {double: true, last: null};
+  return {double: false, last: {key, at: now}};
+}
+
 function workbenchSwapRepeat(asked, block, choice, now) {
   return !!asked && !!block && !!choice && asked.dsp === block.dsp && asked.id === block.id && now - asked.at < WORKBENCH_SWAP_REPEAT_MS &&
     (choice.symbol ? asked.symbol === choice.symbol : asked.slot === choice.slot);
@@ -611,7 +621,7 @@ function workbenchSlotUsers(usage, slot, loaded) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchPicked, workbenchPick, WORKBENCH_PICK_HOLD_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
+  module.exports = { workbenchSecondClick, WORKBENCH_DOUBLE_MS, workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchPicked, workbenchPick, WORKBENCH_PICK_HOLD_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
                      workbenchAdded, WORKBENCH_ADD_SELECT_MS, workbenchPresetKey, workbenchAddFollow, workbenchAddSelect, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,

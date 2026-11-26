@@ -309,7 +309,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   // (from) and after its step back (to), whatever was changed in between (tainted). HX Edit keeps both steps, so its
   // Undo right after a preview undid only the step back and left the block on the emptied slot 128 (live 2026-11-25
   // 15:49:50, older than the preview target work). The Workbench's Undo / Redo step over them as one (focus_view).
-  let previewSteps = null;
+  // All of them, not only the last: two previews stopped in a row left the first one's steps to a plain Undo, and the
+  // block on the emptied slot 128 (PR #9 review, P1). Forgotten one by one once HX Edit's history no longer holds them
+  // (focus_view focusStepsGone), all at a preset load (another context); at most 16 kept.
+  let previewStepsList = [];
   // The names this editor gave its own previews in User IR 128 (each carries a random tag: nam_convert
   // stage_tone_import), kept by the launcher (floor_memory previews) from one launch to the next: a
   // leftover of ours found in 128 is replaced without asking (floorPreviewPlan).
@@ -4244,7 +4247,6 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (previous && previous !== transfer) namView.clearPreview(previous);
       active.model = active.tile.block;      // the block is the tile's model now
       active.undoAfter = undoIndex();
-      previewSteps = null;                   // (a new preview: the last one's steps are not where they were)
       rememberPreview();
       return { slot: transfer.slot, freeSlots: namView.freeSlots(transfer.slot) };
     }, 3500);
@@ -4459,8 +4461,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         let after = null;
         try { after = undoIndex(); } catch (_) { after = null; }
         if (Number.isInteger(after) && after !== origin.undo) {
-          previewSteps = {from: origin.undo, to: after, tainted: !!active.previewTainted, context: contextVersion, at: Date.now()};
-          send({type:'toneTrace', reason:'preview-steps', from: origin.undo, to: after, tainted: previewSteps.tainted});
+          const steps = {from: origin.undo, to: after, tainted: !!active.previewTainted, context: contextVersion, at: Date.now()};
+          previewStepsList = previewStepsList.filter(s => s.context === contextVersion && !(s.from === steps.from && s.to === steps.to))
+            .concat([steps]).slice(-16);
+          send({type:'toneTrace', reason:'preview-steps', from: origin.undo, to: after, tainted: steps.tainted, kept: previewStepsList.length});
         }
       }
       // (the block's own capture again, and its preview's count of ended previews: the tray's card follows it)
@@ -5054,8 +5058,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   return { openBrowser, makeNamBlock, selectedIsNam, startChainDrag, chainDragTook,
            previewEnded: () => previewEnd,
            // the last ended preview's own undo steps, while they are still the ones in HX Edit's history (focus_view)
-           previewSteps: () => previewSteps && previewSteps.context === contextVersion ? {...previewSteps} : null,
-           forgetPreviewSteps: () => { previewSteps = null; },
+           previewSteps: () => previewStepsList.filter(s => s.context === contextVersion).map(s => ({...s})),
+           // (the ones given, by their positions; none given: all)
+           forgetPreviewSteps: gone => {
+             previewStepsList = Array.isArray(gone) ? previewStepsList.filter(s => !gone.some(g => g.from === s.from && g.to === s.to)) : [];
+           },
            // Which block a TONE3000 preview plays on, while a pane covers HX Edit (steerPreview, pagePick).
            steerPreview: reading => { try { return steerPreview(reading); } catch (error) {
              send({type:'toneTrace', reason:'preview-target', stage:'failed', error:String(error.message)}); return null; } },
