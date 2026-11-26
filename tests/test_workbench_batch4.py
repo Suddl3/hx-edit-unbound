@@ -335,7 +335,7 @@ class StageTests(unittest.TestCase):
         path = between(text, 'function drawPath(p, g, now) {', '// ---- moving a block')
         self.assertIn("if (layout === 'stage') button.classList.add(...gearClass(block));", path)
         self.assertIn("layout === 'stage' ? image(stagePictures(block), 'pic', false, true) : image(pictures(block), 'pic', true)", path)
-        for kept in ('button.onclick = () => { if (!dragDone) pickBlock(block); };', 'button.onpointerdown = event => liftBlock(event, block, button);',
+        for kept in ('button.onclick = () => { if (!dragDone) pickBlock(real); };', 'button.onpointerdown = event => liftBlock(event, real, button);',
                      'plus.onclick = () => openPlacePicker(p.dsp, lane, place);', "node.onpointerdown = event => liftNode(event, p, 'split', node, g);",
                      "node.onpointerdown = event => liftNode(event, p, 'join', node, g);", 'out.push(io(p.inputB, YB, false));', 'out.push(io(p.outputB, YB, true));'):
             self.assertIn(kept, path)

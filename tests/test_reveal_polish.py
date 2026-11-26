@@ -130,7 +130,7 @@ class NewBlockTests(unittest.TestCase):
         # every way to click a block goes through pickBlock: a tile, an input or an output, the split, the mixer, a
         # small tile of a full view's header (the stage and Classic+ draw their chain with the same drawPath)
         self.assertEqual(page.count("ask('select',"), 1)
-        for line in ("button.onclick = () => { if (!dragDone) pickBlock(block); };", "button.onclick = () => pickBlock(block);",
+        for line in ("button.onclick = () => { if (!dragDone) pickBlock(real); };", "button.onclick = () => pickBlock(block);",
                      "pickBlock({dsp: p.dsp, id: 'split'})", "pickBlock({dsp: p.dsp, id: 'join'})", "setView('goto'); pickBlock(block);"):
             self.assertIn(line, page)
         # another "+" moves the add there
@@ -1188,13 +1188,70 @@ const words = node => [node.text || '', node.textContent || '', ...(node.childre
         self.assertIn('previewKey()]);', chain)
         self.assertIn('if (banner) head.unshift(banner);', chain)
         tile = between(page, 'const tileOf = (block, place, y) => {', 'return button;')
-        self.assertIn("if (pv) button.classList.add('previewing');", tile)
+        self.assertIn("if (pv) { button.classList.add('previewing'); block = previewed.block; }", tile)
         self.assertIn("if (pv) button.append(el('span', 'pvtag', 'PREVIEW'));", tile)
         self.assertNotIn('.tile.pv ', page)                              # (.pv is the presets view's own class)
         self.assertIn('function toneGone() { toneTray = null;', page)
         launcher = text('start-hx-edit-nam.pyw')
         self.assertIn("if name == 'toolFront':", launcher)
         self.assertIn('def front_tool(self):', text('tone_preview.py'))
+
+
+class ToneTargetLiveFixTests(unittest.TestCase):
+    """The live check of 1fedb3b (2026-11-25 20:25-20:28, owner-trials 20261125-202456-d8d1f0e5): G1 the first open's
+    tray said "no NAM block", G2 "IR slot 128" for the playing block, G3 a moved preview played on the old block."""
+
+    def test_g1_the_tray_gets_the_sessions_word_at_the_start_and_says_none_only_when_known(self):
+        preview = text('tone_preview.py')
+        browse = between(preview, '    def browse(self, browser, session, client_id):', '        while (action := browser.next_action()) is not None:')
+        self.assertIn("        tray_out()\n\n        if self.initial_look and self.library:", browse)
+        handler = between(preview, "if 'navigation' in action:", 'if light is not None and')
+        self.assertIn('\n                    tray_out()\n', handler)                     # (every target word, any version)
+        page = text('workbench.html')
+        tray = between(page, 'function drawTray() {', 'function libraryRow(')
+        self.assertIn("if (t.none) plays.append(el('div', 'note2', 'This preset has no NAM block: add one to hear a tone here.'));", tray)
+        self.assertIn("else if (!choices.length) plays.append(el('div', 'note2', 'Looking at the preset\\u2019s NAM blocks\\u2026'));", tray)
+
+    def test_g2_a_block_playing_128_keeps_its_own_capture_slot(self):
+        tone = text('tone_view.js')
+        piece = between(tone, '  let previewHold = null;', '  function parameterPanel(')
+        out = run_js_source(PreviewTargetTests.STUBS + 'let selectedController = null; const controllerReady = () => false, block = () => "", releaseTarget = () => {}; let targetVersion = 0;\n' + piece, '''(() => {
+          steerPreview({nams: [{dsp: 1, id: 'block2', slot: 10}], cursor: {dsp: 1, id: 'block2'}});
+          steerPreview({nams: [{dsp: 1, id: 'block2', slot: 128}], cursor: {dsp: 1, id: 'block2'}});
+          return [active.steer.target.name, active.steer.target.own, active.steer.target.slot];
+        })()''')
+        self.assertEqual(out, ['Klon Gain=0', 10, 128])
+        self.assertIn('own: b.own ?? null', between(tone, '  function publishTarget(', '  function observeController('))
+        page = text('workbench.html')
+        own = between(page, 'function ownBlock(block, choice) {', '\n}\n')
+        self.assertIn('if (!block || block.slot !== 128) return block;', own)
+        self.assertIn("return c && Number.isInteger(c.own) && c.own !== 128 ? {...block, slot: c.own} : block;", own)
+        self.assertIn('const block = ownBlock((state.blocks || []).find(b => same(b, c)), c)', page)          # the tiles
+        self.assertIn('return t && state ? ownBlock(', page)                                                   # the card
+        self.assertIn('const block = t.target ? ownBlock(', between(page, 'function previewNow() {', 'function previewKey()'))   # the banner
+        self.assertIn("if (pv) { button.classList.add('previewing'); block = previewed.block; }", page)         # the chain
+        self.assertIn('button.onclick = () => { if (!dragDone) pickBlock(real); };', page)
+
+    def test_g3_the_old_block_is_not_bound_while_steering_to_the_chosen_one(self):
+        tone = text('tone_view.js')
+        auto = between(tone, '  function autoBindSelected() {', '  function bindSelected(request) {')
+        self.assertIn('const aim = toneSession() && active.steer && active.steer.target;', auto)
+        self.assertIn('if (aim && !(aim.dsp === selected.controller.add(0x80).readS32() && aim.id === selected.block)) return false;', auto)
+        self.assertLess(auto.index('const aim'), auto.index('bindSelectedTarget();'))
+        choose = between(tone, '  function chooseTarget(request) {', '\n  }\n')
+        self.assertIn('if (active.bound && !sameBlock(now, nam)) {', choose)
+        self.assertIn('active.bound = active.valid = false;', choose)
+        preview = text('tone_preview.py')
+        self.assertIn("if (waiting_tone[0] and state.get('version') == self.navigation_state.get('version') and state.get('bound')", preview)
+
+    def test_back_to_tone3000_goes_through_hx_edit_as_a_reopen_does(self):
+        tone = text('tone_view.js')
+        front = between(tone, '  function listenFront() {', '  function listenBrowserProcess() {')
+        self.assertIn("recv('toneFront'", front)
+        self.assertIn('if (active.browserPid) allowForeground(active.browserPid);', front)
+        self.assertIn("send({ type: 'toneFocus', session: active.id, page: '' });", front)
+        preview = text('tone_preview.py')
+        self.assertIn("self.script.post({'type': 'toneFront', 'payload': {'session': self.session}})", preview)
 
 
 if __name__ == '__main__':

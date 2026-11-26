@@ -353,8 +353,13 @@ class TonePreview:
     def front_tool(self):
         """The chain's banner "Back to TONE3000" while the window is popped out: the window comes forward."""
         browser = self.browser
-        if self._in_workbench() and browser is not None and getattr(browser, 'window_mode', None) == 'floating':
-            return browser.send('focus') is not False
+        if self._in_workbench() and browser is not None and isinstance(self.session, int):
+            try:
+                # (HX Edit's window is the one in front: it lets the window come forward, then the window's own focus)
+                self.script.post({'type': 'toneFront', 'payload': {'session': self.session}})
+                return True
+            except Exception:
+                return browser.send('focus') is not False
         return False
 
     def place_over(self, bounds):
@@ -1358,6 +1363,10 @@ class TonePreview:
             else:
                 status(text)
 
+        # The tray's first word: the session's target word may have come before this window was up (live 2026-11-25
+        # 20:25:44: the first open's tray said "no NAM block" while the strip asked which block)
+        tray_out()
+
         if self.initial_look and self.library:     # opened from HX Unbound > Floor look
             try:
                 look_open()
@@ -1410,12 +1419,13 @@ class TonePreview:
                             stale = not text or text == nav_said[0] or text.startswith('Select a NAM block') or \
                                 text.startswith('Tone selected for browsing')
                             status(state.get('text') or '' if stale else text)
-                        tray_out()
-                        # The tone clicked while the tray asked which block plays it: heard once one is chosen.
-                        if (waiting_tone[0] and state.get('bound') and not state.get('preview') and current is not None
-                                and slot is None):
-                            waiting_tone[0] = False
-                            audition(current, max(0, selected))
+                    tray_out()
+                    # The tone clicked while the tray asked which block plays it: heard once one is chosen (and bound:
+                    # tone_view binds only the chosen block while it steers to it).
+                    if (waiting_tone[0] and state.get('version') == self.navigation_state.get('version') and state.get('bound')
+                            and not state.get('preview') and current is not None and slot is None):
+                        waiting_tone[0] = False
+                        audition(current, max(0, selected))
                 if light is not None and 'light' in action:
                     light_event(action['light'])
                 if optimizing is not None and 'optimize' in action:

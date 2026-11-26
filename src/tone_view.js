@@ -431,6 +431,17 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
   if (profile.navigation) listenConnection();
 
+  function listenFront() {
+    recv('toneFront', message => {
+      const value = message.payload;
+      if (active?.navigation && value?.session === active.id) {
+        if (active.browserPid) allowForeground(active.browserPid);
+        send({ type: 'toneFocus', session: active.id, page: '' });
+      }
+      listenFront();
+    });
+  }
+  if (profile.navigation) listenFront();
   function listenBrowserProcess() {
     recv('toneBrowserProcess', message => {
       const value = message.payload;
@@ -508,7 +519,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const bound = active.bound && !active.quarantined && atTarget();
     // Which block plays it (steerPreview): the preset's NAM blocks, the one the preview goes to, and whether the
     // player is asked (two or more, none picked) or there is none.
-    const steer = active.steer || null, named = b => ({dsp: b.dsp, id: b.id, name: b.name, slot: b.slot, lane: b.lane, enabled: b.enabled !== false});
+    const steer = active.steer || null, named = b => ({dsp: b.dsp, id: b.id, name: b.name, slot: b.slot, own: b.own ?? null, lane: b.lane, enabled: b.enabled !== false});
     const payload = { type: 'toneTarget', session: active.id, version: active.targetVersion,
       bound: !!bound, label: bound ? active.targetLabel : '',
       choices: steer ? steer.nams.map(named) : [], target: steer && steer.target ? named(steer.target) : null,
@@ -638,6 +649,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       if (active.bound && atTarget()) return true;
       const selected = selectedTarget();
       if (!selected) return false;
+      // (a TONE3000 session steering to its chosen block: HX Edit's block before it is not bound in its place. Live
+      // 2026-11-25 20:26:42 a moved preview played again on the old block: it was still selected after Stop, was bound
+      // at once, and the waiting tone played there)
+      const aim = toneSession() && active.steer && active.steer.target;
+      if (aim && !(aim.dsp === selected.controller.add(0x80).readS32() && aim.id === selected.block)) return false;
       // A block that an earlier session left on the preview slot. With a record of its earlier
       // capture it is put back first (recoverLeftover); wait for that rather than binding 128.
       if (selected.slot === AUDITION_SLOT && leftover) return false;
@@ -695,13 +711,27 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   }
   // A block's name in the chooser: its capture's, kept per block while it plays a preview from slot 128 (which has no
   // name of its own: live 2026-11-25 the strip read "NAM · Path 2" after a preview on the Jcm800 block).
-  const steerBlockNames = new Map();
+  const steerBlockNames = new Map(), steerBlockSlots = new Map();
   function blockName(b) {
     const key = b.dsp + ':' + b.id;
     if (b.slot === AUDITION_SLOT && steerBlockNames.has(key)) return steerBlockNames.get(key);
     const name = steerName(b.slot);
     if (b.slot !== AUDITION_SLOT && name !== 'NAM') steerBlockNames.set(key, name);
     return name;
+  }
+  // (and its own slot: the Workbench names and pictures the block by it while it plays 128, live 2026-11-25 20:26:31
+  // the tray said "IR slot 128")
+  function ownSlot(b) {
+    const key = b.dsp + ':' + b.id;
+    if (Number.isInteger(b.slot) && b.slot !== AUDITION_SLOT) steerBlockSlots.set(key, b.slot);
+    return b.slot === AUDITION_SLOT ? steerBlockSlots.get(key) ?? null : b.slot;
+  }
+  // HX Edit's selected block (its parameter view's DSP and block), or null.
+  function selectedBlock() {
+    try {
+      if (!controllerReady(selectedController)) return null;
+      return {dsp: selectedController.add(0x80).readS32(), id: block(selectedController)};
+    } catch (_) { return null; }
   }
   function steerPreview(reading) {
     // reading: {nams: [{dsp, id, slot}] (the preset's NAM blocks), cursor: {dsp, id} or null (HX Edit's own)}.
@@ -733,7 +763,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     const nams = (reading.nams || []).filter(b => b && [0, 1].includes(b.dsp) && /^block\d{1,2}$/.test(b.id))
       .map(b => ({dsp: b.dsp, id: b.id, slot: Number.isInteger(b.slot) ? b.slot : null, lane: b.path === 1 ? 1 : 0,
-                  position: Number.isInteger(b.position) ? b.position : null, name: blockName(b), enabled: b.enabled !== false}));
+                  position: Number.isInteger(b.position) ? b.position : null, name: blockName(b), own: ownSlot(b), enabled: b.enabled !== false}));
     const page = previewHold ? previewHold.page : cursor;
     if (active.choice && !nams.some(b => sameBlock(b, active.choice))) active.choice = null;
     const own = nams.find(b => sameBlock(b, page));
@@ -789,6 +819,14 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     if (!nam) throw new Error('That block is not one of this preset\u2019s NAM blocks now.');
     active.choice = plainBlock(nam);
     steerClick = null; steerAside = false;
+    // (bound to another block, nothing playing: unbound until HX Edit has the chosen one selected and it is bound)
+    const now = selectedBlock();
+    if (active.bound && !sameBlock(now, nam)) {
+      active.bound = active.valid = false;
+      active.targetVersion = ++targetVersion;
+      releaseTarget();
+    }
+    active.steer = {...active.steer, target: nam, ask: false};
     send({type:'toneTrace', reason:'preview-target', stage:'chosen', dsp: nam.dsp, block: nam.id});
     publishTarget();
     reply(request, {target: true});

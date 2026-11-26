@@ -1287,7 +1287,7 @@ function previewNow() {
   if (!t || !t.preview || !state) return null;
   const playing = (t.tray || []).find(i => i.state === 'ready' && i.trial === t.trial);
   if (!playing) return null;
-  const block = t.target ? (state.blocks || []).find(b => same(b, t.target)) || null : null;
+  const block = t.target ? ownBlock((state.blocks || []).find(b => same(b, t.target)) || null, t.target) : null;
   return {tone: playing.name, block, kept: !!playing.kept, trial: t.trial, free: Array.isArray(t.free_slots) ? t.free_slots : []};
 }
 function previewKey() { const p = previewNow(); return p ? [p.tone, p.block && [p.block.dsp, p.block.id], p.kept, p.trial, p.free[0], toolPopped] : null; }
@@ -1331,9 +1331,10 @@ function flowHead() {
 function drawPath(p, g, now) {
   const two = !!p.b, out = [], wires = [`<path d="M32 ${YA}H${g.width - 32}"/>`];
   const tileOf = (block, place, y) => {
+    const real = block;                                     // (the block itself: its clicks and drags)
     const button = el('button', 'tile' + (block.enabled ? '' : ' off') + (same(block, now) ? ' on' : '') + (block.id === 'pending' ? ' coming' : ''));
     const previewed = previewNow(), pv = previewed && same(block, previewed.block);   // (the block a TONE3000 preview plays on)
-    if (pv) button.classList.add('previewing');
+    if (pv) { button.classList.add('previewing'); block = previewed.block; }          // (named by its own capture)
     button.style.cssText = `--c:${tint(block).join(' ')};left:${g.px(place)}px;top:${y - TILE_TOP}px;width:${g.tile}px;height:${TILE_H}px`;
     if (layout === 'stage') button.classList.add(...gearClass(block));
     button.dataset.dsp = p.dsp; button.dataset.lane = y === YA ? 0 : 1; button.dataset.place = place;   // (laneBranch)
@@ -1344,8 +1345,8 @@ function drawPath(p, g, now) {
     button.append(led, layout === 'stage' ? image(stagePictures(block), 'pic', false, true) : image(pictures(block), 'pic', true), strip);
     if (pv) button.append(el('span', 'pvtag', 'PREVIEW'));
     button.title = title(block) + (capture(block) ? ' (' + model(block).name + ')' : '') + (block.enabled ? '' : ', bypassed');
-    button.onclick = () => { if (!dragDone) pickBlock(block); };
-    button.onpointerdown = event => liftBlock(event, block, button);
+    button.onclick = () => { if (!dragDone) pickBlock(real); };
+    button.onpointerdown = event => liftBlock(event, real, button);
     return button;
   };
   const slot = (place, y, lane, offered) => {
@@ -3299,7 +3300,14 @@ const miniKey = rows => JSON.stringify([rows.map(r => r.blocks.map(b => [b.id, b
 // The block a TONE3000 preview plays on, while its view is open (the tray's session: tone_view.js steerPreview).
 function toneTarget(always) {
   const t = (always || view.full === 'tone') && toneTray ? toneTray.target : null;
-  return t && state ? (state.blocks || []).find(b => same(b, t)) || null : null;
+  return t && state ? ownBlock((state.blocks || []).find(b => same(b, t)) || null, t) : null;
+}
+// A NAM block while it plays a preview from slot 128: named and pictured by its own capture (the session remembers its
+// slot, "own"), not "IR slot 128" (live 2026-11-25 20:26:31).
+function ownBlock(block, choice) {
+  if (!block || block.slot !== 128) return block;
+  const c = (toneTray && toneTray.choices || []).find(x => same(x, block)) || choice;
+  return c && Number.isInteger(c.own) && c.own !== 128 ? {...block, slot: c.own} : block;
 }
 function miniButton(block, now) {
   const target = same(block, toneTarget());
@@ -4875,7 +4883,9 @@ let toneTray = null, shownTray = '';
 function drawTray() {
   const box = view.full === 'tone' ? $('vbody').querySelector('.tray') : null;
   if (!box || !catalog || !state) return;
-  const t = toneTray || {tray: []}, key = JSON.stringify([t, (state.captures || []).length, (state.irs || []).length]);
+  const t = toneTray || {tray: []};
+  const key = JSON.stringify([t, (state.captures || []).length, (state.irs || []).length,
+                              (t.choices || []).map(c => { const b = (state.blocks || []).find(x => same(x, c)); return b ? b.slot : null; })]);
   if (key === shownTray && box.childElementCount) return;
   shownTray = key;
   const head = el('div'); head.append(el('b', '', 'From TONE3000'), el('div', 'note2', 'Click a tone on the site to hear it. Nothing changes for good until you say so.'));
@@ -4894,12 +4904,13 @@ function drawTray() {
   const choices = Array.isArray(t.choices) ? t.choices : [];
   const plays = el('div', 'plays');
   plays.append(el('h5', '', 'Plays on'));
-  if (t.none || !choices.length) plays.append(el('div', 'note2', 'This preset has no NAM block: add one to hear a tone here.'));
+  if (t.none) plays.append(el('div', 'note2', 'This preset has no NAM block: add one to hear a tone here.'));
+  else if (!choices.length) plays.append(el('div', 'note2', 'Looking at the preset\u2019s NAM blocks\u2026'));
   else {
     if (t.ask) plays.append(el('div', 'askline', 'Which block should play it? Click one.'));
     const tiles = el('div', 'tiles' + (t.ask ? ' asking' : ''));
     for (const c of choices) {
-      const block = (state.blocks || []).find(b => same(b, c)), on = same(c, t.target), tile = el('button', (on ? 'on' : '') + (c.enabled === false ? ' off' : ''));
+      const block = ownBlock((state.blocks || []).find(b => same(b, c)), c), on = same(c, t.target), tile = el('button', (on ? 'on' : '') + (c.enabled === false ? ' off' : ''));
       const name = block ? title(block) : c.name || 'NAM';
       tile.title = on ? 'The preview plays on this block' : 'Play the preview on ' + name + ', Path ' + (c.dsp + 1) + (c.enabled === false ? ' (this block is off: switch it on to hear it)' : '');
       tile.append(image(block ? pictures(block) : captureUrls({}), '', true), name, el('small', '', 'Path ' + (c.dsp + 1)));
