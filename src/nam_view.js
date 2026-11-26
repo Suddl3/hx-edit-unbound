@@ -665,6 +665,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   // HX Edit's status strip (res/main.xml "stbw": My Account, the device, updates): its colour as main.xml gives it
   // (0xFF1D1D1D) and the panes' dark gray (menu_dark.js MENU_DARK.bar, #14161B), and where the panel keeps it.
   const STRIP_STOCK = 0xff1d1d1d, STRIP_DARK = 0xff14161b;
+  // (the panel keeps the word as 0xAABBGGRR: written as 0xff14161b it showed (27, 22, 20), red and blue swapped, live
+  // 2026-11-25 22:28:25; the gray as stored is 0xff1b1614)
+  const abgr = argb => ((argb & 0xff00ff00) | ((argb & 0xff) << 16) | ((argb >>> 16) & 0xff)) >>> 0;
   let stripAt;                 // undefined: not looked for yet; null: not found; {at, kind} once found
   let pendingDrop = null;
 
@@ -1964,7 +1967,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       }
       if (!stripAt) return {found: false, why: 'not-found-before'};
       const colour = dark ? STRIP_DARK : STRIP_STOCK;
-      if (stripAt.kind === 'argb') stripAt.at.writeU32(colour);
+      if (stripAt.kind === 'argb') stripAt.at.writeU32(abgr(colour));
       else [(colour >>> 16) & 0xff, (colour >>> 8) & 0xff, colour & 0xff].forEach((c, k) => stripAt.at.add(4 * k).writeFloat(c / 255));
       if (!sidebarHost.isNull()) redrawWindow(getAncestor(sidebarHost, 2), NULL, NULL, 0x0001 | 0x0080 | 0x0100);   // GA_ROOT; INVALIDATE|ALLCHILDREN|UPDATENOW
       return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark};

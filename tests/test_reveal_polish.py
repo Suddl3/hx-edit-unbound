@@ -1400,5 +1400,18 @@ class NickTryLiveTests(unittest.TestCase):
         self.assertEqual(tone.count('active.previewEnds = (active.previewEnds || 0) + 1;'), 2)
 
 
+class StatusStripColourTests(unittest.TestCase):
+    """Live check of 1309bfc (2026-11-25 22:28, owner-trials 20261125-222813-a6d01092): the strip turned (26, 22, 19)
+    instead of the menu row's (18, 22, 25): the panel keeps its colour word as 0xAABBGGRR."""
+
+    def test_the_gray_is_written_in_the_panels_own_byte_order(self):
+        view = text('nam_view.js')
+        abgr = between(view, '  const abgr = argb =>', ';\n')
+        self.assertEqual(run_js_source(abgr + ';', '[abgr(0xff14161b).toString(16), abgr(0xff1d1d1d).toString(16)]'),
+                         ['ff1b1614', 'ff1d1d1d'])
+        strip = between(view, '    statusStrip(dark) {', '\n    },')
+        self.assertIn("if (stripAt.kind === 'argb') stripAt.at.writeU32(abgr(colour));", strip)
+
+
 if __name__ == '__main__':
     unittest.main()
