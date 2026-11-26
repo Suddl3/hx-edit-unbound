@@ -2,8 +2,8 @@
 
 **Part of [HX Unbound](https://github.com/Suddl3/hx-unbound).** HX Edit Unbound is Line 6's own HX Edit for the Helix Floor with a modern editor built over it: the **Workbench**. It adds a NAM capture library with gear pictures, TONE3000 browsing and previews, Focus Mode, Level presets and a DSP meter. It is made for [HX Unbound Floor firmware](https://github.com/Suddl3/hx-unbound-floor).
 
-![The Workbench, labeled: 1 layouts, 2 presets, 3 snapshots, 4 undo and redo, 5 Editor or Focus Mode, 6 tools, 7 the signal chain, 8 the selected block, 9 its controls](docs/screenshots/workbench-labeled.png)
-<p align="center"><em>The Workbench, the default layout: tools on the left, the chain across the top, the selected block and its controls below.</em></p>
+![HX Edit Unbound: the Workbench with the block picker open on NAM captures](docs/screenshots/picker-showcase.png)
+<p align="center"><em>The Workbench on a full preset, picking a NAM capture for a new block.</em></p>
 
 > **A test build.** Windows only. It has run on one Helix Floor with HX Unbound Floor firmware. Not tested: stock Floor firmware, the NAM Pedal firmware, other Helix units. [What has run on a Floor](docs/FLOOR-WORKFLOW.md#status-november-26).
 
@@ -27,6 +27,9 @@ More: [Setup in detail](docs/FLOOR-SETUP.md), including updating an existing clo
 ## Four layouts
 
 Pick one from the menu at the top left; the editor opens in the one you used last.
+
+![The Workbench, labeled: 1 layouts, 2 presets, 3 snapshots, 4 undo and redo, 5 Editor or Focus Mode, 6 tools, 7 the signal chain, 8 the selected block, 9 its controls](docs/screenshots/workbench-labeled.png)
+<p align="center"><em>The Workbench, labeled: tools on the left, the chain across the top, the selected block and its controls below.</em></p>
 
 <p align="center"><img src="docs/screenshots/layout-switcher.png" alt="The layout menu" width="560"></p>
 <p align="center"><em>The layout menu, top left: four ways to see the same preset.</em></p>
