@@ -126,23 +126,29 @@ function installMenuDark() {
       return true;
     } catch (_) { return false; }
   }
+  function setDark(handle, on, why) {
+    window = Number.isInteger(handle) && handle > 0 && handle <= 0xffffffff ? ptr(handle) : NULL;
+    const changed = on !== dark;
+    dark = on && !window.isNull();
+    let popups = null;
+    if (changed) popups = appMode(dark);
+    if (!window.isNull()) {
+      // (the row and the frame again, in the new colours: RDW_INVALIDATE | RDW_FRAME)
+      try { drawMenuBar(window); redrawWindow(window, NULL, NULL, 0x0401); } catch (error) { failed('redraw', error); }
+    }
+    send({ type: 'menuDark', event: dark ? 'dark' : 'plain', ...(popups === null ? {} : { popups }), ...(why ? { why } : {}) });
+  }
   function listen() {
     recv('menuDark', message => {
-      const value = message.payload || {}, handle = Number(value.window), on = value.on === true;
-      window = Number.isInteger(handle) && handle > 0 && handle <= 0xffffffff ? ptr(handle) : NULL;
-      const changed = on !== dark;
-      dark = on && !window.isNull();
-      let popups = null;
-      if (changed) popups = appMode(dark);
-      if (!window.isNull()) {
-        // (the row and the frame again, in the new colours: RDW_INVALIDATE | RDW_FRAME)
-        try { drawMenuBar(window); redrawWindow(window, NULL, NULL, 0x0401); } catch (error) { failed('redraw', error); }
-      }
-      send({ type: 'menuDark', event: dark ? 'dark' : 'plain', ...(popups === null ? {} : { popups }) });
+      const value = message.payload || {};
+      setDark(Number(value.window), value.on === true);
       listen();
     });
   }
   listen();
+  // (the start-up cover, window_keep.js: the row dark from HX Edit's window's first show, before the launcher has found
+  // the window; J4, Nick 2026-11-26 "Darken it too")
+  globalThis.menuDarkStart = window => setDark(window.toUInt32(), true, 'start-cover');
   send({ type: 'menuDark', event: 'ready' });
   return { dispose() { hook.detach(); dark = false; } };
 }

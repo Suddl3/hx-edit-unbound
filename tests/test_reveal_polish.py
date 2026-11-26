@@ -1523,7 +1523,7 @@ class StartCoverTests(unittest.TestCase):
         self.assertIn('if (cover && cover.wanted && !cover.window && this.returnAddress.equals(reconnectShow) && !args[0].isNull() &&', first)
         self.assertIn('const made = makeCover(args[0]);', first)
         self.assertIn('cover.follow = setInterval(placeCover, 150);', first)
-        self.assertIn("send({ type: 'windowKeeper', event: 'cover-up' });", first)
+        self.assertIn("send({ type: 'windowKeeper', event: 'cover-up', frame });", first)
         self.assertIn("setTimeout(() => uncover('timeout'), START_COVER_MS);", first)
         # HX Edit's own window is left as it is (made transparent, 5bd2592, the pane's page did not load until the cover
         # came off: live 2026-11-25 23:46/23:48 every start ended on the 8 s timeout)
@@ -1581,6 +1581,29 @@ class StartCoverShownTests(unittest.TestCase):
         self.assertIn("workbench.on_ready = lambda: uncover('page-ready')", start)        # (still: whichever comes first)
         self.assertIn("after_resume.append(lambda: Timer(8.0, lambda: uncover('launcher-timeout')).start())", start)
         self.assertIn('if covered[0] and not detached.is_set():', start)                 # (once)
+
+
+class StartFrameDarkTests(unittest.TestCase):
+    """Live check of bee99c3 (2026-11-26 00:09, owner-trials 20261126-000953-3937faaf): no Classic flash, but the title
+    bar and the menu row were light for 3-4 s until the launcher's window_frame had the window (Nick: "Darken it too")."""
+
+    def test_the_title_bar_and_the_menu_row_are_dark_from_the_first_show(self):
+        keep = text('window_keep.js')
+        first = between(keep, '    onEnter(args) {', '\n      if (!this.returnAddress.equals(reconnectShow)')
+        self.assertLess(first.index('const frame = darkFrame(args[0]);'), first.index('const made = makeCover(args[0]);'))
+        dark = between(keep, '  function darkFrame(window) {', '\n  }\n')
+        self.assertIn("result.title = attribute(window, 20, value, 4) === 0 || attribute(window, 19, value, 4) === 0;", dark)
+        self.assertIn("globalThis.menuDarkStart(window)", dark)
+        self.assertIn("const START_FRAME = Object.freeze([[35, 0x001B1614], [36, 0x00D6CDC9], [34, 0x00382E2A]]);", keep)
+        frame = text('window_frame.py')                                       # (the same colours as the launcher's frame)
+        self.assertIn('CAPTION, TEXT, BORDER = 0x001B1614, 0x00D6CDC9, 0x00382E2A', frame)
+        self.assertIn('BORDER_COLOUR, CAPTION_COLOUR, TEXT_COLOUR = 34, 35, 36', frame)
+        self.assertIn('DARK_MODE, DARK_MODE_OLD = 20, 19', frame)
+        menu = text('menu_dark.js')
+        self.assertIn("globalThis.menuDarkStart = window => setDark(window.toUInt32(), true, 'start-cover');", menu)
+        self.assertIn('setDark(Number(value.window), value.on === true);', menu)
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertLess(launcher.index('installWindowKeeper('), launcher.index('installMenuDark()'))   # (both installed before the first show)
 
 
 if __name__ == '__main__':

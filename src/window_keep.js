@@ -24,6 +24,10 @@ const windowKeepGuards = Object.freeze({
 // cover came off, so it always ended on the 8 s timeout (live 2026-11-25 23:46/23:48). Classic saved: no cover.
 const START_COVER_MS = 10000;
 const START_COVER_GRAY = 0x001b1614;   // 0x00BBGGRR: #14161B, menu_dark's bar
+// The window's frame at its first show too (Nick 2026-11-26: the title bar and the menu row were light for 3-4 s): the
+// dark title bar and window_frame.py's caption, text and border colours (DWM attributes 20 or 19; 35, 36, 34), and
+// menu_dark.js's dark row (menuDarkStart). The launcher's window_frame applies the same again once it has the window.
+const START_FRAME = Object.freeze([[35, 0x001B1614], [36, 0x00D6CDC9], [34, 0x00382E2A]]);
 
 function installWindowKeeper(options = {}) {
   if (Process.arch !== 'ia32' || Process.pointerSize !== 4) throw new Error('Window keeper requires HX Edit x86');
@@ -73,6 +77,19 @@ function installWindowKeeper(options = {}) {
     api('SetWindowPos', 'int', ['pointer', 'pointer', 'int', 'int', 'int', 'int', 'uint'])(cover.window, NULL,
       corner.readS32(), corner.add(4).readS32(), client.add(8).readS32(), client.add(12).readS32(), 0x0004 | 0x0010 | 0x4000);   // NOZORDER|NOACTIVATE|ASYNC
   }
+  function darkFrame(window) {
+    const result = {title: false, colours: 0, row: false};
+    try {
+      const dwm = Process.findModuleByName('dwmapi.dll') || Module.load('dwmapi.dll');
+      const attribute = new NativeFunction(dwm.getExportByName('DwmSetWindowAttribute'), 'int', ['pointer', 'uint', 'pointer', 'uint'], 'stdcall');
+      const value = Memory.alloc(4);
+      value.writeU32(1);
+      result.title = attribute(window, 20, value, 4) === 0 || attribute(window, 19, value, 4) === 0;
+      for (const [which, colour] of START_FRAME) { value.writeU32(colour); if (attribute(window, which, value, 4) === 0) result.colours++; }
+    } catch (_) { /* the frame stays as Windows draws it */ }
+    try { if (typeof globalThis.menuDarkStart === 'function') { globalThis.menuDarkStart(window); result.row = true; } } catch (_) { }
+    return result;
+  }
   function uncover(why) {
     if (!cover || !cover.window) { if (cover) cover.wanted = false; return; }
     const {window, at, follow} = cover;
@@ -96,11 +113,12 @@ function installWindowKeeper(options = {}) {
           !isWindowVisible(args[0])) {
         // (the window's first show: our dark window goes over it first, until the pane's page is up)
         try {
+          const frame = darkFrame(args[0]);                // (the title bar and the menu row dark before the first show)
           const made = makeCover(args[0]);
           Object.assign(cover, {window: made.window, owner: args[0], keep: made.keep, at: Date.now()});
           this.placeCover = true;
           cover.follow = setInterval(placeCover, 150);
-          send({ type: 'windowKeeper', event: 'cover-up' });
+          send({ type: 'windowKeeper', event: 'cover-up', frame });
           setTimeout(() => uncover('timeout'), START_COVER_MS);
         } catch (error) {
           cover = null;
