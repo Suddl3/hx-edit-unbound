@@ -60,6 +60,7 @@ function installNavigationBanner(options) {
   const getClientRect = win('GetClientRect', 'int', ['pointer', 'pointer']);
   const getAncestor = win('GetAncestor', 'pointer', ['pointer', 'uint']);
   const getOwner = win('GetWindowThreadProcessId', 'uint', ['pointer', 'pointer']);
+  const getRelative = win('GetWindow', 'pointer', ['pointer', 'uint']);
   const isWindow = win('IsWindow', 'int', ['pointer']);
   const activeWindow = win('GetActiveWindow', 'pointer', []);
   const post = win('PostMessageW', 'int', ['pointer', 'uint', 'uint', 'uint']);
@@ -113,7 +114,10 @@ function installNavigationBanner(options) {
     return false;
   }
   function validWindow(hwnd) {
-    if (editor.isNull() || hwnd.isNull() || !isWindow(hwnd) || !getAncestor(hwnd, 2).equals(hwnd)) return false;
+    // (HX Edit's own main window has no owner. The start-up cover of window_keep.js is a window of this process of the
+    // same size, owned by it: taken for it, the DSP meter and the HX Unbound button were put on the cover and HX Edit's
+    // title and icon were no longer made ours, K1, live 2026-11-26 00:33)
+    if (editor.isNull() || hwnd.isNull() || !isWindow(hwnd) || !getAncestor(hwnd, 2).equals(hwnd) || !getRelative(hwnd, 4).isNull()) return false;
     owner.writeU32(0);
     getOwner(hwnd, owner);
     if (owner.readU32() !== Process.id || !getClientRect(hwnd, rectangle)) return false;

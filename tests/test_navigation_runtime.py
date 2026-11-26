@@ -320,7 +320,7 @@ class NavigationNativeTests(unittest.TestCase):
           const selectedTarget=()=>selected,atTarget=()=>matches;
           const namView={stopPreview(){}},releaseTarget=()=>{},reply=()=>{},resume=()=>{};
           const autoBindSelected=()=>{},refreshBounds=()=>{},allowForeground=()=>{};
-          const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600});
+          const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600}),dockPanelFor=p=>p,panelReport=()=>({});
           const targets=()=>sent.filter(value=>value.type==='toneTarget');
         const boundModel=()=>null,boundSlot=()=>null;
         ''' + function('publishTarget') + function('observeController') + function('invalidate') + \
@@ -643,7 +643,7 @@ class NavigationNativeTests(unittest.TestCase):
           let active={navigation:true,bound:true,targetVersion:2,quarantined:false},workflowRequest=null;
           let exporting=true,pending,calls=[];const profile={},AUDITION_SLOT=128;
           const namView={setWorkflowBusy:()=>calls.push('pause'),inventoryBusy:()=>exporting};
-          const poll=(_r,next)=>pending=next,atTarget=()=>true,audition=()=>calls.push('audition');
+          const poll=(_r,next)=>pending=next,atTarget=()=>true,audition=()=>calls.push('audition'),boundModel=()=>'HD2_AmpNAMLite';
         ''' + function('run') + '''
           run({action:'audition',session:1,id:1,targetVersion:2});
           const first=[...calls];pending(false);exporting=false;pending(false);
@@ -676,7 +676,7 @@ class NavigationNativeTests(unittest.TestCase):
           const profile={navigation:true},NULL={isNull:()=>true},tiles=[{block:'NAM A2 Lite'}],events=[];
           const send=e=>events.push(e), publishTarget=()=>{}, window={isNull:()=>false,toUInt32:()=>77};
           const namView={},autoBindSelected=()=>{},refreshBounds=()=>{},allowForeground=()=>{};
-          const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600});
+          const dockPanel={isNull:()=>false},panelBounds=()=>({visible:true,x:80,y:100,w:500,h:600}),dockPanelFor=p=>p,panelReport=()=>({});
           let active=null,nextSession=0,targetVersion=0,contextVersion=3;
         ''' + function('openBrowser') + '''
           openBrowser(window,{dockPanel}); const first={...active}; openBrowser(window,{library:true,dockPanel});

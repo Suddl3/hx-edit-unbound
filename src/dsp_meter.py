@@ -86,12 +86,19 @@ class DspMeter:
         if self.on_choice and getattr(self.process, 'stdout', None) is not None:
             Thread(target=self._clicks, args=(self.process.stdout,), daemon=True).start()
 
-    CHOICES = ('level', 'look', 'library', 'irDots', 'chainArt', 'chainLarge', 'chainNames', 'chainGlow', 'focusMode', 'workbench')
+    CHOICES = ('level', 'look', 'library', 'irDots', 'chainArt', 'chainLarge', 'chainNames', 'chainGlow', 'focusMode', 'workbench',
+               # (Classic's chooser, Reveal B12: a layout, and the chain pictures as a pair)
+               'layout:workbench', 'layout:classicplus', 'layout:stage', 'chainIcons', 'chainGear')
 
     def _clicks(self, output):
         # The helper writes one line per choice from the HX Unbound menu.
         try:
             for line in output:
+                if line.startswith('unboundLook '):
+                    # what the helper did to HX Edit's title and icon (renamed / already / skipped; set / kept / failed)
+                    said = dict(part.split('=', 1) for part in line.split()[1:] if '=' in part)
+                    self.trace({'type': 'unboundLook', 'title': said.get('title'), 'icon': said.get('icon')})
+                    continue
                 if line.strip() in self.CHOICES:
                     try:
                         self.on_choice(line.strip())

@@ -82,6 +82,39 @@ function focusAddMade(blocks, follow, namEngines) {
                                       block.path === follow.lane && wanted(block)) || null;
 }
 
+// The last ended preview's own undo steps when HX Edit's undo position is right after them (Undo) or right before
+// them with them still to redo (Redo): {count, tainted}; else null (toneView.previewSteps).
+function focusPreviewSteps(steps, at, size, undoing, canRedo) {
+  // (steps: one interval or a list of them; the list is followed as a chain: focusPreviewChain)
+  return focusPreviewChain(Array.isArray(steps) ? steps : steps ? [steps] : [], at, size, undoing, canRedo);
+}
+// Every ended preview's own steps joined where one ends and the next begins (two previews stopped in a row: 1->3 then
+// 3->5): Undo at 5 steps over both, back to 1, then undoes the change before them; Redo from 1 the same forward. A
+// preview with a change made during it (tainted) ends the chain: one press undoes it with that change. {count (steps to
+// take), tainted, chain (previews)} or null when the position is not at a preview's edge (PR #9 review, P1). Pure.
+function focusPreviewChain(list, at, size, undoing, canRedo) {
+  if (!Array.isArray(list) || !list.length || !Number.isInteger(at) || !(size >= 2 && size <= 1024)) return null;
+  if (!undoing && !canRedo) return null;
+  let here = at, count = 0, chain = 0, tainted = false;
+  const used = new Set();
+  while (chain < 16) {
+    const index = list.findIndex((s, k) => !used.has(k) && s && (undoing ? s.to === here : s.from === here));
+    if (index < 0) break;
+    const s = list[index], steps = (s.to - s.from + size) % size;
+    if (steps < 1 || steps > 8) break;
+    used.add(index); count += steps; chain++; here = undoing ? s.from : s.to;
+    if (s.tainted) { tainted = true; break; }
+  }
+  return chain ? {count, tainted, chain} : null;
+}
+
+// A finished preview's undo steps no longer in HX Edit's history: with nothing to redo, the undo position is inside
+// them or below them (a new step made there wrote over them), or so far past them that the ring came round. Pure.
+function focusStepsGone(steps, at, size) {
+  const count = (steps.to - steps.from + size) % size, past = (at - steps.from + size) % size;
+  return past < count || past > size - 9;
+}
+
 function focusCursor(panel, dsp, group) {
   if ([0, 1].includes(dsp) && typeof group === 'string' && /^(block\d{1,2}|split|join|input[AB]|output[AB])$/.test(group)) {
     return {...(panel || {}), dsp, block: group};
@@ -125,7 +158,10 @@ function focusChainPoint(box, block) {
   else if (/^block\d{1,2}$/.test(block.id) && Number.isInteger(block.position) && block.position >= 0 && block.position < 8) {
     column = block.position + 1; row = block.path === 1 ? 1 : 0;
   } else return null;
-  return {x: Math.round(box.x + (column + .5) * box.w / 10), y: Math.round(box.y + (row + .8) * box.h / 2)};
+  // (on the block's picture, 40 % down its lane: not on the name under it. A block whose bypass has a custom footswitch
+  // label shows that label there, and HX Edit opens its BYPASS/CONTROLLER ASSIGN tab on a click on it, to edit the
+  // label: live 2026-11-25 14:27:41, 031's "Godzilla" block; from then on HX Edit's panel followed no selection)
+  return {x: Math.round(box.x + (column + .5) * box.w / 10), y: Math.round(box.y + (row + .4) * box.h / 2)};
 }
 
 // Requests from the pane wait here until HX Edit's UI thread takes them. Of a drag's many changes to one
@@ -219,6 +255,40 @@ function focusFirstBlock(blocks) {
   const chain = (blocks || []).filter(block => /^block\d+$/.test(block.id) && Number.isInteger(block.position));
   chain.sort((a, b) => a.dsp - b.dsp || a.position - b.position || a.path - b.path);
   return chain.length ? {dsp: chain[0].dsp, id: chain[0].id} : null;
+}
+// HX Edit's status strip (keepStrip): the panes' dark gray while a pane covers HX Edit (Workbench, Classic+, Rig on
+// stage, Focus), HX Edit's own (29, 29, 29) in Classic. Its colour is looked at, not remembered: about once a second
+// (FOCUS_STRIP_CHECK_MS) and at once when the colour wanted changes, it is written only when it is not the one wanted.
+// Remembered as written, it stayed wrong after layout switches (N1, Nick's own use of 0b2a854: the old gray on a pane
+// layout, the new gray on Classic): HX Edit redraws the strip from its own style, and a turn-off write held back by
+// the retry wait was never made. track: {want, why, at, said} or null; cause: why the colour wanted changed.
+// focusStripDue -> {due, track}; focusStripTrace(track, dark, result) -> {trace (for the trace, or null), track}:
+// each change of the colour wanted, and each write, traced {strip: dark|stock, why, wrote}; why "repainted" when the
+// strip had gone back by itself. Pure.
+const FOCUS_STRIP_CHECK_MS = 1000;
+function focusStripDue(track, dark, cause, now) {
+  const t = track || {want: null, why: '', at: 0, said: ''};
+  if (t.want !== dark) {
+    return {due: true, track: {...t, want: dark, at: now, why: (t.want === null ? 'start-' : '') + (cause || (dark ? 'pane-on' : 'classic'))}};
+  }
+  if (now - t.at < FOCUS_STRIP_CHECK_MS) return {due: false, track: t};
+  return {due: true, track: {...t, at: now}};
+}
+// A write is repainted at once and the screen read back ({painted, rgb}); with the colour right but the screen not,
+// the look repaints it ({redrawn}: "redrawn"), at most three times until the next write (live 2026-11-26 11:30: the
+// screen stayed one write behind the colour).
+function focusStripTrace(track, dark, result) {
+  if (result && result.found) {
+    const wrote = !result.same;
+    const trace = track.why || wrote || result.redrawn ? {strip: dark ? 'dark' : 'stock', why: track.why || (wrote ? 'repainted' : 'redrawn'), wrote,
+                                        ...(result.was ? {was: result.was} : {}), kind: result.kind, offset: result.offset,
+                                        ...('painted' in result ? {painted: result.painted, rgb: result.rgb} : {}),
+                                        ...(result.redrawn ? {redrawn: result.redrawn, before: result.before} : {})} : null;
+    return {trace, track: {...track, why: '', said: ''}};
+  }
+  const word = JSON.stringify(result || null);
+  if (word === track.said) return {trace: null, track};
+  return {trace: {...(result || {}), strip: 'none', why: track.why || 'check'}, track: {...track, said: word}};
 }
 function focusCaptures(found, previous, inventory) {
   // The captures on the Floor for the pane's names and pictures. A change to the chain makes HX Edit announce a
@@ -372,6 +442,49 @@ function installFocusView(options, parts) {
   // changed, and every two seconds in any case.
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
+  let refreshSkips = 12;    // trace lines for refreshes left out (finish)
+  // HX Edit's status strip (focusStripDue, N1): looked at on the pane's readings while a pane is on, and, once it has
+  // been darkened, by a light watch while Classic shows (stripWatch: one look a second on HX Edit's UI thread).
+  let stripTrack = null, stripWatch = null;
+  function keepStrip(dark, cause) {
+    if (!namView.statusStrip) return;
+    const due = focusStripDue(stripTrack, dark, cause, Date.now());
+    stripTrack = due.track;
+    if (!due.due) return;
+    let result;
+    try { result = namView.statusStrip(dark); } catch (error) { result = {found: false, error: String(error.message)}; }
+    const said = focusStripTrace(stripTrack, dark, result);
+    stripTrack = said.track;
+    if (said.trace) send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...said.trace});
+    if (dark && result && result.found && !stripWatch) {
+      stripWatch = setInterval(() => {
+        if (!on) namView.queueSidebarAction(() => { if (!on) keepStrip(false, 'classic'); });
+      }, FOCUS_STRIP_CHECK_MS);
+    }
+  }
+  let selectAsked = null;   // the page's last pick, until a reading has it selected (trace "select-shown")
+  // HX Edit's own panel tab while a pane covers HX Edit: traced on each change ("hx-tab"), and put back on EDIT when it is
+  // on BYPASS/CONTROLLER ASSIGN ("hx-tab-edit"), at most once a second: the panes have their own Bypass and
+  // controllers tab, and HX Edit's EDIT tab is what TONE3000 and the Library bind the selected block through. Classic
+  // (no pane) is the player's own: not touched there.
+  let hxTab = '', hxTabFixedAt = 0, hxTabTries = 0, hxTabPicked = '', lastPicked = '';
+  function keepEditTab() {
+    let tab = null;
+    try { tab = namView.editPanelTab ? namView.editPanelTab() : null; } catch (_) { tab = null; }
+    // (the parameter pane PRVW shows only on the EDIT tab with a block picked: the 2a7742b reading of the two views
+    // said "none" live while the tab was on assign; their own flags do not follow the tab)
+    const picked = lastPicked;
+    const word = !tab ? 'unknown' : tab.prvw ? 'edit' : tab.assign ? 'assign' : /^block\d{1,2}$/.test(picked) ? 'assign?' : 'none';
+    if (word !== hxTab) { hxTab = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab', tab: word, picked, found: tab}); }
+    if (word === 'edit' || picked !== hxTabPicked) { hxTabTries = 0; hxTabPicked = picked; }
+    if ((word === 'assign' || word === 'assign?') && hxTabTries < 3 && Date.now() - hxTabFixedAt > 1000) {
+      hxTabTries++;
+      hxTabFixedAt = Date.now();
+      let clicked = false;
+      try { clicked = namView.showEditTab ? namView.showEditTab() : false; } catch (_) { clicked = false; }
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'hx-tab-edit', clicked});
+    }
+  }
   let known = null, knownAt = 0, changed = true, wanted = null, onFloor = [], assign = null, assignTraced = '';
   let header = {preset: null, snapshots: [], presets: null, tempo: null, topology: [null, null], setlists: null};   // the top bar's preset, snapshot names and preset list (full readings)
   // The Workbench's look at another setlist (focusLookStep), and a preset of another setlist asked of HX Edit's list.
@@ -456,9 +569,18 @@ function installFocusView(options, parts) {
     const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
     if (!block || !chainBlock.test(block.id) || editor.isNull()) { send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-skipped'}); return; }
     endDrag('a model change');
-    const isNam = namEngines.includes(block.model);
-    const next = command.action === 'capture' ? (isNam ? block.model : namEngines[0]) : command.symbol;
-    if (next !== block.model) {
+    // (the block as HX Edit has it now, not as the last reading saw it: a second ask before a reading showed the first,
+    // a double-click in the page's lists, would make the same change again, a second undo step)
+    let fresh = null;
+    try { fresh = targetBinding.peekModel(editor, block.dsp, block.id); } catch (_) { fresh = null; }
+    const model = fresh && typeof fresh.model === 'string' ? fresh.model : block.model;
+    const isNam = namEngines.includes(model);
+    const next = command.action === 'capture' ? (isNam ? model : namEngines[0]) : command.symbol;
+    if (next === model && (command.action !== 'capture' || (fresh && fresh.index === command.slot))) {
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-same', action: command.action, to: next});
+      return;
+    }
+    if (next !== model) {
       const full = focusRoom(typeof dspLoadsNow === 'undefined' ? null : dspLoadsNow[block.dsp], costsNow(), focusCostKey(block.model, block.slot, onFloor),
                              command.action === 'capture' ? focusCostKey(next, command.slot, onFloor) : next, block.dsp);
       if (full) { send({type: 'dspNotice', text: full}); send({type: 'toneTrace', reason: 'focus-view', stage: 'swap-no-room'}); return; }
@@ -480,6 +602,9 @@ function installFocusView(options, parts) {
   let plainIrs = [];          // the Floor's plain IRs, read with each full reading (readIrs)
   let otherCaptures = [];     // the slots holding a capture the library does not list (readOthers)
   let lastUndoWord = '';      // HX Edit's undo position and the preset, as last traced (the Workbench's redo button)
+  // An Undo or Redo the page asked, until a reading shows HX Edit's undo position moved: {action, at, from, call}; trace
+  // "undo-shown" {action, ms from the ask, call: HX Edit's own undo, read, full} (S5)
+  let undoAsked = null, lastUndoAt = null;
   let lastCanWord = '';       // HX Edit's own can-undo / can-redo, as last traced
   const ADD_FOLLOW_MS = 3000;
   const occupied = (dsp, lane, place) => (known || []).some(block => block.dsp === dsp && chainBlock.test(block.id) && block.position === place && block.path === lane);
@@ -536,8 +661,21 @@ function installFocusView(options, parts) {
       // renameSnapshot: one undo step; Save keeps it, as any other change). A preset's name is not renamed here.
       targetBinding.renameSnapshot(editor, command.index, command.name);
     } else if (command.action === 'redo' || command.action === 'undo') {
-      // HX Edit's own Undo / Redo (target_binding undo, redo: the Edit menu's entries), as the page's buttons ask
-      if (command.action === 'undo') targetBinding.undo(editor); else targetBinding.redo(editor);
+      // HX Edit's own Undo / Redo (target_binding undo, redo: the Edit menu's entries), as the page's buttons ask.
+      // Right after a preview (or right before it, for Redo) its own steps (to slot 128 and back) are stepped over as
+      // one, with the change before them when nothing else was changed during the preview: one Undo undid only the
+      // step back and left the block on the emptied slot 128 (live 2026-11-25 15:49:50).
+      const began = Date.now(), undoing = command.action === 'undo';
+      const step = () => { if (undoing) targetBinding.undo(editor); else targetBinding.redo(editor); };
+      const over = previewStepsAt(undoing);
+      if (over) {
+        for (let i = 0; i < over.count; i++) step();
+        let more = false;
+        if (!over.tainted) { try { more = !!(undoing ? targetBinding.canUndo(editor) : targetBinding.canRedo(editor)); } catch (_) { more = false; } }
+        if (more) step();
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-preview-steps', action: command.action, count: over.count, chain: over.chain, tainted: over.tainted, more});
+      } else step();
+      if (undoAsked) undoAsked.call = Date.now() - began;
     } else if (command.action === 'splitType') {
       // The split's type (Split Y, A/B, Crossover, Dynamic): its model, written as HX Edit's panel writes a model.
       const node = (known || []).find(item => item.dsp === command.dsp && item.id === 'split');
@@ -558,6 +696,11 @@ function installFocusView(options, parts) {
       } finally {
         if (away) targetBinding.recallSnapshot(editor, now);
       }
+    } else if (command.action === 'endpoint') {
+      // An input's source or an output's destination (R7): HX Edit's own value for it, written as its list writes it
+      // (the single-change flag: one undo step; Levels writes @output / @input the same way)
+      targetBinding.setValue(editor, command.dsp, command.id, command.key, command.value, 'single');
+      finish(editor, command.dsp, command.id, command.key, command.value);
     } else if (command.action === 'route') {
       // Lane B's own input or output in place of the split or the mixer (HX Edit's Create Input: removeNode), or the
       // split or the mixer back (its Restore Split: restoreNode).
@@ -616,9 +759,30 @@ function installFocusView(options, parts) {
     changed = true;
     send({type: 'toneTrace', reason: 'focus-view', stage: 'add-capture-set', slot: follow.slot});
   }
+  function previewStepsAt(undoing) {
+    try {
+      const steps = toneView.previewSteps ? toneView.previewSteps() : null;
+      if (!steps) return null;
+      return focusPreviewSteps(steps, editor.add(0x294).readS32(), editor.add(0x290).readS32(), undoing,
+                               undoing ? true : !!targetBinding.canRedo(editor));
+    } catch (_) { return null; }
+  }
   function finish(target, dsp, id, key, value) {
     // After a single change or a drag's end: the same value once more, for HX Edit's own views only.
     if (!notify) return;
+    // Only for the block HX Edit itself has selected (the only one its parameter view shows). A write with this flag
+    // also moves HX Edit's own cursor to the block written (its setter 0x5178c0 writes global "@cursor_dsp" and
+    // "@cursor_group" at 0x9181d0 only when 0x40000000 is set, as its Undo selects the block it undoes), so a refresh of
+    // another block selected that block in HX Edit: live 2026-11-25 15:49:32 a Bass turn on the Workbench's block
+    // ended the TONE3000 preview on its target (selection-changed). The value itself was written before, as always.
+    let shown = false;
+    try {
+      shown = targetBinding.peekGlobal(target, 'global', '@cursor_dsp') === dsp && targetBinding.peekGlobal(target, 'global', '@cursor_group') === id;
+    } catch (_) { shown = false; }
+    if (!shown) {
+      if (refreshSkips-- > 0) send({type: 'toneTrace', reason: 'focus-view', stage: 'refresh-skipped', dsp, block: id, key});
+      return;
+    }
     try { targetBinding.setValue(target, dsp, id, key, value, 'refresh'); }
     catch (error) { send({type: 'toneTrace', reason: 'focus-view', stage: 'refresh-failed', error: String(error.message)}); }
   }
@@ -738,13 +902,13 @@ function installFocusView(options, parts) {
           changed = true;
           send({type: 'focusPreset', number: command.number});
           send({type: 'toneTrace', reason: 'focus-view', stage: 'preset', number: command.number});
-        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) change(command);
+        } else if (['add', 'remove', 'move', 'moveSplit', 'route', 'endpoint', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) change(command);
         else if (command.action) swap(command); else write(command);
       }
       catch (error) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
-        if (['add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        if (['add', 'remove', 'move', 'moveSplit', 'route', 'endpoint', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
         // (a look that could not be asked: the page says that setlist could not be read; a load: said at once)
         if (command.action === 'look') looking = {setlist: command.setlist, at: Date.now(), state: 'failed'};
         if (command.action === 'presetIn') { loadingIn = null; send({type: 'dspNotice', text: 'HX Edit did not load that preset: ' + String(error.message)}); }
@@ -752,6 +916,14 @@ function installFocusView(options, parts) {
       }
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
+    keepEditTab();
+    keepStrip(true, 'pane-on');
+    // A block the page picked: clicked before this reading rather than after it, so the reading itself carries HX
+    // Edit's new selection (its click fires HX Edit's own events, which make it a full reading): one turn of HX Edit's
+    // UI thread less between the click and the page's panel. (The first block of a preset is still picked after.)
+    if (wanted && known && !editor.isNull()) {
+      try { select(wanted); } catch (error) { wanted = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'select-failed', error: String(error.message)}); }
+    }
     try {
       const bounds = paneBounds();
       const place = JSON.stringify(bounds);
@@ -762,10 +934,13 @@ function installFocusView(options, parts) {
       // (the selection as the preset itself keeps it, which follows every click on HX Edit's chain; the edit panel's
       // own, which the Workbench read before, stands still while HX Edit's Bypass/Controller Assign tab is open)
       const cursor = focusCursor(panelCursor, targetBinding.peekGlobal(editor, 'global', '@cursor_dsp'), targetBinding.peekGlobal(editor, 'global', '@cursor_group'));
+      // A TONE3000 session's preview block (toneView.steerPreview): HX Edit may have it selected while the pane shows
+      // its own block (shown); steerTo: the click on HX Edit's chain that puts the preview's block there (or back).
+      const {shown, steerTo} = focusSteer(cursor);
       const began = Date.now(), peek = (dsp, place, key) => targetBinding.peekValue(editor, dsp, place, key);
-      let state = !changed && known && began - knownAt < FULL_MS ? focusValues(peek, known, cursor, parameters, namEngines) : null;
+      let state = !changed && known && began - knownAt < FULL_MS ? focusValues(peek, known, shown, parameters, namEngines) : null;
       const full = !state;
-      if (full) { state = focusSnapshot(peek, cursor, parameters, namEngines); knownAt = began; changed = false; }
+      if (full) { state = focusSnapshot(peek, shown, parameters, namEngines); knownAt = began; changed = false; }
       known = state.blocks;
       if (full && addFollow) { try { followAdd(known); } catch (error) { addFollow = null; send({type: 'toneTrace', reason: 'focus-view', stage: 'add-follow-failed', error: String(error.message)}); } }
       if (downFollow) {
@@ -841,6 +1016,24 @@ function installFocusView(options, parts) {
       try { state.redo = targetBinding.canRedo(editor); } catch (_) { state.redo = null; }
       const undoWord = state.undoAt + '@' + (state.preset ? state.preset.setlist + ':' + state.preset.number : '-');
       if (undoWord !== lastUndoWord) { lastUndoWord = undoWord; send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-at', at: undoWord}); }
+      if (undoAsked && Date.now() - undoAsked.at > 5000) undoAsked = null;
+      if (undoAsked && Number.isInteger(state.undoAt) && state.undoAt !== undoAsked.from) {
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'undo-shown', action: undoAsked.action, ms: Date.now() - undoAsked.at, call: undoAsked.call,
+              read: Date.now() - began, full});
+        undoAsked = null;
+      }
+      if (Number.isInteger(state.undoAt)) lastUndoAt = state.undoAt;
+      // (a preview's steps are forgotten once HX Edit's history no longer holds them: a new step made at or below them,
+      // which ends what could be redone, or the ring of records come round)
+      try {
+        const list = toneView.previewSteps ? toneView.previewSteps() : [], size = state.undoSize || 33;
+        const gone = Number.isInteger(state.undoAt) && state.redo === false && Array.isArray(list) ?
+          list.filter(steps => focusStepsGone(steps, state.undoAt, size)) : [];
+        if (gone.length) {
+          toneView.forgetPreviewSteps(gone.map(s => ({from: s.from, to: s.to})));
+          send({type: 'toneTrace', reason: 'focus-view', stage: 'preview-steps-forgotten', at: state.undoAt, gone: gone.map(s => s.from + '-' + s.to)});
+        }
+      } catch (_) { /* nothing to forget */ }
       // (what HX Edit's Edit menu would offer, on each change: after a preset load it says whether HX Edit cleared its
       // history; one line per change)
       const canWord = state.undo + '/' + state.redo;
@@ -870,26 +1063,61 @@ function installFocusView(options, parts) {
           if (first) { pickTries++; wanted = first; send({type: 'toneTrace', reason: 'focus-view', stage: 'first-block', dsp: first.dsp, block: first.id, attempt: pickTries}); }
         }
       }
+      // (how long from the page's pick to the reading that has it selected: one line per pick)
+      if (selectAsked && Date.now() - selectAsked.at > 4000) selectAsked = null;
+      if (selectAsked && state.selected && state.selected.dsp === selectAsked.dsp && state.selected.id === selectAsked.id) {
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'select-shown', block: selectAsked.id, ms: Date.now() - selectAsked.at, read: Date.now() - began, full});
+        selectAsked = null;
+      }
+      lastPicked = state.selected ? state.selected.id : '';
       publish(state);
       if (wanted) select(wanted);
+      else if (steerTo) chainClick(steerTo, 'preview-select');
     } catch (error) {
       if (reports > 0) { reports--; send({type: 'toneTrace', reason: 'focus-view', stage: 'read-failed', error: String(error.message)}); }
     }
   }
+  function focusSteer(cursor) {
+    let shown = cursor, steerTo = null;
+    if (!known || !toneView.steerPreview) return {shown, steerTo};
+    // (a NAM Pedal block is listed as one, marked: it plays pedal versions only and is never a preview target, U6)
+    const nams = known.filter(block => namEngines.includes(block.model) && /^block\d{1,2}$/.test(block.id))
+      .map(block => block.model === 'HD2_AmpNAMPedal' ? {...block, pedal: true} : block);
+    const mine = cursor && cursor.block ? {dsp: cursor.dsp, id: cursor.block} : null;
+    const steer = toneView.steerPreview({nams, cursor: mine});
+    if (!steer) return {shown, steerTo};
+    const page = steer.page;
+    if (!(page ? mine && page.dsp === mine.dsp && page.id === mine.id : !mine)) {
+      shown = {...(cursor || {}), dsp: page ? page.dsp : -1, block: page ? page.id : ''};
+    }
+    steerTo = steer.click || null;
+    return {shown, steerTo};
+  }
   function select(target) {
-    // A block picked in the pane's chain strip: a click on that block in HX Edit's own chain.
+    // A block picked in the pane's chain strip: a click on that block in HX Edit's own chain. While a TONE3000 session
+    // keeps its preview's block selected in HX Edit (toneView.pagePick), the pane only shows the picked one.
     wanted = null;
+    let pageOnly = false;
+    try { pageOnly = !!(toneView.pagePick && toneView.pagePick({dsp: target.dsp, id: target.id})); } catch (_) { pageOnly = false; }
+    if (pageOnly) {
+      changed = true;
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'select-page-only', dsp: target.dsp, block: target.id});
+      return;
+    }
+    chainClick(target, 'select');
+  }
+  function chainClick(target, stage) {
     const block = (known || []).find(item => item.dsp === target.dsp && item.id === target.id);
     if (block && (block.id === 'split' || block.id === 'join')) {
       // (the split or the mixer: selected as HX Edit's own drop selects one, target_binding selectNode)
       targetBinding.selectNode(editor, block.dsp, block.id);
       changed = true;
-      send({type: 'toneTrace', reason: 'focus-view', stage: 'select', dsp: target.dsp, block: target.id});
+      send({type: 'toneTrace', reason: 'focus-view', stage, dsp: target.dsp, block: target.id});
       return;
     }
     const spot = block && focusChainPoint(namView.chainBox(block.dsp), block);
     const clicked = !!spot && namView.clickChainPoint(spot.x, spot.y);
-    send({type: 'toneTrace', reason: 'focus-view', stage: clicked ? 'select' : 'select-skipped', dsp: target.dsp, block: target.id});
+    send({type: 'toneTrace', reason: 'focus-view', stage: clicked ? stage : stage + '-skipped', dsp: target.dsp, block: target.id});
   }
   function publish(state) {
     const text = JSON.stringify(state);
@@ -912,7 +1140,11 @@ function installFocusView(options, parts) {
         try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end'); finish(open.editor, open.dsp, open.id, open.key, open.value); } catch (_) { /* the block is gone */ }
       });
     }
+    const was = on;
     on = value === true;
+    // HX Edit's status strip: the panes' gray while a pane covers HX Edit, its own again for Classic (U2)
+    // (the pane's readings keep it dark; Classic: at once, then by the watch; never once a pane is back on)
+    if (was !== on && !on) namView.queueSidebarAction(() => { if (!on) keepStrip(false, 'classic'); });
     if (timer) { clearInterval(timer); timer = null; }
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null; downFollow = null;
     pickKey = null; pickTries = 0;
@@ -963,6 +1195,7 @@ function installFocusView(options, parts) {
       if (value.action === 'costs') measured = focusMeasured(value.costs);
       else if (on && value.action === 'select' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16) {
         wanted = {dsp: value.dsp, id: value.id};
+        selectAsked = {dsp: value.dsp, id: value.id, at: Date.now()};
         queued = false; ask();
       } else if (on && value.action === 'set' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16 &&
                  typeof value.key === 'string' && value.key.length < 49 && ['single', 'begin', 'move', 'end'].includes(value.phase) &&
@@ -1027,6 +1260,7 @@ function installFocusView(options, parts) {
         queued = false; ask();
       } else if (on && ['undo', 'redo'].includes(value.action) && writes.length < 32) {
         writes.push({action: value.action});
+        undoAsked = {action: value.action, at: Date.now(), from: lastUndoAt, call: null};
         queued = false; ask();
       } else if (on && value.action === 'splitType' && [0, 1].includes(value.dsp) && typeof value.symbol === 'string' &&
                  /^HD2_AppDSPFlowSplit(Y|AB|XOver|Dyn)$/.test(value.symbol) && writes.length < 32) {
@@ -1037,6 +1271,11 @@ function installFocusView(options, parts) {
                  (typeof value.value === 'boolean' || Number.isFinite(value.value)) && writes.length < 32) {
         writes.push({action: 'snapValue', dsp: value.dsp, id: value.id, snapshot: value.snapshot, key: value.key, value: value.value});
         queued = false; ask();
+      } else if (on && value.action === 'endpoint' && [0, 1].includes(value.dsp) && ['inputA', 'inputB', 'outputA', 'outputB'].includes(value.id) &&
+                 value.key === '@' + (value.id.startsWith('input') ? 'input' : 'output') && Number.isInteger(value.value) && value.value >= 0 && value.value < 32 &&
+                 writes.length < 32) {
+        writes.push({action: 'endpoint', dsp: value.dsp, id: value.id, key: value.key, value: value.value});
+        queued = false; ask();
       } else if (on && value.action === 'route' && [0, 1].includes(value.dsp) && ['split', 'join'].includes(value.id) && writes.length < 32) {
         writes.push({action: 'route', dsp: value.dsp, id: value.id, back: value.back === true});
         queued = false; ask();
@@ -1045,9 +1284,9 @@ function installFocusView(options, parts) {
     });
   }
   listen(); commands();
-  return { set, dispose() { set(false); hook.detach(); } };
+  return { set, dispose() { set(false); if (stripWatch) clearInterval(stripWatch); hook.detach(); } };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
+  module.exports = { focusStepsGone, focusPreviewSteps, focusPreviewChain, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, focusStripDue, focusStripTrace, FOCUS_STRIP_CHECK_MS, installFocusView };
 }

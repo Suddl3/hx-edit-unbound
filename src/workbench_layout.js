@@ -226,6 +226,80 @@ function workbenchOwnSteps(track, at, preset, size) {
   return {preset, at, steps: Math.max(0, track.steps + move)};
 }
 
+// Whether the bar offers Undo and Redo. HX Edit's own Edit-menu answers decide wherever they could be read (undo,
+// redo: target_binding canUndo / canRedo; null when not read): HX Edit empties its own history on a preset load (live
+// check 2026-11-25 00:55, `undo-can undo:false redo:false` straight after `preset 31`), so they never offer another
+// preset's steps, and they keep the steps made on this preset before the Workbench first saw it (in Classic, in Focus
+// Mode, before a layout switch or a relaunch of the pane: the review of 1d3675f). Only an answer that could not be
+// read falls back on the steps the Workbench itself saw made on this preset (workbenchOwnSteps, workbenchRedo).
+function workbenchUndoRedo(undo, redo, own, redoTrack) {
+  return {undo: typeof undo === 'boolean' ? undo : !(own && own.steps === 0),
+          redo: typeof redo === 'boolean' ? redo : !!(redoTrack && redoTrack.redo)};
+}
+
+// A block picked here shows as the picked one at once (Nick, 2026-11-25: "picking a block is not snappy"), drawn from
+// what the page knows (its model, the catalog), before HX Edit's reading says it is selected. The page's pick holds
+// until that reading comes (the pick is dropped then), and is dropped, showing HX Edit's own selection, when the block
+// is gone, the time runs out, or HX Edit shows a block that is neither the one picked nor one it was on since (from:
+// HX Edit's selection when the first of quick picks was made, and the picks made after it): the player picked
+// elsewhere, on the Floor or in HX Edit. -> {pick (kept, or null), selected (what the page shows)}
+const WORKBENCH_PICK_HOLD_MS = 2500;
+function workbenchPicked(pick, selected, blocks, now) {
+  if (!pick) return {pick: null, selected};
+  const is = (a, b) => !!a && !!b && a.dsp === b.dsp && a.id === b.id;
+  const there = (Array.isArray(blocks) ? blocks : []).some(b => is(b, pick));
+  const before = (pick.from || []).some(f => is(f, selected));
+  if (is(selected, pick) || !there || now > pick.until || (selected && !before)) return {pick: null, selected};
+  return {pick, selected: {dsp: pick.dsp, id: pick.id}};
+}
+// The pick made now, over the one still held (quick clicks): what HX Edit may still show meanwhile is kept in from.
+function workbenchPick(block, held, hxSelected, now) {
+  const from = held ? held.from.concat([{dsp: held.dsp, id: held.id}]) : [hxSelected || null];
+  return {dsp: block.dsp, id: block.id, from: from.filter(Boolean).slice(-6), until: now + WORKBENCH_PICK_HOLD_MS};
+}
+
+// A model or a capture asked for a block that is asked again before a reading shows the first (a double-click on a row,
+// Nick's habit from Classic, where a double-click replaces): the same choice for the same block within
+// WORKBENCH_SWAP_REPEAT_MS. Asked twice, HX Edit made it twice: two undo steps, and the first Undo seemed to do nothing.
+const WORKBENCH_SWAP_REPEAT_MS = 1500;
+// Rig on stage's pinned scene (Reveal B11: one scene for the preset) is frozen once the blocks shown belong to the
+// preset: the same preset (key) and the same blocks and selection (sig) for WORKBENCH_SCENE_SETTLE_MS. On a switch the
+// page could see the new preset's header while the old preset's blocks and selection still showed, and froze the old
+// preset's scene under the new key (live 2026-11-26 00:5x: 032's "Studio Desk" on 031). track: {key, sig, since} or
+// null; returns {settled, track}. Pure.
+const WORKBENCH_SCENE_SETTLE_MS = 700;
+function workbenchSceneSettled(track, key, sig, now) {
+  if (!track || track.key !== key || track.sig !== sig) return {settled: false, track: {key, sig, since: now}};
+  return {settled: now - track.since >= WORKBENCH_SCENE_SETTLE_MS, track};
+}
+
+// The side list across a layout switch (workbenchSwitch), and whether Classic+ opened it by itself (auto): Classic+
+// always shows one and opens Presets when none is open; leaving Classic+, a list it opened by itself closes, one the
+// player opened stays (live 2026-11-26: Presets stayed open beside Rig on stage after Classic+). Returns {view, auto}.
+// Pure.
+function workbenchSwitchSide(view, from, to, auto) {
+  let v = {drawer: '', half: '', full: '', ...(view || {})};
+  if (from === 'classicplus' && to !== 'classicplus' && auto && v.drawer === WORKBENCH_SIDE_FIRST) v = {...v, drawer: ''};
+  const had = v.drawer, next = workbenchSwitch(v, to);
+  const opened = to !== 'classicplus' ? false : from === 'classicplus' ? !!auto : !had && !!next.drawer;
+  return {view: next, auto: opened};
+}
+
+// A click on a choice (the picker's card, Classic+'s row, the input/output chooser's tile): the second click on the
+// same choice within WORKBENCH_DOUBLE_MS is its double-click. The first click lines the choice up and redraws the list,
+// so the browser's own dblclick went to a new element and never fired (PR #9 review, P2). last: {key, at} or null;
+// returns {double, last}: a double clears it (a third click starts afresh). Pure.
+const WORKBENCH_DOUBLE_MS = 500;
+function workbenchSecondClick(last, key, now) {
+  if (last && last.key === key && now - last.at >= 0 && now - last.at <= WORKBENCH_DOUBLE_MS) return {double: true, last: null};
+  return {double: false, last: {key, at: now}};
+}
+
+function workbenchSwapRepeat(asked, block, choice, now) {
+  return !!asked && !!block && !!choice && asked.dsp === block.dsp && asked.id === block.id && now - asked.at < WORKBENCH_SWAP_REPEAT_MS &&
+    (choice.symbol ? asked.symbol === choice.symbol : asked.slot === choice.slot);
+}
+
 function workbenchRedo(track, at, preset, redoing) {
   // Whether there is something to redo, from HX Edit's undo position (at: the steps that can be undone) as it
   // changes: an undo lowers it and leaves a step to redo; a new change raises it and leaves none, unless it is the
@@ -570,7 +644,7 @@ function workbenchSlotUsers(usage, slot, loaded) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
+  module.exports = { workbenchSceneSettled, WORKBENCH_SCENE_SETTLE_MS, workbenchSwitchSide, workbenchSecondClick, WORKBENCH_DOUBLE_MS, workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchPicked, workbenchPick, WORKBENCH_PICK_HOLD_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
                      workbenchAdded, WORKBENCH_ADD_SELECT_MS, workbenchPresetKey, workbenchAddFollow, workbenchAddSelect, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,

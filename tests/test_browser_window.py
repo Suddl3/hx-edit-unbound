@@ -171,6 +171,18 @@ class BrowserWindowChecks {
         Check(ToneBrowser.PlainTarget("DSP 1 · block0 · A · B · User IR 9") == "DSP 1 · block0 · A · B · User IR 9");   // not that shape: as it came
         Check(ToneBrowser.PlainTarget("NAM A") == "NAM A");
         Check(ToneBrowser.PlainTarget(null) == "");
+        // which block a preview plays on (Batch 2 sheet): asked, none, on its way to the one chosen, and the chooser's rows
+        Check(ToneBrowser.TargetText(new Dictionary<string,object> { {"ask", true} }) == "Preview plays on: Choose a block");
+        Check(ToneBrowser.TargetText(new Dictionary<string,object> { {"none", true} }) == "This preset has no NAM block: add one to hear a tone here");
+        var aim = new Dictionary<string,object> { {"dsp", 1}, {"id", "block3"}, {"name", "Klon Gain=0"} };
+        Check(ToneBrowser.TargetText(new Dictionary<string,object> { {"target", aim} }) == "Preview plays on Klon Gain=0 · Path 2");
+        Check(ToneBrowser.ChoiceAction(aim) == "target:1:block3");
+        Check(ToneBrowser.ChoiceText(aim) == "Klon Gain=0 · Path 2");
+        Check(ToneBrowser.ChoiceText(new Dictionary<string,object> { {"dsp", 0}, {"id", "block0"} }) == "NAM · Path 1");
+        Check(ToneBrowser.ChoiceAction(new Dictionary<string,object> { {"dsp", 2}, {"id", "block3"} }) == null);
+        Check(ToneBrowser.ChoiceAction(new Dictionary<string,object> { {"dsp", 0}, {"id", "split"} }) == null);
+        Check(ToneBrowser.ChoiceAction(new Dictionary<string,object> { {"dsp", true}, {"id", "block1"} }) == null);
+        Check(ToneBrowser.ChoiceAction(null) == null);
         target["label"] = "NAM B";
         target["bound"] = false; target["quarantined"] = true;
         target["text"] = "Preview remains in User IR 128";

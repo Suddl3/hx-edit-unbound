@@ -18,6 +18,10 @@ sealed class ToneBrowser : Form
 {
     internal enum WindowMode { Embedded, Floating }
     const string CardUrl = "https://hx-edit-nam.invalid/tone";
+    // The popped-out window's side panel (tone_side.html, sent by tone_preview while the Workbench placed the window):
+    // the Workbench tray's Plays on row and tone card, shown at the right while popped out (T4, 2026-11-25).
+    const string SideUrl = "https://hx-edit-nam.invalid/side";
+    const int SideWidth = 360;
     const string EscapeMessage = "hx-unbound-preview-escape";
     // WebView2 owns a native child message loop. WinForms KeyDown alone does
     // not consistently see keys handled by a focused web document.
@@ -31,6 +35,15 @@ sealed class ToneBrowser : Form
     [DllImport("user32.dll")] static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hwnd);
     [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    // A dark title bar (DWMWA_USE_IMMERSIVE_DARK_MODE 20; 19 before Windows 10 20H1), as our other dark windows.
+    static void DarkTitle(IntPtr window)
+    {
+        int on = 1;
+        try { if (DwmSetWindowAttribute(window, 20, ref on, 4) != 0) DwmSetWindowAttribute(window, 19, ref on, 4); }
+        catch (Exception) { }
+    }
     [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SetParent(IntPtr hwnd, IntPtr parent);
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
@@ -161,6 +174,9 @@ sealed class ToneBrowser : Form
     readonly Button popOut = new Button { Text = "Pop out", AutoSize = true, Height = 26 };
     readonly Button endPreview = new Button { Text = "End preview", AutoSize = true, Height = 26, Visible = false };
     readonly ToolTip hints = new ToolTip();
+    readonly WebView2 side = new WebView2 { Dock = DockStyle.Fill, Visible = false };
+    readonly ColumnStyle sideColumn = new ColumnStyle(SizeType.Absolute, 0);
+    string sideHtml, sideData;
     Rectangle dock;
     Rectangle applied;
     Uri callback;
@@ -285,6 +301,8 @@ sealed class ToneBrowser : Form
         Font = new Font("Segoe UI", 9.0f, FontStyle.Regular);
         using (var resource = typeof(ToneBrowser).Assembly.GetManifestResourceStream("ToneBrowser.ico"))
             if (resource != null) Icon = new Icon(resource);
+        // HX Edit Unbound's own icon on this window and its taskbar entry (Level, Floor look, TONE3000 popped out)
+        try { Icon = AppIcon.Make(SystemInformation.IconSize.Width); } catch (Exception) { }
         presentation = new PresentationController(
             () => panelVisible && dock.Width > 60 && dock.Height > 60 && IsWindow(parent),
             ReparentPane, ApplyPresentationLayout,
@@ -293,12 +311,17 @@ sealed class ToneBrowser : Form
 
         browser.DefaultBackgroundColor = BackColor;
         details.DefaultBackgroundColor = BackColor;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        side.DefaultBackgroundColor = BackColor;
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.ColumnStyles.Add(sideColumn);
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(detailRow);
-        browser.Margin = details.Margin = Padding.Empty;
+        browser.Margin = details.Margin = side.Margin = Padding.Empty;
         layout.Controls.Add(browser, 0, 0);
+        layout.Controls.Add(side, 1, 0);
         layout.Controls.Add(details, 0, 1);
+        layout.SetColumnSpan(details, 2);
         Controls.Add(layout);
         var targetActions = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true,
             FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Padding = new Padding(0, 5, 6, 0) };
@@ -315,14 +338,14 @@ sealed class ToneBrowser : Form
         popOut.Click += (sender, args) => ChangePresentation(
             windowMode == WindowMode.Embedded ? WindowMode.Floating : WindowMode.Embedded, true);
         // The banner over the site, in the Workbench's own colours (its panel and line): which block a preview
-        // plays on, in plain words, and Pop out.
+        // plays on, in plain words, and Pop out. No logo of its own (Nick, 2026-11-25: with the window's icon and the
+        // layout chooser's logo it made three on a diagonal); popped out, the window's title bar carries the name
+        // and HX Edit Unbound's icon.
         targetBar.BackColor = Color.FromArgb(20, 22, 27);
         targetLabel.ForeColor = Color.FromArgb(201, 205, 214);
+        targetLabel.Padding = new Padding(12, 0, 4, 0);
         targetBar.Controls.Add(targetLabel);
         targetBar.Controls.Add(new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = Color.FromArgb(42, 46, 56) });
-        if (Icon != null)
-            targetBar.Controls.Add(new PictureBox { Dock = DockStyle.Left, Width = 32,
-                Image = Icon.ToBitmap(), SizeMode = PictureBoxSizeMode.CenterImage });
         targetBar.Controls.Add(targetActions);
         Controls.Add(targetBar);
         browser.PreviewKeyDown += MarkPreviewEscape;
@@ -370,12 +393,12 @@ sealed class ToneBrowser : Form
         var work = Screen.FromHandle(parent).WorkingArea;
         // HX Edit Unbound's violet-to-teal icon, as HX Edit's window has it (NamLibrary.cs UnboundLook).
         // (parent is a panel inside HX Edit: its top-level window carries the icon)
-        var unbound = SendMessage(GetAncestor(parent, 2), 0x7F, (IntPtr)1, IntPtr.Zero);   // GA_ROOT; WM_GETICON, ICON_BIG
-        if (unbound != IntPtr.Zero) try { Icon = (Icon)Icon.FromHandle(unbound).Clone(); } catch (Exception) { }
+        // (HX Edit Unbound's own icon, AppIcon: no longer HX Edit's window's, which carried the old colours, U3)
         floatingHost = new Form { Text = Text, Icon = Icon, StartPosition = FormStartPosition.Manual,
             FormBorderStyle = FormBorderStyle.Sizable, ShowInTaskbar = true, AutoScaleMode = AutoScaleMode.None,
             BackColor = BackColor, Bounds = SavedBounds(savedBoundsFile) ?? FloatingBounds(work),
             MinimumSize = new Size(Math.Min(640, work.Width), Math.Min(420, work.Height)) };
+        floatingHost.HandleCreated += (sender, args) => DarkTitle(floatingHost.Handle);
         floatingHost.Resize += (sender, args) => { if (windowMode == WindowMode.Floating) LayoutPane(); };
         floatingHost.ResizeEnd += (sender, args) => SaveBounds(savedBoundsFile, floatingHost.Bounds);
         floatingHost.FormClosing += (sender, args) => {
@@ -608,6 +631,24 @@ sealed class ToneBrowser : Form
                 // downloading/converting; a queued plain "finish" is too late.
                 HandleCardAction(ReadWebMessage(args));
             };
+            await side.EnsureCoreWebView2Async(env);
+            if (closing || IsDisposed) return;
+            var panel = side.CoreWebView2;
+            Configure(panel, true);
+            await panel.AddScriptToExecuteOnDocumentCreatedAsync(EscapeScript);
+            panel.NavigationStarting += (sender, args) => args.Cancel = args.Uri != SideUrl;
+            panel.NewWindowRequested += (sender, args) => args.Handled = true;
+            panel.AddWebResourceRequestedFilter(SideUrl, CoreWebView2WebResourceContext.Document);
+            panel.WebResourceRequested += (sender, args) => {
+                if (sideHtml == null || args.Request.Uri != SideUrl) return;
+                args.Response = env.CreateWebResourceResponse(new MemoryStream(Encoding.UTF8.GetBytes(sideHtml)), 200, "OK",
+                    "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store");
+            };
+            panel.DOMContentLoaded += (sender, args) => UpdateSide();
+            panel.WebMessageReceived += (sender, args) => {
+                if (args.Source != SideUrl || panel.Source != SideUrl) return;
+                HandleSideAction(ReadWebMessage(args));
+            };
             output.WriteLine("{\"type\":\"ready\"}");
             await Task.Run(() => ReadCommands(input));
         }
@@ -689,6 +730,7 @@ sealed class ToneBrowser : Form
             return;
         }
         if ((string)message["type"] == "chrome") { ApplyChrome(message); return; }
+        if (ReceiveSide(message)) return;
         if ((string)message["type"] == "presentation")
         {
             object value;
@@ -785,14 +827,108 @@ sealed class ToneBrowser : Form
             !String.IsNullOrEmpty(Convert.ToString(label)))
             return "Preview plays on " + PlainTarget(Convert.ToString(label));
         if (Flag(message, "quarantined")) return "Preview retained · select End preview";
+        if (Flag(message, "none")) return "This preset has no NAM block: add one to hear a tone here";
+        if (Flag(message, "ask")) return "Preview plays on: Choose a block";
+        // (on its way to the chosen block: HX Edit selects it, then the preview binds it)
+        var target = message.TryGetValue("target", out label) ? label as Dictionary<string, object> : null;
+        if (ChoiceAction(target) != null) return "Preview plays on " + ChoiceText(target);
         if (message.TryGetValue("selected", out label) && !String.IsNullOrEmpty(Convert.ToString(label)))
             return "Selected: " + PlainTarget(Convert.ToString(label));
         return "Select a NAM block to hear a tone";
     }
 
+    // "target:<dsp>:<block>" for one of the preset's NAM blocks as tone_view.js lists them, or null.
+    internal static string ChoiceAction(Dictionary<string, object> block)
+    {
+        object dsp, id;
+        if (block == null || !block.TryGetValue("dsp", out dsp) || !block.TryGetValue("id", out id)) return null;
+        int number;
+        var name = Convert.ToString(id, CultureInfo.InvariantCulture) ?? "";
+        if (dsp is bool || !Int32.TryParse(Convert.ToString(dsp, CultureInfo.InvariantCulture), NumberStyles.None,
+                CultureInfo.InvariantCulture, out number) || number < 0 || number > 1) return null;
+        if (!Regex.IsMatch(name, @"^block\d{1,2}$")) return null;
+        return "target:" + number.ToString(CultureInfo.InvariantCulture) + ":" + name;
+    }
+
+    // "Deluxe Reverb · Path 1": the capture the block plays, and its path (DSP 1 is Path 1).
+    internal static string ChoiceText(Dictionary<string, object> block)
+    {
+        object name, dsp;
+        var text = block != null && block.TryGetValue("name", out name) && !String.IsNullOrEmpty(Convert.ToString(name))
+            ? Convert.ToString(name) : "NAM";
+        int number = 0;
+        if (block != null && block.TryGetValue("dsp", out dsp))
+            Int32.TryParse(Convert.ToString(dsp, CultureInfo.InvariantCulture), NumberStyles.None, CultureInfo.InvariantCulture, out number);
+        return text + " · Path " + (number + 1).ToString(CultureInfo.InvariantCulture);
+    }
+
+    // The popped-out window's side panel: its page ("sidePage") and the tray's data ("side", tone_preview tray_out).
+    bool ReceiveSide(Dictionary<string, object> message)
+    {
+        var type = (string)message["type"];
+        object value;
+        if (type == "sidePage")
+        {
+            if (!message.TryGetValue("html", out value) || !(value is string)) return true;
+            sideHtml = (string)value;
+            if (side.CoreWebView2 != null) side.CoreWebView2.Navigate(SideUrl);
+            LayoutPane(true);
+            return true;
+        }
+        if (type == "side")
+        {
+            if (message.TryGetValue("data", out value)) sideData = json.Serialize(value);
+            UpdateSide();
+            return true;
+        }
+        return false;
+    }
+
+    void UpdateSide()
+    {
+        if (closing || IsDisposed || side.IsDisposed || sideData == null) return;
+        var panel = side.CoreWebView2;
+        if (panel == null || panel.Source != SideUrl) return;
+        panel.PostWebMessageAsJson(sideData);
+    }
+
+    // What the side page may ask: the tray's own actions (tone_preview browse: End preview, Keep on this PC, Load on
+    // Floor, the block it plays on, the tone's profile), and Escape.
+    internal static bool IsSideAction(string action)
+    {
+        return action != null && Regex.IsMatch(action,
+            @"^(end|keep:\d{1,6}|save:\d{1,6}:\d{1,3}|target:[01]:block\d{1,2}|model:\d{1,12}|replace:\d{1,3}|auditionSelected|retry|source)$");
+    }
+
+    void HandleSideAction(string action)
+    {
+        if (action == EscapeMessage) RequestCancel("escape");
+        else if (IsSideAction(action)) SendAction(action);
+    }
+
+    // The card row: in the Workbench (it sent the side page) none at all (U1, 2026-11-25: the tone card and its
+    // actions are in the side panel, the rail has the library, the page's X closes TONE3000); the library page as
+    // before; elsewhere (Classic) the card as before.
+    int CardHeight(int height)
+    {
+        return sideHtml != null && !library ? 0 : DetailHeight(height, library, hasTone);
+    }
+
+    // Popped out (floating) with a side page: the side column at the right; docked: none (the Workbench draws its tray).
+    // (in device pixels: 360 of the page's own at the window's scale, so the page fits its column, U3)
+    void LayoutSide()
+    {
+        int width = windowMode == WindowMode.Floating && sideHtml != null ? SideWidth * Math.Max(96, DeviceDpi) / 96 : 0;
+        if ((int)sideColumn.Width == width) return;
+        sideColumn.Width = width;
+        side.Visible = width > 0;
+        if (width > 0) UpdateSide();
+    }
+
     void LayoutPane(bool raiseForNativeChange = false)
     {
         if (closing || IsDisposed) return;
+        LayoutSide();
         if (!IsWindow(parent)) { CloseFromHost(); return; }
         if (windowMode == WindowMode.Floating)
         {
@@ -806,7 +942,7 @@ sealed class ToneBrowser : Form
                 SetWindowPos(Handle, IntPtr.Zero, 0, 0, client.Width, client.Height, 0x0010);
                 applied = floatingBounds;
             }
-            int height = DetailHeight(client.Height - (targetBar.Visible ? targetBar.Height : 0), library, hasTone);
+            int height = CardHeight(client.Height - (targetBar.Visible ? targetBar.Height : 0));
             if (detailRow.Height != height) detailRow.Height = height;
             bool canDock = panelVisible && dock.Width > 60 && dock.Height > 60;
             if (popOut.Enabled != canDock)
@@ -822,7 +958,7 @@ sealed class ToneBrowser : Form
         if (!show) return;
         var bounds = dock;
         // The NAM library page covers the TONE3000 catalog while it is open.
-        var detailHeight = DetailHeight(dock.Height - (targetBar.Visible ? targetBar.Height : 0), library, hasTone);
+        var detailHeight = CardHeight(dock.Height - (targetBar.Visible ? targetBar.Height : 0));
         if (detailRow.Height != detailHeight) detailRow.Height = detailHeight;
         if (bounds != applied)
         {
@@ -851,5 +987,57 @@ sealed class ToneBrowser : Form
         Uri uri;
         return Uri.TryCreate(address, UriKind.Absolute, out uri) && uri.Scheme == "https" && uri.IsDefaultPort &&
             (uri.Host == "www.tone3000.com" || uri.Host == "tone3000.com");
+    }
+}
+
+// HX Edit Unbound's app icon (the Workbench's logo: a dark rounded square with two violet-to-teal chevrons), drawn here
+// so every window of ours carries it (U3, 2026-11-25: the popped TONE3000 window had HX Edit's old one). The same
+// drawing is in NamLibrary.cs (UnboundLook) for HX Edit's own window.
+static class AppIcon
+{
+    internal static Bitmap Draw(int size)
+    {
+        var picture = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(picture))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+            float k = size / 32f, r = 7 * k;
+            var box = new RectangleF(0.5f * k, 0.5f * k, 31 * k, 31 * k);
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                path.AddArc(box.X, box.Y, 2 * r, 2 * r, 180, 90);
+                path.AddArc(box.Right - 2 * r, box.Y, 2 * r, 2 * r, 270, 90);
+                path.AddArc(box.Right - 2 * r, box.Bottom - 2 * r, 2 * r, 2 * r, 0, 90);
+                path.AddArc(box.X, box.Bottom - 2 * r, 2 * r, 2 * r, 90, 90);
+                path.CloseFigure();
+                using (var fill = new System.Drawing.Drawing2D.LinearGradientBrush(box, Color.FromArgb(0x23, 0x1f, 0x31), Color.FromArgb(0x14, 0x12, 0x1c), 90f))
+                    g.FillPath(fill, path);
+                using (var edge = new Pen(Color.FromArgb(23, 255, 255, 255), Math.Max(1f, k)))
+                    g.DrawPath(edge, path);
+            }
+            using (var ink = new System.Drawing.Drawing2D.LinearGradientBrush(new PointF(6 * k, 6 * k), new PointF(26 * k, 26 * k),
+                       Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x3f, 0xd3, 0xc8)))
+            {
+                var blend = new System.Drawing.Drawing2D.ColorBlend
+                {
+                    Colors = new[] { Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x5f, 0xa8, 0xf2), Color.FromArgb(0x3f, 0xd3, 0xc8) },
+                    Positions = new[] { 0f, 0.5f, 1f }
+                };
+                ink.InterpolationColors = blend;
+                using (var pen = new Pen(ink, 2.4f * k) { StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                           EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+                {
+                    g.DrawLines(pen, new[] { new PointF(7.5f * k, 8 * k), new PointF(13.8f * k, 16 * k), new PointF(7.5f * k, 24 * k) });
+                    g.DrawLines(pen, new[] { new PointF(24.5f * k, 8 * k), new PointF(18.2f * k, 16 * k), new PointF(24.5f * k, 24 * k) });
+                }
+            }
+        }
+        return picture;
+    }
+
+    internal static Icon Make(int size)
+    {
+        using (var picture = Draw(size)) return Icon.FromHandle(picture.GetHicon());
     }
 }

@@ -63,7 +63,7 @@ class PreviewCleanupLifecycleTests(unittest.TestCase):
         return preview, browser, events
 
     def run_offline(self, preview):
-        with patch.dict('os.environ', {'T3K_PUBLISHABLE_KEY':''}), patch('tone_preview.render_library', return_value='<library/>'):
+        with patch.dict('os.environ', {'T3K_PUBLISHABLE_KEY':''}), patch('tone_preview.render_library', return_value='<library/>'),                 patch('tone_preview.KEY_FILE', Path(__file__).with_name('no-such-key-file')):
             preview.run(7, 1)
 
     def test_escape_close_and_x_restore_before_helper_disposal_with_reason(self):

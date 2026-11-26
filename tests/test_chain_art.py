@@ -67,21 +67,22 @@ class ChainOptionTests(unittest.TestCase):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("elif name in ('chainLarge', 'chainNames', 'chainGlow'):", launcher)
         # as a first launch has them: 3D pictures on, large, with block names, no glow; a choice made in the menu is kept
-        for piece in ("chainArt=nam_catalog.load_settings().get('chainModelArt') is not False,", "chainLarge=nam_catalog.load_settings().get('chainLarge') is not False,",
+        # (Reveal B12: HX Edit's own icons in Classic's chain unless "3D gear" was chosen)
+        for piece in ("chainArt=nam_catalog.load_settings().get('chainModelArt') is True,", "chainLarge=nam_catalog.load_settings().get('chainLarge') is not False,",
                       "chainNames=nam_catalog.load_settings().get('chainNames') is not False,", "chainGlow=nam_catalog.load_settings().get('chainGlow') is True)",
                       "nam_catalog.save_setting(name, on)"):
             self.assertIn(piece, launcher)
         self.assertIn('chainGlow = profile.chainGlow === true;', tone)
-        self.assertIn('bool dots = true, art = true, large = true, names = true, glow;', (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8'))
+        self.assertIn('bool dots = true, art, large = true, names = true, glow;', (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8'))
         # the block list and grid show the renders with the option: put into the launch's copy of HX Edit's own pictures
         prepare = launcher[launcher.index('        if args.nam_category:\n'):launcher.rindex('run_editor(exe, workspace, device')]
-        self.assertIn('from nam_catalog import load_settings, patch_model_art, patch_nam_category', prepare)
-        self.assertIn("if load_settings().get('chainModelArt') is not False:", prepare)
+        self.assertIn('from nam_catalog import choose_model_art, load_settings, patch_model_art, patch_nam_category', prepare)
         self.assertIn("patch_model_art(exe.parent / 'res')", prepare)
+        self.assertIn("choose_model_art(exe.parent / 'res', load_settings().get('chainModelArt') is True)", prepare)
         import make_chain_pictures
         self.assertEqual(make_chain_pictures.GLOW_GAIN, 0.8)                         # a fifth softer than the first one
         tone = (ROOT / 'tone_view.js').read_text(encoding='utf-8')
-        for marker in ("onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); }",
+        for marker in ("onEnter() { if (chainArt || chainColours.size || chainSized.size) chainLook(this.context.ecx); else rememberChainItem(this.context.ecx); }",
                        "function chainSet(file)", 'buttonSites.some(site => site.equals(this.site))',
                        'let chainArt = profile.chainArt === true;', "`CHAIN_NAMCAP_${capture.icon}.png`", "'CHAIN_' + picture",
                        'chainRedraw(entry.item);', 'setChainArt: on =>', 'const LARGE_BOX = {w: 68, h: 56}', 'const LABEL_DROP = 2;', 'shrinkBlock(item, own);', 'base.add(0x924324).add(0x38).readPointer()', 'Interceptor.replace(base.add(0x40a780)', 'selectedFrame(item, graphics);', 'settleChainLater();', 'dropRefused = true;',
@@ -91,13 +92,14 @@ class ChainOptionTests(unittest.TestCase):
         self.assertIn("recv('chainArt'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
         # the options menu: what depends on another option sits under it and is dimmed while that one is off
-        for piece in ('chainArt.Text=Tick(0,art,"3D pictures of the gear");', 'chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;',
+        # (R6: one menu; the switch itself is Chain pictures' pair, its three options sit under 3D gear)
+        for piece in ('chainIcons.Text=Tick(0,!art,"HX Edit\\u2019s icons"); chainGear.Text=Tick(0,art,"3D gear");', 'chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;',
                       'chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;', 'irDots.Text=Tick(0,dots,"Mark NAM slots");',
                       'chainGlow.Text=Tick(2,glow,"Glow behind them"); chainGlow.Enabled=art&&large;'):
             self.assertIn(piece, helper)
         self.assertIn("recv('chainOption'", (ROOT / 'nam_sidebar.js').read_text(encoding='utf-8'))
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
-        self.assertIn("load_settings().get('chainModelArt') is not False", launcher)   # on unless turned off
+        self.assertIn("load_settings().get('chainModelArt') is True", launcher)   # (Reveal B12: off unless chosen)
         self.assertIn("save_setting('chainModelArt', on)", launcher)
 
 

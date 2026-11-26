@@ -154,8 +154,14 @@ class ToneTests(unittest.TestCase):
                 patch('tone_preview.prepare_model', side_effect=['first.wav', 'second.wav']):
             self.assertIsNone(preview.browse(browser, 1, 'key'))
         self.assertIn(call('source', url='https://www.tone3000.com/tones/42'), browser.send.call_args_list)
-        self.assertEqual(preview.command.call_args_list, [
-            call(1, 'audition', file='first.wav'), call(1, 'audition', file='second.wav'), call(1, 'save', slot=4)])
+        calls = preview.command.call_args_list
+        self.assertEqual(calls[:2], [call(1, 'audition', file='first.wav'), call(1, 'audition', file='second.wav')])
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(calls[2].args, (1, 'save'))
+        self.assertEqual(calls[2].kwargs['slot'], 4)
+        # (the capture's own name and picture go with it, for the block now holding it: M1, 2026-11-26)
+        self.assertEqual(set(calls[2].kwargs), {'slot', 'capture'})
+        self.assertIsInstance(calls[2].kwargs['capture'], dict)
 
     def test_no_free_slot_lists_the_taken_ones_and_auditions_into_the_chosen_one(self):
         browser = Mock()
@@ -230,7 +236,8 @@ class ToneTests(unittest.TestCase):
                 patch('tone_preview.prepare_model', return_value='p.wav') as prepare:
             preview.browse(browser, 1, 'key')
         self.assertEqual([c.args[0]['id'] for c in prepare.call_args_list], [2])     # only the picked one
-        self.assertEqual(preview.command.call_args_list, [call(1, 'audition', file='p.wav')])
+        # (a pedal version says so: a NAM Pedal block takes pedal versions only, U6)
+        self.assertEqual(preview.command.call_args_list, [call(1, 'audition', file='p.wav', pedal=True)])
 
     def test_a_profile_from_tone3000_finds_its_tone_page_again(self):
         import tone3000

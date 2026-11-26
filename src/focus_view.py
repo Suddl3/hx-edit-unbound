@@ -154,7 +154,10 @@ def art_folders(resources, settings=None):
     except ValueError:
         pass
     look = (settings or {}).get('floorLook') if isinstance((settings or {}).get('floorLook'), dict) else {}
-    folders = {'app': ROOT, 'models': Path(resources) / 'icons_models', 'captures': ROOT / 'nam_capture_icons',
+    # (the model pictures as the panes show them: the 3D set kept beside HX Edit's own (nam_catalog.patch_model_art),
+    # whichever set HX Edit itself shows (Classic's "Chain pictures", Reveal B12); HX Edit's own folder without it)
+    gear = Path(resources) / 'icons_models_3d'
+    folders = {'app': ROOT, 'models': gear if gear.is_dir() else Path(resources) / 'icons_models', 'captures': ROOT / 'nam_capture_icons',
                'scenes': ROOT / 'focus_backgrounds' / 'backgrounds'}
     for name, choices in (('full', (art.get('models'),)),
                           ('capturesfull', (art.get('captures'), look.get('gearArt'))),
@@ -525,17 +528,13 @@ def write_notify(settings=None):
 
 def prepare_focus():
     """FocusView.exe, built beside the TONE3000 pane with the same WebView2 SDK (compiled once per source)."""
-    from tone_browser import SDK_ASSETS, SDK_VERSION, browser_sdk
+    from tone_browser import SDK_ASSETS, SDK_VERSION, place_sdk
     source = ROOT / 'focus_view.cs'
     build = ROOT / 'build' / f'tone-browser-{SDK_VERSION}'
     exe = build / 'FocusView.exe'
     if exe.is_file() and (not source.is_file() or exe.stat().st_mtime_ns >= source.stat().st_mtime_ns):
         return exe
-    build.mkdir(parents=True, exist_ok=True)
-    if not all((build / Path(name).name).is_file() for name in SDK_ASSETS):
-        with browser_sdk() as sdk:
-            for name in SDK_ASSETS:
-                (build / Path(name).name).write_bytes(sdk.read(name))
+    place_sdk(build)                      # (shared with the TONE3000 window: only what is missing or differs)
     compiler = Path(os.environ.get('WINDIR', r'C:\Windows')) / 'Microsoft.NET' / 'Framework' / 'v4.0.30319' / 'csc.exe'
     references = ['System.Windows.Forms.dll', 'System.Drawing.dll', 'System.Web.Extensions.dll',
                   *(str(build / Path(name).name) for name in SDK_ASSETS[:2])]
@@ -575,6 +574,8 @@ class FocusView:
         self.exe = exe
         self.process = None
         self.on = False
+        self.on_ready = None          # called once when the page next reports ready (the launcher's switch, S3)
+        self.on_shown = None          # called once when the pane's window is first shown over HX Edit (the start-up cover, J4)
         self.window = None
         self.bounds = None
         self.raised = True            # the pane above HX Edit's other child windows (set_raise)
@@ -967,6 +968,25 @@ class FocusView:
             return None
         return {'action': 'splitType', 'dsp': node['dsp'], 'symbol': symbol}
 
+    # An input's or an output's place in HX Edit's own lists (HelixControls.json input_type: 17 names, output_type: 13);
+    # path 2's outputs cannot go to Path 2A / 2B / 2A+B (2, 3, 4). (R7)
+    ROUTES = {'input': 17, 'output': 13}
+
+    def checked_endpoint(self, value):
+        """The Workbench's request to set where an input takes its signal or an output sends it ({dsp, id, value}: the
+        number the preset keeps as @input / @output), or None: only an input or output that is there, a number of HX
+        Edit's own list for it."""
+        node = self._block(value)
+        new = value.get('value') if isinstance(value, dict) else None
+        if not node or node.get('id') not in ('inputA', 'inputB', 'outputA', 'outputB') or node.get('dsp') not in (0, 1):
+            return None
+        kind = 'input' if node['id'].startswith('input') else 'output'
+        if isinstance(new, bool) or not isinstance(new, int) or not 0 <= new < self.ROUTES[kind]:
+            return None
+        if kind == 'output' and node['dsp'] == 1 and new in (2, 3, 4):
+            return None
+        return {'action': 'endpoint', 'dsp': node['dsp'], 'id': node['id'], 'key': '@' + kind, 'value': new}
+
     def checked_route(self, value):
         """The Workbench's request to give lane B its own input or output in place of the split or the mixer (HX Edit's
         "Create Input" / "Create Output"), or to put the split or the mixer back, or None: only what the path's shape
@@ -1124,7 +1144,15 @@ class FocusView:
                 self._write('P', {'type': 'notice', 'text': value})
         elif kind == 'pane':
             event = value.get('type')
-            if event == 'ready':                       # the page has loaded: what it draws with, then what to draw
+            if event == 'shown':                       # the pane's own (dark) window is up over HX Edit, page or not
+                self.trace({'type': 'focusView', 'event': 'shown'})
+                shown, self.on_shown = self.on_shown, None
+                if shown:
+                    try:
+                        shown()
+                    except Exception:    # (the launcher's own bookkeeping: never the pane's)
+                        pass
+            elif event == 'ready':                       # the page has loaded: what it draws with, then what to draw
                 self.page_ready = True
                 self._write('P', {'type': 'catalog', 'catalog': self.catalog()})
                 self._show_look()
@@ -1132,6 +1160,12 @@ class FocusView:
                 self._show_state()
                 self._show_dsp()
                 self.trace({'type': 'focusView', 'event': 'ready'})
+                ready, self.on_ready = self.on_ready, None
+                if ready:
+                    try:
+                        ready()
+                    except Exception:    # (the launcher's own bookkeeping: never the pane's)
+                        pass
             elif event == 'action':
                 self._act(str(value.get('name') or ''), value.get('value'))
             elif event == 'error':

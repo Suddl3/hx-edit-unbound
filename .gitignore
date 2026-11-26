@@ -15,3 +15,6 @@ __pycache__/
 
 # The art pack (release gear-art-*: helix-gear-art, nam-gear-art, focus-backgrounds), unzipped here for Focus Mode
 /art/
+
+# The Python environment setup.ps1 makes
+/.venv/

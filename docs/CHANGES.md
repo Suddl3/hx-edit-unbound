@@ -1,5 +1,16 @@
 # What's new
 
+## November 26: the Workbench
+
+- **The Workbench**, a modern editor over HX Edit, and **four layouts** (Workbench, Classic+, Rig on stage, Classic), chosen from the menu at the top left. The editor opens in the one you used last, and a first launch opens the Workbench. No flash of HX Edit's own screen at start-up.
+- **One block picker**: every model in one list, NAM captures as their own category. A click lines a model up on the card, a double-click or Enter replaces, one click after "+" adds. Inputs and outputs get their own chooser.
+- **TONE3000** in the Workbench: a "Plays on" row shows which NAM block a preview plays on (click another to move it). Pop it out into its own window and keep editing: a banner over the chain shows what is playing, with Stop, Keep and Load on Floor. NAM Pedal blocks are never used for a full capture.
+- **Undo** follows HX Edit's own history, one step per choice, and steps over a finished preview.
+- **Rig on stage**: a pin keeps one scene per preset, or lets the scene follow the selected block, with a soft change.
+- **Classic** is closer to stock: HX Edit's own icons by default (the 3D gear is a choice), one UNBOUND menu for layouts, chain pictures and tools.
+- **Install from a fresh clone**: `setup.ps1` once, then `start.ps1` ([Setup](FLOOR-SETUP.md)). The TONE3000 key is saved once.
+- Dark title bars, the Unbound icon on every window, and HX Edit's bottom strip in the same dark gray.
+
 ## November 21
 
 - **Focus** is now its own button on the toolbar: one click into Focus Mode. Its top bar chooses presets (arrows and a list) and snapshots, with undo, redo and DSP meters of its own, and a preset that comes up with nothing selected shows its first block.
@@ -18,7 +29,7 @@
 - **Block picker** (NAM categories): a click selects, double-click or Enter applies, the arrows only move the selection, and the model the block plays is shown in yellow.
 - A NAM block is only made where the DSP has room.
 
-These change how parts of HX Edit behave: see [how it behaves differently from stock HX Edit](../README.md#how-it-behaves-differently-from-stock-hx-edit).
+These change how parts of HX Edit behave: see [how it behaves differently from stock HX Edit](FLOOR-WORKFLOW.md#how-classic-differs-from-stock-hx-edit).
 
 ## November 16
 

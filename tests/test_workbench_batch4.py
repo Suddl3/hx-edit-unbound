@@ -50,7 +50,7 @@ class ChooserTests(unittest.TestCase):
         handler = between(text, "if name == 'layout':", "if name == 'menu':")
         for piece in ('choice = checked_layout(value)', 'nam_catalog.save_setting(LAYOUT, choice)', 'workbench.show_options(menu_options())'):
             self.assertIn(piece, handler)
-        self.assertIn("'layout': layout_kept()}", text)
+        self.assertIn("'layout': layout_kept(),", text)
         kept = between(text, 'def layout_kept():', 'def menu_options():')
         self.assertIn('return layout_of(nam_catalog.load_settings())', kept)
         self.assertIn("return 'workbench'", kept)                                  # (unreadable: the default)
@@ -91,7 +91,7 @@ class ChooserTests(unittest.TestCase):
         switch = between(text, 'function setLayout(name, mine) {', '// ---- Rig on stage')
         self.assertIn('const next = workbenchLayoutOf(name);', switch)
         self.assertIn("ask('layout', next)", switch)
-        self.assertIn('commitView(workbenchSwitch(view, layout), true);', switch)
+        self.assertIn('commitView(switched.view, true);', switch)                          # (workbenchSwitchSide, Q4)
         # nothing of the preset, the selected block, a rename or the unsaved mark is touched; nothing restarts
         for kept in ('pendingName', 'naming', 'savedMark', 'state', "ask('select'", "ask('menu'", 'snapHeld', 'pending ='):
             self.assertNotIn(kept, switch.replace('picking', ''))
@@ -206,10 +206,10 @@ class ClassicPlusTests(unittest.TestCase):
         self.assertIn("ask('model', {dsp: block.dsp, id: block.id, symbol});", pick)
         self.assertIn("chainAsk('add', {dsp: block.dsp, lane: block.lane, place: block.place, slot: c.slot});", pick)
         self.assertIn("ask('capture', {dsp: block.dsp, id: block.id, slot: c.slot});", pick)
-        self.assertIn('choice.onclick = () => item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);', shared)
+        self.assertIn('item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);', shared)
         # the same DSP room check: the room line, a choice that does not fit marked "full"
         self.assertIn('space: room(block)', shared)
-        self.assertIn('full = !inUse && s.space && Number.isFinite(cost) && cost > s.space.left + 1e-6;', shared)
+        self.assertIn('full = !inUse && !!space && Number.isFinite(cost) && cost > space.left + 1e-6;', shared)
         self.assertEqual(text.count("ask('model',"), 1)
         self.assertEqual(text.count("ask('capture',"), 2)                           # (and the Captures drawer's swap, as before)
         # in Classic+ the panel is the Edit area; Change capture / model go to the lists, no dialog opens
@@ -335,7 +335,7 @@ class StageTests(unittest.TestCase):
         path = between(text, 'function drawPath(p, g, now) {', '// ---- moving a block')
         self.assertIn("if (layout === 'stage') button.classList.add(...gearClass(block));", path)
         self.assertIn("layout === 'stage' ? image(stagePictures(block), 'pic', false, true) : image(pictures(block), 'pic', true)", path)
-        for kept in ('button.onclick = () => { if (!dragDone) pickBlock(block); };', 'button.onpointerdown = event => liftBlock(event, block, button);',
+        for kept in ('button.onclick = () => { if (!dragDone) pickBlock(real); };', 'button.onpointerdown = event => liftBlock(event, real, button);',
                      'plus.onclick = () => openPlacePicker(p.dsp, lane, place);', "node.onpointerdown = event => liftNode(event, p, 'split', node, g);",
                      "node.onpointerdown = event => liftNode(event, p, 'join', node, g);", 'out.push(io(p.inputB, YB, false));', 'out.push(io(p.outputB, YB, true));'):
             self.assertIn(kept, path)
@@ -353,7 +353,7 @@ class StageTests(unittest.TestCase):
         self.assertIn('const H = Math.round(Math.max(52, Math.min(most, room / lanes - 44)));', sizes)
         self.assertIn('return {YA: H + 8, YB: 2 * H + 52, TILE_H: H + 30, TILE_TOP: H, TILE_W: Math.round(Math.max(76, H * 1.15)), TAG: 104};', sizes)
         # pictures sized for what is shown: the large render only when the gear is shown larger than the small picture
-        self.assertIn('const big = TILE_TOP * (window.devicePixelRatio || 1) > 240;', sizes)
+        self.assertIn('const big = TILE_TOP * (window.devicePixelRatio || 1) > small;', sizes)
         # drawn again only when its room changes (a ResizeObserver, once a change), its dock first in a render
         self.assertIn("if (layout !== 'stage' || h === boardHeight) { boardHeight = h; return; }", text)
         self.assertIn("if (layout === 'stage') { drawPanel(); drawChain(); } else { drawChain(); drawPanel(); }", text)
@@ -368,9 +368,10 @@ class StageTests(unittest.TestCase):
     def test_the_scene_is_floor_looks_for_the_preset_and_opens_floor_look(self):
         text = page()
         scene = between(text, 'function stageScene() {', 'const stageKey')
-        self.assertIn('const now = current(), mine = look && presetLook(), whole = mine && usableScene(mine.scene);', scene)
+        self.assertIn('const mine = look && presetLook(), whole = mine && usableScene(mine.scene);', scene)
         self.assertIn('if (whole) return whole;', scene)                                                    # the preset's own
-        self.assertIn("if (look) return defaultSceneOf(now && isChain(now) ? kindKeyOf(now) : 'default');", scene)   # its kind's default
+        # (R2: else the picked block's own, the preset's or its kind's default (followScene), or the pinned one)
+        self.assertIn("if (look) return now && isChain(now) ? blockScene(now).name : defaultSceneOf('default');", text)
         sync = between(text, 'function syncStage() {', 'function stageHead() {')
         self.assertIn("const box = $('stageScene'), on = layout === 'stage' && !!catalog;", sync)               # loaded only on the stage
         self.assertIn('const picture = sc ? sc.pictures[0] : \'\'', sync)                                        # the high-resolution plate first
@@ -578,15 +579,17 @@ class AddPicksTheNewBlockTests(unittest.TestCase):
         receive = between(text, "else if (message.type === 'state') {", "else if (message.type === 'dsp')")
         self.assertIn('const next = workbenchAddSelect(addFollow, state, catalog.nam[0], Date.now());', receive)
         self.assertIn('if (next.done) addFollow = null;', receive)
-        self.assertIn('if (next.select) pickBlock(next.select);', receive)
-        self.assertNotIn('layout', between(receive, 'if (addFollow && catalog)', 'pickBlock(next.select);'))
-        self.assertIn("function pickBlock(block) {\n  ask('select', {dsp: block.dsp, id: block.id});", text)
+        self.assertIn('if (next.select) pickBlock(next.select, true);', receive)
+        self.assertNotIn('layout', between(receive, 'if (addFollow && catalog)', 'pickBlock(next.select, true);'))
+        pick = between(text, 'function pickBlock(block', '\n}')
+        self.assertEqual(pick.count("ask('select', {dsp: block.dsp, id: block.id});"), 1)
 
     def test_undo_or_a_refusal_ends_the_wait_and_selecting_adds_no_step(self):
         text = page()
         ask_line = between(text, 'const ask = (name, value) => {', '};')
         self.assertIn("if (name === 'undo' || name === 'redo') addFollow = null;", ask_line)       # every undo the page asks
-        self.assertIn("else if (message.type === 'notice') { addFollow = null;", text)                # a refused add (no room, ...)
+        self.assertIn("else if (message.type === 'notice') {", text)                                 # a refused add (no room, ...)
+        self.assertIn("addFollow = null; swapAsked = null; replaced = null; toast(message.text);", text)
         # the page's select is not an edit: no unsaved mark and no undo step of the page's own
         self.assertNotIn("'select'", between(text, 'const EDIT_ASKS = new Set(', ');'))
         # after Undo the block is gone from HX Edit's reading: the panel is drawn from that reading (no block kept here)

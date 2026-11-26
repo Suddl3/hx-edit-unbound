@@ -1380,27 +1380,34 @@ class UnboundButton : Form
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
-    // Full: the three buttons, two with their names. Compact (a narrow window): the three marks only.
-    public const int Gap = 4, FocusWidth = 72, ToolsWidth = 104, GearWidth = 30, MarkWidth = 28;
-    public const int Width = FocusWidth + ToolsWidth + GearWidth + 2 * Gap, CompactWidth = 3 * MarkWidth + 2 * Gap;
-    // The three buttons in a window this wide, left to right: Focus, tools, options.
+    // Full: the two buttons with their names. Compact (a narrow window): their marks only. (R6: the options button
+    // that sat third is gone; its choices are in the UNBOUND menu.)
+    public const int Gap = 4, FocusWidth = 72, ToolsWidth = 104, MarkWidth = 28;
+    public const int Width = FocusWidth + ToolsWidth + Gap, CompactWidth = 2 * MarkWidth + Gap;
+    // The two buttons in a window this wide, left to right: Focus, UNBOUND.
     public static Rectangle[] Parts(int width,int height){
         bool full=width>=Width;
-        int focus=full?FocusWidth:MarkWidth, tools=full?ToolsWidth:MarkWidth, gear=full?GearWidth:MarkWidth;
-        return new[]{ new Rectangle(0,0,focus,height), new Rectangle(focus+Gap,0,tools,height), new Rectangle(focus+tools+2*Gap,0,gear,height) };
+        int focus=full?FocusWidth:MarkWidth, tools=full?ToolsWidth:MarkWidth;
+        return new[]{ new Rectangle(0,0,focus,height), new Rectangle(focus+Gap,0,tools,height) };
     }
-    // The tools menu: (label, output) pairs.
+    // The UNBOUND menu (Reveal B12: Classic's own chooser, as a native menu): the layouts, Classic ticked (the button
+    // shows only on Classic, HX Edit's own screen); the chain pictures as a ticked pair; then the tools. (label, output)
+    public static readonly Tuple<string,string>[] Layouts = {
+        Tuple.Create("Workbench", "layout:workbench"),
+        Tuple.Create("Classic+", "layout:classicplus"),
+        Tuple.Create("Rig on stage", "layout:stage"),
+        Tuple.Create("Classic", ""),
+    };
     public static readonly Tuple<string,string>[] Choices = {
-        Tuple.Create("Workbench (the modern screen)", "workbench"),
         Tuple.Create("Level presets…", "level"),
         Tuple.Create("Floor look…", "look"),
         Tuple.Create("NAM library…", "library"),
     };
-    static readonly string[] Tips = { "Focus Mode: the selected block, large, with its own controls", "HX Unbound tools", "HX Unbound options" };
+    static readonly string[] Tips = { "Focus Mode: the selected block, large, with its own controls", "HX Edit Unbound: the layout, the chain pictures, the IR list and the tools" };
     static readonly Color Back = Color.FromArgb(29, 29, 29), Face = Color.FromArgb(48, 48, 48), Hover = Color.FromArgb(66, 66, 66),
         Ink = Color.FromArgb(225, 225, 225), Dim = Color.FromArgb(112, 112, 112);
     readonly IntPtr parent;
-    readonly ContextMenuStrip tools = NewMenu(), options = NewMenu();
+    readonly ContextMenuStrip tools = NewMenu();
     readonly ToolTip tip = new ToolTip();
     // The menus belong to this helper, not to HX Edit, so a click in HX Edit does not close them on its
     // own: while one is open, a mouse press anywhere outside it (or outside these buttons) closes it.
@@ -1409,8 +1416,8 @@ class UnboundButton : Form
     bool placed;
     // The options: a tick is part of the label (the menus have no image margin). An option that only matters while
     // another is on sits indented under it and is dimmed while that one is off; it keeps its own tick meanwhile.
-    ToolStripMenuItem irDots, chainArt, chainLarge, chainNames, chainGlow;
-    bool dots = true, art = true, large = true, names = true, glow;   // as a first launch has them
+    ToolStripMenuItem irDots, chainLarge, chainNames, chainGlow, chainIcons, chainGear;
+    bool dots = true, art, large = true, names = true, glow;   // as a first launch has them (Reveal B12: HX Edit's icons)
     public void SetIrDots(bool on){ dots=on; Ticks(); }
     public void SetChainArt(bool on){ art=on; Ticks(); }
     public void SetChainLarge(bool on){ large=on; Ticks(); }
@@ -1418,8 +1425,8 @@ class UnboundButton : Form
     public void SetChainGlow(bool on){ glow=on; Ticks(); }
     public static string Tick(int level,bool on,string text){ return new string('\u2003',level*2)+(on?"\u2713":"\u2003")+"  "+text; }
     void Ticks(){
-        if(chainArt==null)return;
-        chainArt.Text=Tick(0,art,"3D pictures of the gear");
+        if(chainGear==null)return;
+        chainIcons.Text=Tick(0,!art,"HX Edit\u2019s icons"); chainGear.Text=Tick(0,art,"3D gear");
         chainLarge.Text=Tick(1,large,"Large pictures"); chainLarge.Enabled=art;
         chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;
         chainGlow.Text=Tick(2,glow,"Glow behind them"); chainGlow.Enabled=art&&large;
@@ -1433,7 +1440,7 @@ class UnboundButton : Form
     static void Heading(ContextMenuStrip menu,string text){
         menu.Items.Add(new ToolStripLabel(text){ForeColor=Color.FromArgb(150,150,150),Font=new Font("Segoe UI",7.5f)});
     }
-    static void Say(string output){ try{Console.Out.WriteLine(output);Console.Out.Flush();}catch(Exception){} }
+    static void Say(string output){ if(output.Length==0)return; try{Console.Out.WriteLine(output);Console.Out.Flush();}catch(Exception){} }
     static ToolStripMenuItem Item(ContextMenuStrip menu,string text,string output){
         var item=new ToolStripMenuItem(text){ForeColor=Ink};
         item.Click+=(sender,e)=>Say(output);
@@ -1445,27 +1452,33 @@ class UnboundButton : Form
         FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
         BackColor=Back; DoubleBuffered=true; Font=new Font("Segoe UI", 8.25f, FontStyle.Bold); Bounds=new Rectangle(0,0,1,1);
         Cursor=Cursors.Hand;
+        Heading(tools,"LAYOUT");
+        foreach(var choice in Layouts){
+            var item=Item(tools,Tick(0,choice.Item2=="",choice.Item1),choice.Item2);
+            if(choice.Item2=="")item.ToolTipText="HX Edit\u2019s own screen: the one in use";
+        }
+        tools.Items.Add(new ToolStripSeparator());
+        // (R6: one menu. The options button's choices live here: 3D gear's own three under it, dimmed while it is off)
+        Heading(tools,"CHAIN PICTURES");
+        chainIcons=Item(tools,"","chainIcons");
+        chainGear=Item(tools,"","chainGear");
+        chainLarge=Item(tools,"","chainLarge");
+        chainNames=Item(tools,"","chainNames");
+        chainGlow=Item(tools,"","chainGlow");
+        tools.Items.Add(new ToolStripSeparator());
+        Heading(tools,"IR LIST");
+        irDots=Item(tools,"","irDots");
+        tools.Items.Add(new ToolStripSeparator());
         Heading(tools,"TOOLS");
         foreach(var choice in Choices)Item(tools,choice.Item1,choice.Item2);
-        Heading(options,"SIGNAL CHAIN");
-        chainArt=Item(options,"","chainArt");
-        chainLarge=Item(options,"","chainLarge");
-        chainNames=Item(options,"","chainNames");
-        chainGlow=Item(options,"","chainGlow");
-        options.Items.Add(new ToolStripSeparator());
-        Heading(options,"IR LIST");
-        irDots=Item(options,"","irDots");
         Ticks();
         outside.Tick+=(sender,e)=>{
-            if(!tools.Visible&&!options.Visible){outside.Stop();return;}
+            if(!tools.Visible){outside.Stop();return;}
             if(Control.MouseButtons==MouseButtons.None||RectangleToScreen(ClientRectangle).Contains(Cursor.Position))return;
-            foreach(var menu in new[]{tools,options})
-                if(menu.Visible&&!menu.Bounds.Contains(Cursor.Position))menu.Close();
+            if(!tools.Bounds.Contains(Cursor.Position))tools.Close();
         };
-        foreach(var menu in new[]{tools,options}){
-            menu.Opened+=(sender,e)=>{outside.Start();Invalidate();};
-            menu.Closed+=(sender,e)=>Invalidate();
-        }
+        tools.Opened+=(sender,e)=>{outside.Start();Invalidate();};
+        tools.Closed+=(sender,e)=>Invalidate();
         var handle=Handle;
     }
     // The highlight is painted here rather than left to the colour table: on this system the
@@ -1513,7 +1526,7 @@ class UnboundButton : Form
         placed=!place.IsEmpty;
         if(GetParent(Handle)!=parent)SetParent(Handle,parent);
         if(placed)SetWindowPos(Handle,IntPtr.Zero,place.X,place.Y,place.Width,place.Height,0x0010|0x0040);
-        else { tools.Close(); options.Close(); ShowWindow(Handle,0); }
+        else { tools.Close(); ShowWindow(Handle,0); }
         Invalidate();
     }
     int At(Point point){
@@ -1529,12 +1542,10 @@ class UnboundButton : Form
     protected override void OnMouseLeave(EventArgs args){ over=-1; Invalidate(); base.OnMouseLeave(args); }
     protected override void OnMouseClick(MouseEventArgs args){
         int at=args.Button==MouseButtons.Left?At(args.Location):-1;
-        if(at==0){ tools.Close(); options.Close(); Say("focusMode"); }   // one click into Focus Mode
-        else if(at>0){
-            var menu=at==1?tools:options;
-            (at==1?options:tools).Close();
-            if(menu.Visible)menu.Close();
-            else menu.Show(this,new Point(Parts(ClientSize.Width,ClientSize.Height)[at].X,ClientSize.Height));
+        if(at==0){ tools.Close(); Say("focusMode"); }   // one click into Focus Mode
+        else if(at==1){
+            if(tools.Visible)tools.Close();
+            else tools.Show(this,new Point(Parts(ClientSize.Width,ClientSize.Height)[1].X,ClientSize.Height));
         }
         base.OnMouseClick(args);
     }
@@ -1569,7 +1580,7 @@ class UnboundButton : Form
         bool full=ClientSize.Width>=Width;
         for(int index=0;index<parts.Length;index++){
             var box=new RectangleF(parts[index].X+0.5f,1.5f,parts[index].Width-1.5f,ClientSize.Height-3.5f);
-            bool lit=over==index||(index==1&&tools.Visible)||(index==2&&options.Visible);
+            bool lit=over==index||(index==1&&tools.Visible);
             // Square-cornered like HX Edit's own buttons (TONE3000, the preset bar).
             using(var path=Rounded(box,2f)){
                 using(var brush=new SolidBrush(lit?Hover:Face))g.FillPath(brush,path);
@@ -1588,30 +1599,15 @@ class UnboundButton : Form
                 using(var dot=new SolidBrush(Ink))g.FillEllipse(dot,cx+MarkSize/2f-1.7f,cy-1.7f,3.4f,3.4f);
                 if(named)DrawName(g,box,cx+MarkSize,"FOCUS");
             }else if(index==1){
-                // Tools: three stacked lines (a menu), in the violet-to-teal.
-                var marks=new RectangleF(cx,cy-4f,MarkSize,8f);
-                using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(marks,Violet,Teal,0f))
-                using(var pen=new Pen(edge,1.6f){StartCap=System.Drawing.Drawing2D.LineCap.Round,EndCap=System.Drawing.Drawing2D.LineCap.Round})
-                    for(int i=-1;i<=1;i++)g.DrawLine(pen,cx,cy+i*3.5f,cx+MarkSize,cy+i*3.5f);
-                if(named)DrawName(g,box,cx+MarkSize,"UNBOUND");
-            }else{
-                // Options: a cog (a toothed wheel with a hole), not a sun: eight square teeth on a solid ring.
-                float mx=cx+MarkSize/2f;
-                using(var cog=new System.Drawing.Drawing2D.GraphicsPath(System.Drawing.Drawing2D.FillMode.Alternate)){
-                    const int Teeth=8; const float Outer=5.6f, Root=4.1f, Hole=1.8f;
-                    var points=new PointF[Teeth*4];
-                    double step=2*Math.PI/Teeth, half=step*0.24, slope=step*0.10;      // a tooth's half width at its tip, and its flank
-                    for(int tooth=0;tooth<Teeth;tooth++){
-                        double mid=tooth*step-Math.PI/2;
-                        double[] angles={mid-half-slope,mid-half,mid+half,mid+half+slope};
-                        float[] radii={Root,Outer,Outer,Root};
-                        for(int corner=0;corner<4;corner++)
-                            points[tooth*4+corner]=new PointF(mx+(float)Math.Cos(angles[corner])*radii[corner],cy+(float)Math.Sin(angles[corner])*radii[corner]);
-                    }
-                    cog.AddPolygon(points);
-                    cog.AddEllipse(mx-Hole,cy-Hole,2*Hole,2*Hole);
-                    using(var fill=new SolidBrush(Ink))g.FillPath(fill,cog);
+                // HX Edit Unbound's logo (the page's: two chevrons facing out, in the violet-to-teal; Reveal B12)
+                var marks=new RectangleF(cx,cy-5f,MarkSize,10f);
+                using(var edge=new System.Drawing.Drawing2D.LinearGradientBrush(marks,Violet,Teal,45f))
+                using(var pen=new Pen(edge,1.6f){StartCap=System.Drawing.Drawing2D.LineCap.Round,EndCap=System.Drawing.Drawing2D.LineCap.Round,
+                                                  LineJoin=System.Drawing.Drawing2D.LineJoin.Round}){
+                    g.DrawLines(pen,new[]{new PointF(cx+0.6f,cy-4.6f),new PointF(cx+4.4f,cy),new PointF(cx+0.6f,cy+4.6f)});
+                    g.DrawLines(pen,new[]{new PointF(cx+MarkSize-0.6f,cy-4.6f),new PointF(cx+MarkSize-4.4f,cy),new PointF(cx+MarkSize-0.6f,cy+4.6f)});
                 }
+                if(named)DrawName(g,box,cx+MarkSize,"UNBOUND");
             }
         }
     }
@@ -1640,31 +1636,42 @@ static class UnboundLook
     static IntPtr big, small;
     static bool failed;
 
-    public static void Apply(IntPtr window)
+    // What it did, for the launcher's trace (K1): "title=renamed|already|skipped icon=set|kept|failed".
+    public static string Apply(IntPtr window)
     {
+        string named = "skipped", icon = "failed";
         try
         {
             var text = new StringBuilder(256);
             GetWindowText(window, text, 256);
             var title = text.ToString();
-            if (Retitled(title) != title) SetWindowText(window, Retitled(title));
-            if (failed) return;
+            if (Retitled(title) != title) { SetWindowText(window, Retitled(title)); named = "renamed"; }
+            else if (title.StartsWith(Name)) named = "already";
+            if (failed) return Said(named, icon);
             if (big == IntPtr.Zero)
             {
                 var exe = ImageOf(window);
-                if (exe == null) { failed = true; return; }
-                big = Tinted(exe, SystemInformation.IconSize.Width);
-                small = Tinted(exe, SystemInformation.SmallIconSize.Width);
-                if (big == IntPtr.Zero) { failed = true; return; }
+                if (exe == null) { failed = true; return Said(named, icon); }
+                // (HX Edit Unbound's app icon, the Workbench's logo, as the TONE3000 window has it: AppIcon, U3; the
+                // tinted HX Edit icon, Tinted, only when it cannot be drawn)
+                try { big = AppIcon.Draw(SystemInformation.IconSize.Width).GetHicon(); small = AppIcon.Draw(SystemInformation.SmallIconSize.Width).GetHicon(); }
+                catch (Exception) { big = small = IntPtr.Zero; }
+                if (big == IntPtr.Zero) big = Tinted(exe, SystemInformation.IconSize.Width);
+                if (small == IntPtr.Zero) small = Tinted(exe, SystemInformation.SmallIconSize.Width);
+                if (big == IntPtr.Zero) { failed = true; return Said(named, icon); }
             }
+            icon = "kept";
             if (SendMessage(window, WM_GETICON, (IntPtr)1, IntPtr.Zero) != big)
             {
                 SendMessage(window, WM_SETICON, (IntPtr)1, big);
                 if (small != IntPtr.Zero) SendMessage(window, WM_SETICON, IntPtr.Zero, small);
+                icon = "set";
             }
         }
         catch (Exception) { failed = true; }   // the look only; never in the way of the editor
+        return Said(named, icon);
     }
+    static string Said(string named, string icon) { return "title=" + named + " icon=" + icon; }
 
     // "HX Edit - Helix Floor" -> "HX Edit Unbound - Helix Floor"; anything else is left alone.
     public static string Retitled(string title)
@@ -1779,6 +1786,13 @@ class DspMeter : Form
     static readonly Color Back = Color.FromArgb(29, 29, 29), Track = Color.FromArgb(58, 58, 58),
         Ink = Color.FromArgb(200, 200, 200), Dim = Color.FromArgb(130, 130, 130);
 
+    // What UnboundLook did on HX Edit's window, to the launcher's trace when it changes (K1: no line said it before).
+    string lookSaid="";
+    void LookSaid(string said){
+        if(said==lookSaid)return;
+        lookSaid=said;
+        try{Console.Out.WriteLine("unboundLook "+said);Console.Out.Flush();}catch(Exception){}
+    }
     public DspMeter(IntPtr parent, StreamReader input){
         this.parent=parent; this.input=input;
         FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
@@ -1791,7 +1805,7 @@ class DspMeter : Form
         if(style!=0&&(style&WS_CLIPCHILDREN)==0)SetWindowLong(parent,GWL_STYLE,style|WS_CLIPCHILDREN);
         var reader=new System.Threading.Thread(Read){IsBackground=true};reader.Start();
         ghostTimer.Tick+=(sender,e)=>TrackGhost();
-        UnboundLook.Apply(parent);   // HX Edit Unbound's icon and title on HX Edit's window
+        LookSaid(UnboundLook.Apply(parent));   // HX Edit Unbound's icon and title on HX Edit's window
         int ticks=0;
         var watch=new Timer{Interval=250};
         // HX Edit repaints its whole window after a resize or maximize, over this child (it does not clip
@@ -1803,7 +1817,7 @@ class DspMeter : Form
             if(spanWidth>=0&&width!=placedWidth)Place();
             if(shown)Invalidate();
             if(unboundButton!=null)unboundButton.Invalidate();   // HX Edit paints over its children too
-            if(++ticks%8==0)UnboundLook.Apply(parent);   // HX Edit sets its title again on device changes
+            if(++ticks%8==0)LookSaid(UnboundLook.Apply(parent));   // HX Edit sets its title again on device changes
         };
         watch.Start();
     }
@@ -1996,11 +2010,12 @@ class DspMeter : Form
         if(ButtonPlacement(310,1388,9,24,1920,1420)!=new Rectangle(310,9,UnboundButton.Width,24))throw new Exception("Unbound button placement");
         if(!ButtonPlacement(310,1388,9,24,1920,850).IsEmpty)throw new Exception("Unbound button hides without room");
         if(ButtonPlacement(310,1388,9,24,1920,1100)!=new Rectangle(310,9,UnboundButton.CompactWidth,24))throw new Exception("Unbound buttons as marks in a narrow span");
-        if(UnboundButton.Choices.Length<2||UnboundButton.Choices[0].Item2!="workbench"||UnboundButton.Choices[1].Item2!="level")throw new Exception("Unbound menu");
+        if(UnboundButton.Layouts.Length!=4||UnboundButton.Layouts[0].Item2!="layout:workbench"||UnboundButton.Layouts[3].Item2!=""||
+           UnboundButton.Choices.Length!=3||UnboundButton.Choices[0].Item2!="level")throw new Exception("Unbound menu");
         // Three buttons, left to right, inside the window they are drawn in, named or as marks.
         var named=UnboundButton.Parts(UnboundButton.Width,24); var marks=UnboundButton.Parts(UnboundButton.CompactWidth,24);
-        if(named.Length!=3||named[0].X!=0||named[1].X!=named[0].Right+UnboundButton.Gap||named[2].Right!=UnboundButton.Width||
-           named[0].Width!=UnboundButton.FocusWidth||marks[2].Right!=UnboundButton.CompactWidth||marks[1].Width!=UnboundButton.MarkWidth)throw new Exception("Unbound button parts");
+        if(named.Length!=2||named[0].X!=0||named[1].X!=named[0].Right+UnboundButton.Gap||named[1].Right!=UnboundButton.Width||
+           named[0].Width!=UnboundButton.FocusWidth||marks[1].Right!=UnboundButton.CompactWidth||marks[1].Width!=UnboundButton.MarkWidth)throw new Exception("Unbound button parts");
         if(UnboundButton.Tick(0,true,"A")!="\u2713  A"||UnboundButton.Tick(1,false,"B")!="\u2003\u2003\u2003  B")throw new Exception("Unbound option labels");
         // HX Edit Unbound's title and icon colours on HX Edit's window.
         if(UnboundLook.Retitled("HX Edit - Helix Floor")!="HX Edit Unbound - Helix Floor"||UnboundLook.Retitled("HX Edit Unbound - Helix Floor")!="HX Edit Unbound - Helix Floor"||
@@ -2020,5 +2035,57 @@ class DspMeter : Form
         if(AnchorWidth(0)!=0||AnchorWidth(-1)!=0||AnchorWidth(1484)!=1484)throw new Exception("DSP meter span anchor");
         var parsed=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>("{\"dsp\":[{\"load\":42,\"used\":27,\"budget\":75,\"level\":\"green\"},null]}");
         if(!(parsed["dsp"] is IList)||Label(((IList)parsed["dsp"])[0],0)!="DSP 1  27/75")throw new Exception("DSP meter input lists");
+    }
+}
+
+// HX Edit Unbound's app icon (the Workbench's logo: a dark rounded square with two violet-to-teal chevrons), drawn here
+// so every window of ours carries it (U3, 2026-11-25: the popped TONE3000 window had HX Edit's old one). The same
+// drawing is in tone_browser.cs (the TONE3000 window).
+static class AppIcon
+{
+    internal static Bitmap Draw(int size)
+    {
+        var picture = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(picture))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+            float k = size / 32f, r = 7 * k;
+            var box = new RectangleF(0.5f * k, 0.5f * k, 31 * k, 31 * k);
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                path.AddArc(box.X, box.Y, 2 * r, 2 * r, 180, 90);
+                path.AddArc(box.Right - 2 * r, box.Y, 2 * r, 2 * r, 270, 90);
+                path.AddArc(box.Right - 2 * r, box.Bottom - 2 * r, 2 * r, 2 * r, 0, 90);
+                path.AddArc(box.X, box.Bottom - 2 * r, 2 * r, 2 * r, 90, 90);
+                path.CloseFigure();
+                using (var fill = new System.Drawing.Drawing2D.LinearGradientBrush(box, Color.FromArgb(0x23, 0x1f, 0x31), Color.FromArgb(0x14, 0x12, 0x1c), 90f))
+                    g.FillPath(fill, path);
+                using (var edge = new Pen(Color.FromArgb(23, 255, 255, 255), Math.Max(1f, k)))
+                    g.DrawPath(edge, path);
+            }
+            using (var ink = new System.Drawing.Drawing2D.LinearGradientBrush(new PointF(6 * k, 6 * k), new PointF(26 * k, 26 * k),
+                       Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x3f, 0xd3, 0xc8)))
+            {
+                var blend = new System.Drawing.Drawing2D.ColorBlend
+                {
+                    Colors = new[] { Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x5f, 0xa8, 0xf2), Color.FromArgb(0x3f, 0xd3, 0xc8) },
+                    Positions = new[] { 0f, 0.5f, 1f }
+                };
+                ink.InterpolationColors = blend;
+                using (var pen = new Pen(ink, 2.4f * k) { StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                           EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+                {
+                    g.DrawLines(pen, new[] { new PointF(7.5f * k, 8 * k), new PointF(13.8f * k, 16 * k), new PointF(7.5f * k, 24 * k) });
+                    g.DrawLines(pen, new[] { new PointF(24.5f * k, 8 * k), new PointF(18.2f * k, 16 * k), new PointF(24.5f * k, 24 * k) });
+                }
+            }
+        }
+        return picture;
+    }
+
+    internal static Icon Make(int size)
+    {
+        using (var picture = Draw(size)) return Icon.FromHandle(picture.GetHicon());
     }
 }

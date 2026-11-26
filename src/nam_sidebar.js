@@ -30,7 +30,12 @@ function installNamSidebar(namView) {
           if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then press Level again.',busy:false});
         } else if (value.action === 'catalog') {
           // The Workbench's TONE3000 button: the TONE3000 catalog, as HX Edit's own TONE3000 button opens it.
-          const opened=toneView.openBrowser(window,{dockPanel:navigationBanner.dockPanel()});
+          // (the Workbench's own TONE3000 view: its window goes over the Workbench's frame (TonePreview.place_over), so
+          // HX Edit's own parameter pane is not needed there; S1: after a visit to Focus Mode none was usable)
+          const placed=typeof value.id==='string'&&value.id.startsWith('workbench');
+          // (HX Edit's panel on its EDIT tab first: the session binds the selected block through it)
+          try { const tab=namView.editPanelTab?.(); if (tab && tab.assign) send({type:'toneTrace',reason:'focus-view',stage:'hx-tab-edit',clicked:!!namView.showEditTab?.(),before:'tone3000'}); } catch (_) {}
+          const opened=toneView.openBrowser(window,{dockPanel:navigationBanner.dockPanel(),placed,asked:value.id||''});
           if (opened === false) send({type:'namSidebarResult',error:'Select a block in HX Edit, then press TONE3000 again.',busy:false});
         } else if (value.action === 'workbench' && ['level', 'library'].includes(value.id)) {
           // The Workbench's own Levels page or NAM library: a session without a window (TonePreview's

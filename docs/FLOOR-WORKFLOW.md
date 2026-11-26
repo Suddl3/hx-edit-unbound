@@ -12,6 +12,44 @@ preview is the `floor` branch; this branch is the newer navigation work. See
 [FLOOR-SETUP.md](FLOOR-SETUP.md) to run it and [PRODUCT-VISION.md](PRODUCT-VISION.md)
 for the complete product scope. This document is the workflow contract.
 
+## Status, November 26
+
+Run on one Helix Floor with HX Unbound Floor firmware (NAM A2 Lite), Windows 11, on a spare preset, nothing saved:
+
+- All four layouts, switching between them, and Focus Mode on and off.
+- The block picker: a click lines up, a double-click replaces (picker, Classic+ list, input chooser), "+" adds on one click; Undo and Redo, also over several previews in a row; snapshots.
+- TONE3000: a preview on the only NAM block; the "Plays on" choice with two NAM blocks; moving a playing preview to another block; knob edits on another block while it plays; the popped-out window with the banner (Back to TONE3000, Stop); closing the window or changing preset ends the preview and gives the block its capture back; Load on Floor into a free slot.
+- The NAM library: Preview on a NAM block, clearing a Floor slot, deleting a capture from this PC.
+- Level presets: a scan of one preset (not applied).
+- Start-up: no HX Edit screen before the Workbench; title and icon "HX Edit Unbound".
+- A fresh install from GitHub with `setup.ps1` and `start.ps1`, with its own empty settings: the Workbench with the 3D art at first launch, and TONE3000 opening.
+
+Not tested: stock Floor firmware, the NAM Pedal firmware (NAM Pedal blocks are covered by tests only), Windows 10, other Helix units, a PC without Python or Git (the messages were read, not seen).
+
+Known limits: start-up takes about 8 seconds, as HX Edit's own does once the Floor is connected. Loading a full library capture onto a NAM Pedal block switches it to the full NAM block without checking DSP room first.
+
+## How Classic differs from stock HX Edit
+
+In Classic, some of HX Edit's own controls work differently from stock HX Edit. None of this changes your presets or the Floor until you act, and every change on the chain can be undone with Undo.
+
+**Every launch**
+
+- **The IR list drags differently.** Drop a slot on the middle of a block to replace that block (stock HX Edit only inserts). Drop on a block's edge to insert beside it, as before. The block that would be replaced dims while you hover, and blocks slide aside a little faster.
+- **NAM slots become NAM blocks.** A NAM capture slot dragged or double-clicked from the IR list makes a NAM block on that slot, not an IR block. NAM slots show in violet in the IR list (switch this off in Classic's UNBOUND menu).
+- **Drag captures onto the chain** from the NAM tab or the library window. On a NAM block, it changes the capture. On an empty cell or another block, that cell becomes a NAM block.
+- **A NAM block is only added where the DSP has room.** Drag a capture over a DSP that cannot fit another NAM block and its picture goes grey with a red outline and "Not enough DSP room here". A drop there changes nothing, and the DSP meter says which DSP is full.
+- **Clearing an IR slot asks first** when presets you have opened still use it.
+- **The window keeps its size and place** when the Floor reconnects.
+
+**In the block picker**
+
+- **One click selects; it does not change the block.** Double-click a model, or press Enter, to put it on the block. The Up and Down arrows only move the selection. In stock HX Edit, every click and arrow press changes the block.
+- **The model the block is playing is shown in yellow.** Click away, or select another block, and the selection goes back to it.
+- **Drag any model from the picker onto the chain.** Drop it on a block to replace it, on an empty cell to add it, or between blocks to insert it.
+- **NAM categories** (NAM Amp, NAM Amp + cab, NAM Cab, NAM Pedal, NAM Other) list your captures, and Amp > NAM is removed. Amp and Preamp gain an All / Guitar / Bass filter.
+- **A padlock on the Model control** keeps a NAM block on its capture. Click it to unlock.
+
+
 ## Status, November 14
 
 Added on this branch since November 13, each checked on one Helix Floor:

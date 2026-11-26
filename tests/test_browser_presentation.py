@@ -63,6 +63,9 @@ class PresentationRoundTrips {
     readonly List<string> notifications = new List<string>();
 
     class Part { public string Text; public bool Enabled = true, Visible = true; public int Height; }
+    bool ReceiveSide(Dictionary<string, object> message) { return false; }   // the side panel (its own checks)
+    void LayoutSide() {}
+    int CardHeight(int height) { return DetailHeight(height, library, hasTone); }
     class Hints { public void SetToolTip(Part control, string text) {} }
     class Core {
         public string Source;

@@ -1,98 +1,115 @@
 # HX Edit Unbound
 
-**Part of [HX Unbound](https://github.com/Suddl3/hx-unbound).** HX Edit Unbound is Line 6's own HX Edit with HX Unbound's additions for the Helix Floor: a NAM capture library with gear artwork, TONE3000 browsing and previews, a DSP meter and Level presets. It pairs with [HX Unbound Floor firmware](https://github.com/Suddl3/hx-unbound-floor).
+**Part of [HX Unbound](https://github.com/Suddl3/hx-unbound).** HX Edit Unbound is Line 6's own HX Edit for the Helix Floor with a modern editor built over it: the **Workbench**. It adds a NAM capture library with gear pictures, TONE3000 browsing and previews, Focus Mode, Level presets and a DSP meter. It is made for [HX Unbound Floor firmware](https://github.com/Suddl3/hx-unbound-floor).
 
-![HX Edit Unbound with the NAM tab, the TONE3000 and HX Unbound buttons and the DSP meter](docs/screenshots/hx-edit-unbound.png)
+![The Workbench, labeled: 1 layouts, 2 presets, 3 snapshots, 4 undo and redo, 5 Editor or Focus Mode, 6 tools, 7 the signal chain, 8 the selected block, 9 its controls](docs/screenshots/workbench-labeled.png)
+<p align="center"><em>The Workbench, the default layout: tools on the left, the chain across the top, the selected block and its controls below.</em></p>
 
-> **A test build.** It runs on Windows with HX Edit 3.82 and has been exercised on one Helix Floor by one maintainer. See [what has and has not been tested](docs/FLOOR-WORKFLOW.md#status-november-14).
-
-## How it behaves differently from stock HX Edit
-
-Some of HX Edit's own controls work differently here. None of this changes your presets or the Floor until you act, and every change on the chain can be undone with Undo.
-
-**Every launch**
-
-- **The IR list drags differently.** Drop a slot on the middle of a block to replace that block (stock HX Edit only inserts). Drop on a block's edge to insert beside it, as before. The block that would be replaced dims while you hover, and blocks slide aside a little faster.
-- **NAM slots become NAM blocks.** A NAM capture slot dragged or double-clicked from the IR list makes a NAM block on that slot, not an IR block. NAM slots show in violet in the IR list (switch this off in the options, the gear beside the HX Unbound button).
-- **Drag captures onto the chain** from the NAM tab or the library window. On a NAM block, it changes the capture. On an empty cell or another block, that cell becomes a NAM block.
-- **A NAM block is only added where the DSP has room.** Drag a capture over a DSP that cannot fit another NAM block and its picture goes grey with a red outline and "Not enough DSP room here". A drop there changes nothing, and the DSP meter says which DSP is full.
-- **Clearing an IR slot asks first** when presets you have opened still use it.
-- **The window keeps its size and place** when the Floor reconnects.
-
-**With the NAM categories (`--nam-category`), in the block picker**
-
-- **One click selects; it does not change the block.** Double-click a model, or press Enter, to put it on the block. The Up and Down arrows only move the selection. In stock HX Edit, every click and arrow press changes the block.
-- **The model the block is playing is shown in yellow.** Click away, or select another block, and the selection goes back to it.
-- **Drag any model from the picker onto the chain.** Drop it on a block to replace it, on an empty cell to add it, or between blocks to insert it.
-- **NAM categories** (NAM Amp, NAM Amp + cab, NAM Cab, NAM Pedal, NAM Other) list your captures, and Amp > NAM is removed. Amp and Preamp gain an All / Guitar / Bass filter.
-- **A padlock on the Model control** keeps a NAM block on its capture. Click it to unlock.
-
-## What it adds
-
-### Your NAM captures, with pictures
-
-Every NAM capture gets a gear picture, picked from its name: in the NAM tab, the expanded library (list or grid) and HX Edit's model lists. Sort captures into amps, amp + cab, pedals and cabs, mark them guitar, bass or both, and load one onto the Floor or use it in the selected block.
-
-![The expanded NAM library in grid view](docs/screenshots/nam-library.png)
-
-Don't like a picture? **Change icon…** picks another from the built-in set, or upload your own.
-
-<p align="center"><img src="docs/screenshots/icon-picker.png" alt="Choosing a capture's picture" width="420"></p>
-
-### Focus Mode
-
-The **Focus** button on the toolbar swaps HX Edit's signal flow and sliders for a single view of the selected block: its gear, large, standing in its category's scene, with its own controls as knobs and switches. Turn a knob, flip a switch or press the stomp switch to bypass: the block changes as it does from HX Edit's own sliders, and a drag is one step of undo. A strip of the chain on top picks another block. The block's title opens a list to change its model; on a NAM block the line under it lists the captures on the Floor. **Editor** (or the same menu item) brings the normal editor back as it was. **Change look** there sets the background and the picture of the block you are looking at for the loaded preset, one background for the whole preset, or the defaults for every preset.
-
-![Focus Mode on a NAM block](docs/screenshots/focus-mode.jpg)
-
-The small frame in the corner shows what the Floor's own Focus View draws for the same block (with the [HX Unbound Floor](https://github.com/Suddl3/hx-unbound-floor) firmware): the same scene and the same picture. The scenes are the ones chosen on the **Floor look** page. Focus Mode is modelled on that Focus View, which is savedadodo's work.
-
-![Choosing a capture in Focus Mode](docs/screenshots/focus-mode-list.jpg)
-
-Focus Mode works from a plain clone, with the pictures kept in git (up to 256 px). For sharper gear and scenes, unzip the
-[art pack](https://github.com/Suddl3/hx-edit-unbound/releases/tag/gear-art-2026-11-22) into an `art` folder in your clone
-(see [Setup](docs/FLOOR-SETUP.md#sharper-pictures-in-focus-mode)): Focus Mode finds it on its own.
-
-### Level presets
-
-Brings presets and snapshots to one output level, silently. Level plays two seconds of your own recorded playing through each snapshot over USB (nothing comes out of your amp), measures the loudness, and suggests a change to each output block's Level. Keep a lead louder on purpose with an offset, then Apply, with Undo. Recordings are saved per guitar ("Strat · neck"), so you record once. Only output levels change; tone and drive are never touched.
-
-![Level presets after scanning two presets](docs/screenshots/level-presets.png)
-
-### In HX Edit's toolbar
-
-**Browse TONE3000** opens TONE3000 inside HX Edit, to preview captures on the Floor and save the ones you like. **Focus** opens Focus Mode, the **HX Unbound** menu opens the tools (Level presets, Floor look, the NAM library), the gear beside it holds the options, and the **DSP meter** shows how full each DSP is, as the Floor reports it.
-
-![The TONE3000 button, the HX Unbound menu and the DSP meter](docs/screenshots/toolbar.png)
-
-### Easy to tell apart
-
-While it runs, HX Edit's window is titled **HX Edit Unbound** and its icon turns violet to teal (left: stock HX Edit).
-
-<p align="center"><img src="docs/screenshots/app-icon.png" alt="Stock HX Edit icon beside the HX Edit Unbound icon" width="420"></p>
-
-Also: NAM categories in the block picker (opt-in), a warning before clearing a slot that presets still use, and HX Edit's window staying put when the Floor reconnects. The full list is in [what's new](docs/CHANGES.md).
+> **A test build.** Windows only. It has run on one Helix Floor with HX Unbound Floor firmware. Not tested: stock Floor firmware, the NAM Pedal firmware, other Helix units. [What has run on a Floor](docs/FLOOR-WORKFLOW.md#status-november-26).
 
 ## Get started
 
-[Setup and launch](docs/FLOOR-SETUP.md#install-the-current-editor) installs it from source on Windows: official HX Edit 3.82, Python and Git, then one command to launch. Already have a copy? See [updating an existing clone](docs/FLOOR-SETUP.md#updating-an-existing-clone).
+You need: Windows 10 or 11 (64-bit), the official **HX Edit 3.82** installed in its usual folder, **Python 3.10 or newer** (64-bit) and **Git**. A Helix Floor with [HX Unbound Floor](https://github.com/Suddl3/hx-unbound-floor) firmware for the NAM features.
 
-Your captures, recordings and settings stay in `%LOCALAPPDATA%\HX Edit NAM`. Nothing here changes the Floor's firmware; for that, see [HX Unbound Floor](https://github.com/Suddl3/hx-unbound-floor).
+```powershell
+git clone https://github.com/Suddl3/hx-edit-unbound.git
+cd hx-edit-unbound
+.\setup.ps1
+.\start.ps1
+```
+
+`setup.ps1` runs once (about a minute): it checks what you have, fetches the converter, makes the Python environment, offers the sharper gear pictures (about 210 MB) and asks for your TONE3000 key. Run it again any time; it skips what is done. From then on, `.\start.ps1` starts HX Edit Unbound. Close any other HX Edit first.
+
+If Windows says scripts are disabled, run them this way instead: `powershell -ExecutionPolicy Bypass -File .\setup.ps1` (and the same for `start.ps1`).
+
+More: [Setup in detail](docs/FLOOR-SETUP.md), including updating an existing clone and the TONE3000 key.
+
+## Four layouts
+
+Pick one from the menu at the top left; the editor opens in the one you used last.
+
+<p align="center"><img src="docs/screenshots/layout-switcher.png" alt="The layout menu" width="560"></p>
+<p align="center"><em>The layout menu, top left: four ways to see the same preset.</em></p>
+
+| | |
+|---|---|
+| **Workbench** (the default): a rail of tools, the chain large, the selected block's controls underneath. | ![Workbench](docs/screenshots/layout-workbench.png) |
+| **Classic+**: HX Edit's own arrangement in the new look, with the preset list on the left and the model list beside the controls. | ![Classic+](docs/screenshots/layout-classic-plus.png) |
+| **Rig on stage**: your gear standing in a scene, as Focus Mode shows it, with the controls docked below (here in space). | ![Rig on stage](docs/screenshots/layout-stage.jpg) |
+| **Classic**: HX Edit exactly as Line 6 made it, with HX Unbound's menu and the TONE3000 button. | ![Classic](docs/screenshots/layout-classic.png) |
+
+![Rig on stage in the desert scene](docs/screenshots/stage-desert.jpg)
+<p align="center"><em>Rig on stage with a full preset, in the Desert Dusk scene.</em></p>
+
+Everything changes the real preset as HX Edit's own controls do, and Undo works the same way.
+
+## What it adds
+
+### Picking models and captures
+
+**Change model** opens one list of every model, with your **NAM captures** as their own category. A click lines a model up on the card ("Replace with …"), a double-click or Enter puts it on the block; after "+", one click adds it. Inputs and outputs have their own chooser.
+
+![The block picker](docs/screenshots/picker.png)
+<p align="center"><em>The block picker with your NAM captures as their own category, sorted by kind.</em></p>
+
+### Your NAM captures, with pictures
+
+The **Library** holds every capture you have, on the Floor or only on this PC: a gear picture for each, sorted into amps, amp + cab, pedals and more, marked guitar or bass. Put one on the Floor, preview it on the selected NAM block, import `.nam` files, or see what is in each of the Floor's 128 slots.
+
+![The NAM library](docs/screenshots/library.png)
+<p align="center"><em>The NAM library: every capture with its gear picture, which slot it is in, and what it is.</em></p>
+
+### TONE3000
+
+Browse [TONE3000](https://www.tone3000.com) inside the editor. Click a tone to hear it on a NAM block of the preset ("Plays on" shows which one; click another to move it), then **Load on Floor** or **Keep on this PC**. Nothing changes for good until you say so: the block gets its own capture back when the preview ends. Pop it out into its own window and keep editing while it plays.
+
+![TONE3000](docs/screenshots/tone3000.png)
+<p align="center"><em>TONE3000 inside the editor: a tone playing on the Deluxe Reverb block, with Load on Floor one click away.</em></p>
+
+A preview borrows **User IR slot 128**: do not keep an IR of your own there.
+
+### Focus Mode
+
+**Focus** shows the selected block large, standing in its scene, with its own knobs and switches; **Editor** goes back. It is modelled on the Floor's own Focus View (savedadodo's work in HX Unbound Floor), and a small frame shows what the Floor draws for the same block. **Floor look** sets the scenes and pictures.
+
+![Focus Mode](docs/screenshots/focus-mode.jpg)
+<p align="center"><em>Focus Mode: one block, large, in its scene (here Neon Rain), with its own knobs.</em></p>
+
+### Level presets
+
+**Levels** brings presets and snapshots to one output level. It plays two seconds of your own recorded playing through each snapshot over USB (nothing comes out of your amp), measures them and suggests a change to the output level only. Nothing changes until you Apply, and Undo takes it back.
+
+![Level presets](docs/screenshots/levels.png)
+<p align="center"><em>Level presets after a scan: each snapshot measured, with the change it suggests.</em></p>
+
+### And more
+
+The **DSP meter** shows how full each DSP is, as the Floor reports it, and a NAM block is only added where there is room. HX Edit's window is titled **HX Edit Unbound** with its own icon, so it is easy to tell apart from a stock HX Edit. In Classic, some of HX Edit's own controls work a little differently: see [how Classic differs from stock HX Edit](docs/FLOOR-WORKFLOW.md#how-classic-differs-from-stock-hx-edit). The full list is in [what's new](docs/CHANGES.md).
+
+## Firmware
+
+| Needs HX Unbound Floor firmware | Should work on stock firmware (not tested) |
+|---|---|
+| Anything with a NAM block: the NAM library and its slots, TONE3000 previews and loads, NAM captures in the picker, the capture pictures on the Floor | The four layouts, editing stock blocks, Focus Mode, Level presets, the DSP meter |
+
+On a stock Floor, do not add a NAM block: the stock firmware has none. Your captures, recordings and settings stay on this PC in `%LOCALAPPDATA%\HX Edit NAM`. Nothing here changes the Floor's firmware; for that, see [HX Unbound Floor](https://github.com/Suddl3/hx-unbound-floor).
 
 ## Documents
 
+- [Setup in detail](docs/FLOOR-SETUP.md)
 - [What's new](docs/CHANGES.md)
-- [Setup and launch](docs/FLOOR-SETUP.md)
-- [Workflow and test status](docs/FLOOR-WORKFLOW.md): what each action does, what has run on a Floor, and what is still to test.
-- [Product vision and roadmap](docs/PRODUCT-VISION.md), including [how Level presets works](docs/PRODUCT-VISION.md#level-presets-built-november-16).
+- [Workflow and test status](docs/FLOOR-WORKFLOW.md): what each action does and what has run on a Floor.
+- [Product vision and roadmap](docs/PRODUCT-VISION.md)
 - [Firmware/editor compatibility](https://github.com/Suddl3/hx-unbound-floor/blob/main/EDITOR.md)
 
-The repository: `src/` holds the app, `tests/` its tests, `docs/` these documents. `main` is the current branch. It was developed as `floor-navigation`, which stays for now so older clones and links keep working; `floor` is the older source preview.
+## Credits
 
-## Attribution
+- **nocaseguy** ([hx-stomp-nam-lite](https://github.com/nocaseguy/hx-stomp-nam-lite)): his work putting Neural Amp Modeler (NAM A2 Lite) into stock Line 6 firmware, so NAM captures run on the HX Stomp, HX Stomp XL and HX Effects' own DSP, is what started HX Unbound and this editor.
+- **savedadodo** (HX Unbound Floor): the firmware, the Floor's Focus View that Focus Mode and Rig on stage are modelled on, and the reviews of this editor.
+- **Andrei Eronin** ([andreidevs/hx-edit-nam](https://github.com/andreidevs/hx-edit-nam)): HX Edit Unbound began as a fork of his project, which first brought TONE3000 and NAM captures into HX Edit. His commits are kept in this repository's history; his README is preserved in [README_UPSTREAM.md](docs/README_UPSTREAM.md). The converter comes from his [helix-lt-nam](https://github.com/andreidevs/helix-lt-nam).
+- [Neural Amp Modeler](https://github.com/sdatkinson/neural-amp-modeler) by Steven Atkinson. Level presets can use NAM's standard reamp file as a test signal when you already have it; it is not distributed here.
+- Thanks to the HX Unbound community on Discord for testing and reports, among them Pesketron.
 
-HX Edit Unbound began as a fork of [andreidevs/hx-edit-nam](https://github.com/andreidevs/hx-edit-nam) by Andrei Eronin, who did the original groundwork of bringing TONE3000 and NAM captures into HX Edit, and it uses the NAM/converter projects that work credits. His commits are kept in this repository's history. The project has since grown in its own direction: the HX Unbound Floor workflow, the NAM library, capture artwork, the DSP meter and Level presets. The prior README is preserved in [README_UPSTREAM.md](docs/README_UPSTREAM.md). Stock HX Edit, firmware, personal captures and credentials are not distributed here.
+The gear pictures and scenes are **AI-generated**, made for this project.
 
-Level presets can use [Neural Amp Modeler](https://github.com/sdatkinson/neural-amp-modeler)'s standard reamp file (its v3 input) as a test signal when you already have it on your PC; the file is not distributed here, only looked for.
-
-The TONE3000 name and wordmark (`src/nav_images/tone3000-logo.png`, used on the Browse TONE3000 button) belong to TONE3000 and are used only to identify and open their service. HX Edit, Helix and Line 6 are trademarks of Yamaha Guitar Group; this project is not affiliated with them.
+The TONE3000 name and wordmark belong to TONE3000 and are used only to identify and open their service. HX Edit, Helix and Line 6 are trademarks of Yamaha Guitar Group; this project is not affiliated with them. Stock HX Edit, firmware, personal captures and credentials are not distributed here.

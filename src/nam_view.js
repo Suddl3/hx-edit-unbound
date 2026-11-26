@@ -348,9 +348,31 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     discoveryControls?.slotsChanged(slots);
   }
 
+  // The capture TONE3000's Load on Floor has just written, by slot (M1, live 2026-11-26 10:30): until the slot check
+  // reads the slot back, the slot has no library capture, and the tile, the strip and the chain named it "IR slot 29"
+  // or by its raw IR name ("MTCH HD30 II Edge FAT CA 914439"), without its picture. Named and pictured as the library
+  // has it (tone_preview kept_capture) while the slot holds what was written (its raw name the one registered then);
+  // the slot check's own answer comes first once it has one.
+  const slotNotes = new Map();          // slot -> {raw, name, icon, gear, instrument}
+  function notedCapture(slot) {
+    const note = slotNotes.get(slot);
+    if (!note) return null;
+    if (!Object.hasOwn(profiles, slot) || profiles[slot] !== note.raw) { slotNotes.delete(slot); return null; }
+    return note;
+  }
+  function noteCapture(slot, capture) {
+    if (!Number.isInteger(slot) || slot < 1 || slot >= AUDITION_SLOT || !capture || typeof capture !== 'object') return false;
+    const name = typeof capture.name === 'string' ? capture.name.trim().slice(0, 96) : '';
+    if (!name || !Object.hasOwn(profiles, slot)) return false;
+    const icon = typeof capture.icon === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(capture.icon) ? capture.icon : '';
+    slotNotes.set(slot, {raw: profiles[slot], name, icon, gear: typeof capture.gear === 'string' ? capture.gear.slice(0, 32) : '',
+                         instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar'});
+    return true;
+  }
+
   function profileLabel(slot) {
     const content = slotLedger?.contentFor(slot);
-    return content && payloadMetadata[content]?.name || profiles[slot];
+    return content && payloadMetadata[content]?.name || notedCapture(slot)?.name || profiles[slot];
   }
 
   // --- Model caption width -------------------------------------------------------------------
@@ -585,6 +607,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   const screenToClient = winApi('ScreenToClient', 'int', ['pointer', 'pointer']);
   const cursorPoint = Memory.alloc(8);
   const getWindowOwner = winApi('GetWindowThreadProcessId', 'uint', ['pointer', 'pointer']);
+  const getWindowRelative = winApi('GetWindow', 'pointer', ['pointer', 'uint']);
   const windowOwner = Memory.alloc(4);
   const setCapture = winApi('SetCapture', 'pointer', ['pointer']);
   const getCapture = winApi('GetCapture', 'pointer', []);
@@ -661,6 +684,72 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   const chainIds = [0x73663078, 0x73663178]; // sf0x, sf1x
   const chainPoint = Memory.alloc(8);
   const postMessage = winApi('PostMessageW', 'int', ['pointer', 'uint', 'pointer', 'pointer']);
+  const redrawWindow = winApi('RedrawWindow', 'int', ['pointer', 'pointer', 'pointer', 'uint']);
+  // HX Edit's status strip (res/main.xml "stbw": My Account, the device, updates): its colour as main.xml gives it
+  // (0xFF1D1D1D) and the panes' dark gray (menu_dark.js MENU_DARK.bar, #14161B), and where the panel keeps it.
+  const STRIP_STOCK = 0xff1d1d1d, STRIP_DARK = 0xff14161b;
+  // (the panel keeps the word as 0xAABBGGRR: written as 0xff14161b it showed (27, 22, 20), red and blue swapped, live
+  // 2026-11-25 22:28:25; the gray as stored is 0xff1b1614)
+  const abgr = argb => ((argb & 0xff00ff00) | ((argb & 0xff) << 16) | ((argb >>> 16) & 0xff)) >>> 0;
+  // Which match is the strip's colour, the same every run: the word at offset 24 (where the live run of 1309bfc found
+  // it, 2026-11-25 22:28:25, and wrote the colour that showed), else the only word, else (no word at all) the only
+  // four-float form; null otherwise. (9525aed's run found two matches, 22:45:09, and changed nothing.) Pure.
+  const stripPick = hits => {
+    const words = hits.filter(h => h.kind === 'argb'), floats = hits.filter(h => h.kind === 'float');
+    return words.find(h => h.offset === 24) || (words.length === 1 ? words[0] : null) ||
+           (!words.length && floats.length === 1 ? floats[0] : null);
+  };
+  // Whether the strip shows the colour wanted on screen: pixels read along it ([[r, g, b] | null], null: unread),
+  // each within 3 of the wanted gray (argb). true / false with three or more read, else null (cannot tell). Pure.
+  const stripPixels = (pixels, want) => {
+    const read = pixels.filter(Array.isArray);
+    if (read.length < 3) return null;
+    const rgb = [(want >>> 16) & 0xff, (want >>> 8) & 0xff, want & 0xff];
+    return read.filter(p => p.every((v, k) => Math.abs(v - rgb[k]) <= 3)).length >= 3;
+  };
+  let stripAt;                 // undefined: not looked for yet; null: not found; {at, kind, widget} once found
+  let stripRedraws = 0;        // repaints asked for while the colour was right but the screen was not (at most 3)
+  // HX Edit's strip repainted by its own widget redraw, then the window painted now. On HX Edit's UI thread.
+  function stripRepaint(strip) {
+    redraw(strip);
+    if (!sidebarHost.isNull()) redrawWindow(getAncestor(sidebarHost, 2), NULL, NULL, 0x0001 | 0x0080 | 0x0100);   // GA_ROOT; INVALIDATE|ALLCHILDREN|UPDATENOW
+  }
+  // What the screen shows along the strip: five pixels near its bottom edge, from the window's own picture (GetPixel
+  // on its DC). {painted: true|false|null, rgb: the first pixel read, or null}.
+  let stripGdi = null;
+  const stripPoint = Memory.alloc(8);
+  function stripOnScreen(strip, want) {
+    try {
+      if (sidebarHost.isNull()) return {painted: null, rgb: null};
+      if (!stripGdi) {
+        const g = Process.getModuleByName('gdi32.dll');
+        stripGdi = {getDC: winApi('GetDC', 'pointer', ['pointer']), releaseDC: winApi('ReleaseDC', 'int', ['pointer', 'pointer']),
+                    getPixel: new NativeFunction(g.getExportByName('GetPixel'), 'uint32', ['pointer', 'int', 'int'], 'stdcall')};
+      }
+      const geometry = strip.add(0x54).readPointer();
+      const w = geometry.add(12).readS32() - geometry.add(4).readS32(), h = geometry.add(16).readS32() - geometry.add(8).readS32();
+      if (w < 40 || h < 6) return {painted: null, rgb: null};
+      widgetOrigin(strip, stripPoint);
+      const x = stripPoint.readS32(), y = stripPoint.add(4).readS32() + h - 3;
+      const dc = stripGdi.getDC(sidebarHost);
+      if (dc.isNull()) return {painted: null, rgb: null};
+      const pixels = [];
+      try {
+        for (const f of [0.05, 0.25, 0.5, 0.75, 0.95]) {
+          const c = stripGdi.getPixel(dc, x + Math.floor(w * f), y);
+          pixels.push(c === 0xffffffff ? null : [c & 0xff, (c >>> 8) & 0xff, (c >>> 16) & 0xff]);   // COLORREF 0x00BBGGRR
+        }
+      } finally { stripGdi.releaseDC(sidebarHost, dc); }
+      return {painted: stripPixels(pixels, want), rgb: pixels.find(Array.isArray) || null};
+    } catch (_) { return {painted: null, rgb: null}; }
+  }
+  // The strip's colour as it stands: 'dark', 'stock', or 'other' (neither gray). Reads only.
+  const stripShade = s => {
+    if (s.kind === 'argb') { const word = s.at.readU32(); return word === abgr(STRIP_DARK) ? 'dark' : word === STRIP_STOCK ? 'stock' : 'other'; }
+    const rgb = [0, 4, 8].map(k => Math.round(s.at.add(k).readFloat() * 255));
+    const is = c => rgb[0] === ((c >>> 16) & 0xff) && rgb[1] === ((c >>> 8) & 0xff) && rgb[2] === (c & 0xff);
+    return is(STRIP_DARK) ? 'dark' : is(STRIP_STOCK) ? 'stock' : 'other';
+  };
   let pendingDrop = null;
 
   let chainCache = {at: 0, boxes: []};
@@ -774,7 +863,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (!hwnd.isNull()) {
         const root = getAncestor(hwnd, 2), view = sidebar();
         windowOwner.writeU32(0);getWindowOwner(root, windowOwner);
-        if (view && windowOwner.readU32() === Process.id && getClientRect(root, clientRect) &&
+        // (HX Edit's own main window has no owner; the start-up cover of window_keep.js, a window of this process of the
+        // same size, is owned by it and must never be taken for it: the pane would follow the cover, J4)
+        if (view && windowOwner.readU32() === Process.id && getWindowRelative(root, 4).isNull() && getClientRect(root, clientRect) &&
             clientRect.add(8).readS32() >= view.parent.w && clientRect.add(12).readS32() >= view.side.y + view.side.h)
           sidebarHost = root;
       }
@@ -1924,6 +2015,101 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     },
     // Focus Mode: a DSP's chain panel in the window ({x, y, w, h}, or null when it is not showing), and a plain
     // click at a point of the chain, as the user's own click on a block (it selects the block; nothing else).
+    // HX Edit's own edit panel (res/editor.xml "insp"): its tab row "emtb" (EDIT | BYPASS/CONTROLLER ASSIGN) and the two
+    // views it switches, "etvw" (EDIT: the model list and the parameter pane PRVW) and "cavw" (the assign view). After
+    // Focus Mode HX Edit was found on the assign tab (live 2026-11-25 14:05): no parameter pane, and its panel no
+    // longer follows the selected block, which TONE3000 and the Library's Preview / Put on the Floor bind to.
+    // HX Edit's status strip in the panes' dark gray while a pane covers HX Edit's screen, main.xml's own colour again
+    // for Classic (U2, 2026-11-25: Nick, "does not match"). The panel ("stbw", under the window's root view "main") keeps
+    // its colour in its own memory: looked for there once, as a whole 0xAARRGGBB word or as four floats (R, G, B, A),
+    // and written only where it is found exactly once; otherwise nothing is written. On HX Edit's UI thread.
+    // Looked at each time (focus_view keepStrip, about once a second, N1): the strip's widget is found again (one HX
+    // Edit has built anew is searched again, never written through the old one), its colour read, and written only
+    // when it is not the one wanted ({same: true} then: no write, no redraw). Returns {found, kind, offset, dark, was,
+    // same} for the trace.
+    statusStrip(dark) {
+      let widget = this.chainPanel(), main = NULL;
+      for (let depth = 0; depth < 14 && widget && !widget.isNull(); depth++) {
+        const geometry = widget.add(0x54).readPointer();
+        if (geometry.isNull()) break;
+        if (geometry.readU32() === 0x6d61696e) { main = widget; break; }       // "main"
+        widget = geometry.add(0x14).readPointer();
+      }
+      const strip = main.isNull() ? NULL : canonical(findWidget(main, 0x73746277, 1));   // "stbw"
+      // (not built yet, or not reached from the chain yet: looked for again later; live 2026-11-25 21:50:28 the one
+      // look at start-up found no "main" and the strip stayed stock, V1)
+      if (strip.isNull()) return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw', again: true};
+      if (stripAt && !stripAt.widget.equals(strip)) stripAt = undefined;
+      if (stripAt === undefined) {
+        stripAt = null;
+        // (either gray: a strip built anew while dark is found too)
+        const hits = [], shades = [STRIP_STOCK, STRIP_DARK].map(c => [(c >>> 16) & 0xff, (c >>> 8) & 0xff, c & 0xff].map(v => v / 255));
+        for (let offset = 0; offset < 0x400; offset += 4) {
+          const at = strip.add(offset), word = at.readU32();
+          if (word === STRIP_STOCK || word === abgr(STRIP_DARK)) hits.push({at, kind: 'argb', offset});
+          else if (offset <= 0x3f0 && Math.abs(at.add(12).readFloat() - 1) < 0.002 &&
+                   shades.some(rgb => rgb.every((v, k) => Math.abs(at.add(4 * k).readFloat() - v) < 0.002))) hits.push({at, kind: 'float', offset});
+        }
+        const seen = hits.map(h => h.kind + '@' + h.offset);        // (every match, for the trace)
+        const chosen = stripPick(hits);
+        if (!chosen) return {found: false, why: 'matches', matches: hits.length, at: seen};
+        stripAt = {...chosen, seen, widget: strip};
+      }
+      if (!stripAt) return {found: false, why: 'not-found-before'};
+      const was = stripShade(stripAt), want = dark ? 'dark' : 'stock', colour = dark ? STRIP_DARK : STRIP_STOCK;
+      if (was === want) {
+        // (the colour right but the screen not: repainted, at most three times until the next write; N1, live
+        // 2026-11-26 11:30: the screen stayed one write behind)
+        const shown = stripOnScreen(strip, colour);
+        if (shown.painted !== false || stripRedraws >= 3) {
+          if (shown.painted) stripRedraws = 0;
+          return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, same: true};
+        }
+        stripRedraws++;
+        stripRepaint(strip);
+        const after = stripOnScreen(strip, colour);
+        return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, same: true, redrawn: stripRedraws,
+                painted: after.painted, rgb: after.rgb, before: shown.rgb};
+      }
+      // (neither gray any more: not the strip's colour now; searched again at the next look, nothing written)
+      if (was === 'other') { stripAt = undefined; return {found: false, why: 'moved', again: true}; }
+      if (stripAt.kind === 'argb') stripAt.at.writeU32(abgr(colour));
+      else [(colour >>> 16) & 0xff, (colour >>> 8) & 0xff, colour & 0xff].forEach((c, k) => stripAt.at.add(4 * k).writeFloat(c / 255));
+      stripRedraws = 0;
+      stripRepaint(strip);
+      const shown = stripOnScreen(strip, colour);
+      return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, was, at: stripAt.seen, painted: shown.painted, rgb: shown.rgb};
+    },
+    editPanelTab() {
+      const view = sidebar();
+      if (!view) return null;
+      const insp = canonical(findWidget(view.editor, 0x696e7370, 1));                   // insp
+      if (insp.isNull()) return null;
+      const editView = canonical(findWidget(insp, 0x65747677, 1)), assignView = canonical(findWidget(insp, 0x63617677, 1));   // etvw, cavw
+      let prvw = canonical(findWidget(insp, 0x50525657, 1));                            // PRVW, in the EDIT view
+      if (prvw.isNull()) prvw = canonical(findWidget(view.editor, 0x50525657, 1));      // (as nav_banner dockPanel finds it)
+      const flags = w => w.isNull() ? null : [!!isVisible(w, 0), !!isVisible(w, 1)];
+      return {prvw: !prvw.isNull() && !!isVisible(prvw, 1), edit: !editView.isNull() && !!isVisible(editView, 1),
+              assign: !assignView.isNull() && !!isVisible(assignView, 1),
+              seen: {etvw: flags(editView), cavw: flags(assignView), prvw: flags(prvw)}};
+    },
+    // A click on HX Edit's own EDIT tab (the left half of "emtb"), posted as a chain click is. True when posted.
+    showEditTab() {
+      const view = sidebar();
+      if (!view || sidebarHost.isNull()) return false;
+      const insp = canonical(findWidget(view.editor, 0x696e7370, 1));
+      const tabs = insp.isNull() ? NULL : canonical(findWidget(insp, 0x656d7462, 1));     // emtb
+      if (tabs.isNull() || !isVisible(tabs, 1)) return false;
+      widgetOrigin(tabs, chainPoint);
+      const size = box(tabs);
+      if (!(size.w > 0 && size.h > 0)) return false;
+      const x = chainPoint.readS32() + Math.round(size.w / 4), y = chainPoint.add(4).readS32() + Math.round(size.h / 2);
+      const at = ptr(((y & 0xffff) << 16 | (x & 0xffff)) >>> 0);
+      postMessage(sidebarHost, 0x200, NULL, at);          // WM_MOUSEMOVE
+      postMessage(sidebarHost, 0x201, ptr(1), at);        // WM_LBUTTONDOWN, MK_LBUTTON
+      postMessage(sidebarHost, 0x202, NULL, at);          // WM_LBUTTONUP
+      return true;
+    },
     chainBox(dsp) {
       const view = sidebar();
       if (!view || !chainIds[dsp]) return null;
@@ -2014,8 +2200,19 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         result.push({slot, id: typeof capture.id === 'string' ? capture.id : null, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
           instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar'});
       }
+      // (and a capture Load on Floor has just written, until the slot check has read its slot: noteCapture, M1)
+      const read = new Set(slotLedger.entries().map(([slot]) => slot));
+      let noted = false;
+      for (const slot of [...slotNotes.keys()]) {
+        const note = !read.has(slot) && notedCapture(slot);
+        if (!note) continue;
+        result.push({slot, id: null, name: note.name, gear: note.gear, icon: note.icon, instrument: note.instrument});
+        noted = true;
+      }
+      if (noted) result.sort((a, b) => a.slot - b.slot);
       return result;
     },
+    noteCapture,
     requestSlotCheck() { requestLibraryVerification(); },
     // The slot check has completed (all slots, or all it could read) since proof was last discarded.
     slotCheckDone: () => inventoryState === 'verified' || inventoryState === 'partial',

@@ -161,7 +161,7 @@ class ChainTests(unittest.TestCase):
         self.assertEqual(run([[0, 'a', False], [1, 'a', False], [0, '', False], [0, 'a', False]]), [False, False, True, True])
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         # (HX Edit's answer and an undo made on this preset, both: test_undo_after_load)
-        self.assertIn("$('redo').disabled = !((typeof state.redo === 'boolean' ? state.redo : true) && redoTrack.redo);", page)
+        self.assertIn("$('redo').disabled = !can.redo;", page)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn('state.undoAt = editor.add(0x294).readS32();', script)
 
@@ -274,10 +274,12 @@ class CatalogTests(unittest.TestCase):
         (self.res / 'HelixControls.json').write_text('{}', encoding='utf-8')
         self.assertEqual(workbench.route_names(self.res), {'inputs': [], 'outputs': [], 'ledColors': []})
 
-    def test_the_workbench_is_shown_at_launch_only_once_it_was_switched_on(self):
-        self.assertFalse(workbench.setting_on({}))
+    def test_a_first_launch_opens_the_workbench_and_classic_stays_when_chosen(self):
+        # (Nick, 2026-11-25: a new player starts in the Workbench; Classic chosen in the menu stays)
+        self.assertTrue(workbench.setting_on({}))
+        self.assertTrue(workbench.setting_on(None))
+        self.assertTrue(workbench.setting_on({'chainModelArt': True}))
         self.assertFalse(workbench.setting_on({'workbench': False}))
-        self.assertFalse(workbench.setting_on(None))
         self.assertTrue(workbench.setting_on({'workbench': True}))
 
     def test_the_menu_offers_only_hx_edits_own_screen_focus_mode_and_the_launchers_tools(self):
@@ -419,7 +421,7 @@ class SizeTests(unittest.TestCase):
     def test_the_page_places_an_old_tools_window_over_its_frame_and_closes_it_with_the_frame(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody')", page)
-        self.assertIn("if (!name) { if (toolShown) { toolShown = ''; ask('toolClose'); } return; }", page)
+        self.assertIn("if (!name) { if (toolShown && !toolPopped) { if (toolShown === 'tone') toneGone(); toolShown = ''; ask('toolClose'); } return; }", page)
         self.assertIn("else if (message.type === 'toolClosed') { toolClosed(); return; }", page)
         self.assertIn("else if (view.full || view.half) setView('escape');", page)
         self.assertIn("if (view.half === 'level' && !view.full) setView('select');", page)
@@ -917,7 +919,8 @@ class ToneTrayTests(unittest.TestCase):
     def test_the_tray_follows_the_windows_own_steps(self):
         src = (ROOT / 'tone_preview.py').read_text(encoding='utf-8')
         for piece in ("'state': 'getting'", "tray_mark(tray_now, state='ready', trial=trial, text='')",
-                      "tray_mark(item, state='floor', slot=reply['savedSlot'], kept=True)", "self._to_workbench('tone', {'tray':"):
+                      "tray_mark(item, state='floor', slot=reply['savedSlot'], kept=True)", "self._to_workbench('tone', data)",
+                      "data = {'tray': [dict(item) for item in tray[:20]], 'text': text, 'trial': trial,"):
             self.assertIn(piece, src)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("preview.tone_action(f'keep:{trial}')", launcher)
@@ -932,9 +935,9 @@ class ToneTrayTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         tray = page[page.index('function drawTray() {'):page.index('function libraryRow(')]
         self.assertIn("const playing = all.find(i => i.state === 'ready' && i.trial === t.trial) || null, items = all.filter(i => i !== playing);", tray)
-        for words in ("'Playing on '", "'the NAM block on Path ' + (now.dsp + 1)", "'Stop preview'",
-                      "ask('tray', {do: 'end', trial: t.trial});", "ask('tray', {do: 'keep', trial: t.trial});",
-                      "Stop puts the block\u2019s own capture back."):
+        # (T1/T3, 2026-11-25: "Playing on <block>, Path n. Nothing is saved." with Stop, Load on Floor, Keep on this PC)
+        for words in ("'Playing on '", "el('em', '', where), '. Nothing is saved.'", "el('button', 'btn', 'Stop')",
+                      "ask('tray', {do: 'end', trial: t.trial});", "ask('tray', {do: 'keep', trial: t.trial});"):
             self.assertIn(words, tray)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("if preview is not None and value.get('do') == 'end':\n                        preview.tone_action('end')", launcher)
@@ -1127,7 +1130,7 @@ class SplitMoveTests(unittest.TestCase):
         self.assertLess(select.index('targetBinding.selectNode(editor, block.dsp, block.id);'), select.index('focusChainPoint('))
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         for which in ('split', 'join'):
-            self.assertIn(f"node.onclick = () => {{ if (!dragDone) ask('select', {{dsp: p.dsp, id: '{which}'}}); }};", page)
+            self.assertIn(f"node.onclick = () => {{ if (!dragDone) pickBlock({{dsp: p.dsp, id: '{which}'}}); }};", page)
             self.assertIn(f"el('span', 'node movable' + (same(p.{which}, now) ? ' on' : ''))", page)
 
 class AssignReadTests(unittest.TestCase):
@@ -1470,7 +1473,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("value.pane === 'workbench' ? 'workbench' : 'focus'", script)   # Focus Mode's own messages carry no pane
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@tempo')", script)
         # Still only values, a model, a capture, a snapshot and a click on the chain are ever written.
-        self.assertEqual(script.count('targetBinding.setValue('), 5)   # (and a value in another snapshot)
+        self.assertEqual(script.count('targetBinding.setValue('), 6)   # (and a value in another snapshot)
         self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 3))   # (a swap, the split's type; a capture added, an IR)
 
 
@@ -1507,8 +1510,10 @@ class WiringTests(unittest.TestCase):
     def test_the_classic_screens_menu_has_the_way_back(self):
         self.assertIn('workbench', DspMeter.CHOICES)
         helper = (ROOT / 'NamLibrary.cs').read_text(encoding='utf-8')
-        tools = helper[helper.index('public static readonly Tuple<string,string>[] Choices'):helper.index('static readonly string[] Tips')]
-        self.assertIn('Tuple.Create("Workbench (the modern screen)", "workbench")', tools)
+        tools = helper[helper.index('public static readonly Tuple<string,string>[] Layouts'):helper.index('static readonly string[] Tips')]
+        # (Reveal B12: the way back is the layouts at the menu's top, Classic ticked)
+        self.assertIn('Tuple.Create("Workbench", "layout:workbench")', tools)
+        self.assertIn('layout:workbench', DspMeter.CHOICES)
 
     def test_save_is_hx_edits_own_key(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
@@ -1531,8 +1536,8 @@ class WiringTests(unittest.TestCase):
         for script in ('<script src="pane_controls.js"></script>', '<script src="workbench_layout.js"></script>'):
             self.assertIn(script, page)
         import re
-        asked = set(re.findall(r"(?:ask|chainAsk)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
-        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist', 'clear', 'layout'})
+        asked = set(re.findall(r"(?:ask|chainAsk|askUndo)\('([a-zA-Z]+)'", page + (ROOT / 'pane_controls.js').read_text(encoding='utf-8')))
+        self.assertEqual(asked, {'select', 'set', 'model', 'capture', 'snapshot', 'preset', 'undo', 'redo', 'save', 'menu', 'add', 'remove', 'move', 'moveSplit', 'route', 'assign', 'snapValue', 'splitType', 'ir', 'tool', 'toolPlace', 'toolClose', 'toolDock', 'toolFront', 'pin', 'export', 'look', 'lookSave', 'levels', 'prefs', 'library', 'choose', 'tray', 'menuBar', 'rename', 'setlist', 'clear', 'layout', 'scenePin', 'endpoint'})
 
     def test_the_menu_is_the_logo_and_holds_the_layout_and_hx_edits_menu_bar(self):
         # Batch 1 (Nick, 2026-11-23): the app icon top left opens the menu, the "Unbound" button is gone, and the menu
@@ -1553,7 +1558,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn("$('toFocus').onclick = () => ask('menu', 'focus');", page)      # Focus Mode: the Editor | Focus switch
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         for piece in ("if name == 'menuBar':", 'nam_catalog.save_setting(MENU_BAR, value)', 'workbench.show_options(menu_options())',
-                      "return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept(), 'layout': layout_kept()}",
+                      "return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept(), 'layout': layout_kept(),",
                       "frame.apply(focus_on[0] or workbench_on[0], menu_bar_kept())",
                       # the row stays unless it was switched off: away, HX Edit's window grows from launch to launch
                       "return nam_catalog.load_settings().get(MENU_BAR) is not False",
@@ -1566,14 +1571,15 @@ class WiringTests(unittest.TestCase):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         # (Batch 4: the choices are shared with Classic+'s lists, pickChoices ... pickChoice)
         picker = page[page.index('function pickChoices(block) {'):page.index("// ---- Classic+'s Edit area")]
-        self.assertIn("models.append(el('h6', '', 'Models'), ...rows.models);", picker)
-        self.assertIn("const caps = [capRow('All captures', '', s.captures.length), ...namKinds().map(kind => capRow(kind.name, kind.name, s.captures.filter(c => namKind(c) === kind.name).length))];", picker)
+        # (Reveal B9: one category list, "NAM captures" after the stock ones; its kinds are the head row's tabs:
+        # test_reveal_polish)
+        self.assertIn("models.append(el('h6', '', 'Models'), ...rows.models, el('hr'), ...rows.caps);", picker)
         self.assertIn("captures.filter(c => !pickedKind || namKind(c) === pickedKind)", picker)
-        self.assertIn('cats.append(models, caps);', picker)
+        self.assertIn('cats.append(models);', picker)
         # a NAM block's picker opens on its capture's own NAM category
         opener = page[page.index('function pickHome(block, tab) {'):page.index('function closePicker() {')]
         self.assertIn("pickedKind = taken && 'gear' in taken ? namKind(taken) : '';", opener)
-        self.assertIn("pickedTab = pickedKind ? 'all' :", opener)
+        self.assertIn("pickedTab = tab === 'captures' || isNam(block) ? 'all' : '';", opener)
 
     def test_the_librarys_delete_says_the_floor_keeps_its_slot(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
