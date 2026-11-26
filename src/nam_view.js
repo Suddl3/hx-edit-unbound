@@ -1949,7 +1949,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
           widget = geometry.add(0x14).readPointer();
         }
         const strip = main.isNull() ? NULL : canonical(findWidget(main, 0x73746277, 1));   // "stbw"
-        if (strip.isNull()) return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw'};
+        // (not built yet, or not reached from the chain yet: looked for again later; live 2026-11-25 21:50:28 the one
+        // look at start-up found no "main" and the strip stayed stock, V1)
+        if (strip.isNull()) { stripAt = undefined; return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw', again: true}; }
         const shade = 0x1d / 255, hits = [];
         for (let offset = 0; offset < 0x400; offset += 4) {
           const at = strip.add(offset);

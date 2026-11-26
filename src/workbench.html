@@ -3372,9 +3372,12 @@ function send2page(why) {
   box.replaceChildren(words);
   ask('toolClose', {why});                                        // (nothing left half open; the launcher traces it)
 }
-// One of the top bar's menus is open (the layout menu, the preset list with its setlists): the docked tool's window
-// would cover it (a window cannot go under the page's menus), so it steps aside until the menu closes (U5).
-const topMenuOpen = () => !$('presetList').hidden || !$('menu').hidden;
+// One of the top bar's menus is open (the layout menu, the preset list with its setlists), or one of the page's own
+// dialogs or notices (the "has unsaved changes" question, Save, a confirmation, a notice to OK: ".modal", ".sticky"):
+// the docked tool's window would cover it (a window cannot go under the page), so it steps aside until it closes (U5,
+// V2: live 2026-11-25 the unsaved question opened under docked TONE3000 and could not be answered).
+const topMenuOpen = () => !$('presetList').hidden || !$('menu').hidden || !!document.querySelector('body > .modal, body > .sticky');
+new MutationObserver(() => { if (toolShown && !toolPopped) syncTool(); }).observe(document.body, {childList: true});
 function frameRect() {
   const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody'), r = body.getBoundingClientRect(), k = window.devicePixelRatio || 1;
   return {x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k)};

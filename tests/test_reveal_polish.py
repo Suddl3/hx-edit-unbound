@@ -1324,7 +1324,7 @@ class NickTryTests(unittest.TestCase):
 
     def test_u5_the_top_bars_menus_put_the_docked_window_aside(self):
         page = text('workbench.html')
-        self.assertIn("const topMenuOpen = () => !$('presetList').hidden || !$('menu').hidden;", page)
+        self.assertIn("const topMenuOpen = () => !$('presetList').hidden || !$('menu').hidden || !!document.querySelector('body > .modal, body > .sticky');", page)
         sync = between(page, 'function syncTool() {', '\nfunction toolPresentation(')
         self.assertIn("const hide = topMenuOpen(), place = hide ? {...rect, hide: true} : rect, placed = JSON.stringify(place);", sync)
         for opener in ('function openPresets() {', 'function closePresets(keepLook) {', 'function openMenu() {'):
@@ -1369,6 +1369,35 @@ class NickTryTests(unittest.TestCase):
         self.assertIn("if (!on && !c.pedal) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", page)
         self.assertIn("'NAM Pedal block: plays pedal versions only'", page)
         self.assertIn("if (!on && !c.pedal) tile.onclick = () => say('target:' + c.dsp + ':' + c.id);", text('tone_side.html'))
+
+
+class NickTryLiveTests(unittest.TestCase):
+    """The live check of 7d81d68 (2026-11-25 21:50-21:55, owner-trials 20261125-215018-013fdf07): V1 the status strip
+    was looked for once, too early; V2 the unsaved-changes question under docked TONE3000; V3 a detached end left the
+    tray's card playing."""
+
+    def test_v1_the_status_strip_is_looked_for_again_until_hx_edit_has_built_it(self):
+        view = text('nam_view.js')
+        strip = between(view, '    statusStrip(dark) {', '\n    },')
+        self.assertIn("if (strip.isNull()) { stripAt = undefined; return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw', again: true}; }", strip)
+        script = text('focus_view.js')
+        keep = between(script, '  function keepStrip(dark) {', '\n  }\n')
+        self.assertIn('if (result && result.again) stripAgainAt = Date.now() + 1000;', keep)
+        self.assertIn('else stripDark = dark;', keep)
+        self.assertIn('if (word !== stripSaid)', keep)
+
+    def test_v2_the_pages_own_dialogs_put_the_docked_window_aside(self):
+        page = text('workbench.html')
+        self.assertIn("new MutationObserver(() => { if (toolShown && !toolPopped) syncTool(); }).observe(document.body, {childList: true});", page)
+        guard = between(page, "const shade = el('div', 'modal'), box = el('div', 'guard')", 'document.body.append(shade);')
+        self.assertIn('has unsaved changes', guard)                                   # the question is such a .modal on <body>
+        self.assertIn("note = el('div', 'sticky');", page)
+
+    def test_v3_a_detached_end_counts_as_an_ended_preview(self):
+        tone = text('tone_view.js')
+        detached = between(tone, "cleanupTrace(request, 'completed-detached');", 'return completed();')
+        self.assertIn('active.previewEnds = (active.previewEnds || 0) + 1;', detached)
+        self.assertEqual(tone.count('active.previewEnds = (active.previewEnds || 0) + 1;'), 2)
 
 
 if __name__ == '__main__':

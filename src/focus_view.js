@@ -394,12 +394,17 @@ function installFocusView(options, parts) {
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
   let refreshSkips = 12;    // trace lines for refreshes left out (finish)
   let stripDark = null;     // the status strip's colour as last set (keepStrip)
+  let stripAgainAt = 0, stripSaid = '';
   function keepStrip(dark) {
     if (stripDark === dark || !namView.statusStrip) return;
-    stripDark = dark;
+    if (Date.now() < stripAgainAt) return;
     let result;
     try { result = namView.statusStrip(dark); } catch (error) { result = {found: false, error: String(error.message)}; }
-    send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...result});
+    // (HX Edit's views not there yet: tried again a second later, the trace once per outcome)
+    if (result && result.again) stripAgainAt = Date.now() + 1000;
+    else stripDark = dark;
+    const word = JSON.stringify(result);
+    if (word !== stripSaid) { stripSaid = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...result}); }
   }
   let selectAsked = null;   // the page's last pick, until a reading has it selected (trace "select-shown")
   // HX Edit's own panel tab while a pane covers HX Edit: traced on each change ("hx-tab"), and put back on EDIT when it is

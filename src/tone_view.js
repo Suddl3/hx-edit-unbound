@@ -4604,6 +4604,8 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       active.transfer = null;
       active.restoring = false;
       forgetPreview();
+      // (ended as any: the tray's card and the chain's banner follow; live 2026-11-25 21:53:05 they did not, V3)
+      active.previewEnds = (active.previewEnds || 0) + 1;
       return completed();
     }, explicit ? 6000 : 4000);
   }
