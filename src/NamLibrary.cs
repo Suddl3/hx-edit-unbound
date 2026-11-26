@@ -1636,35 +1636,42 @@ static class UnboundLook
     static IntPtr big, small;
     static bool failed;
 
-    public static void Apply(IntPtr window)
+    // What it did, for the launcher's trace (K1): "title=renamed|already|skipped icon=set|kept|failed".
+    public static string Apply(IntPtr window)
     {
+        string named = "skipped", icon = "failed";
         try
         {
             var text = new StringBuilder(256);
             GetWindowText(window, text, 256);
             var title = text.ToString();
-            if (Retitled(title) != title) SetWindowText(window, Retitled(title));
-            if (failed) return;
+            if (Retitled(title) != title) { SetWindowText(window, Retitled(title)); named = "renamed"; }
+            else if (title.StartsWith(Name)) named = "already";
+            if (failed) return Said(named, icon);
             if (big == IntPtr.Zero)
             {
                 var exe = ImageOf(window);
-                if (exe == null) { failed = true; return; }
+                if (exe == null) { failed = true; return Said(named, icon); }
                 // (HX Edit Unbound's app icon, the Workbench's logo, as the TONE3000 window has it: AppIcon, U3; the
                 // tinted HX Edit icon, Tinted, only when it cannot be drawn)
                 try { big = AppIcon.Draw(SystemInformation.IconSize.Width).GetHicon(); small = AppIcon.Draw(SystemInformation.SmallIconSize.Width).GetHicon(); }
                 catch (Exception) { big = small = IntPtr.Zero; }
                 if (big == IntPtr.Zero) big = Tinted(exe, SystemInformation.IconSize.Width);
                 if (small == IntPtr.Zero) small = Tinted(exe, SystemInformation.SmallIconSize.Width);
-                if (big == IntPtr.Zero) { failed = true; return; }
+                if (big == IntPtr.Zero) { failed = true; return Said(named, icon); }
             }
+            icon = "kept";
             if (SendMessage(window, WM_GETICON, (IntPtr)1, IntPtr.Zero) != big)
             {
                 SendMessage(window, WM_SETICON, (IntPtr)1, big);
                 if (small != IntPtr.Zero) SendMessage(window, WM_SETICON, IntPtr.Zero, small);
+                icon = "set";
             }
         }
         catch (Exception) { failed = true; }   // the look only; never in the way of the editor
+        return Said(named, icon);
     }
+    static string Said(string named, string icon) { return "title=" + named + " icon=" + icon; }
 
     // "HX Edit - Helix Floor" -> "HX Edit Unbound - Helix Floor"; anything else is left alone.
     public static string Retitled(string title)
@@ -1779,6 +1786,13 @@ class DspMeter : Form
     static readonly Color Back = Color.FromArgb(29, 29, 29), Track = Color.FromArgb(58, 58, 58),
         Ink = Color.FromArgb(200, 200, 200), Dim = Color.FromArgb(130, 130, 130);
 
+    // What UnboundLook did on HX Edit's window, to the launcher's trace when it changes (K1: no line said it before).
+    string lookSaid="";
+    void LookSaid(string said){
+        if(said==lookSaid)return;
+        lookSaid=said;
+        try{Console.Out.WriteLine("unboundLook "+said);Console.Out.Flush();}catch(Exception){}
+    }
     public DspMeter(IntPtr parent, StreamReader input){
         this.parent=parent; this.input=input;
         FormBorderStyle=FormBorderStyle.None; ShowInTaskbar=false; StartPosition=FormStartPosition.Manual;
@@ -1791,7 +1805,7 @@ class DspMeter : Form
         if(style!=0&&(style&WS_CLIPCHILDREN)==0)SetWindowLong(parent,GWL_STYLE,style|WS_CLIPCHILDREN);
         var reader=new System.Threading.Thread(Read){IsBackground=true};reader.Start();
         ghostTimer.Tick+=(sender,e)=>TrackGhost();
-        UnboundLook.Apply(parent);   // HX Edit Unbound's icon and title on HX Edit's window
+        LookSaid(UnboundLook.Apply(parent));   // HX Edit Unbound's icon and title on HX Edit's window
         int ticks=0;
         var watch=new Timer{Interval=250};
         // HX Edit repaints its whole window after a resize or maximize, over this child (it does not clip
@@ -1803,7 +1817,7 @@ class DspMeter : Form
             if(spanWidth>=0&&width!=placedWidth)Place();
             if(shown)Invalidate();
             if(unboundButton!=null)unboundButton.Invalidate();   // HX Edit paints over its children too
-            if(++ticks%8==0)UnboundLook.Apply(parent);   // HX Edit sets its title again on device changes
+            if(++ticks%8==0)LookSaid(UnboundLook.Apply(parent));   // HX Edit sets its title again on device changes
         };
         watch.Start();
     }

@@ -97,6 +97,7 @@ native.set('GetClientRect',(hwnd,out)=>{const w=windows.get(hwnd.value);if(!w)re
 native.set('GetAncestor',hwnd=>hwnd);
 native.set('GetWindowThreadProcessId',(hwnd,out)=>{out.writeU32(windows.get(hwnd.value)?.pid||0);return 1;});
 native.set('IsWindow',hwnd=>Number(windows.has(hwnd.value)));
+native.set('GetWindow',(hwnd,kind)=>p(kind===4?(windows.get(hwnd.value)?.owner||0):0));   // GW_OWNER: none unless a window says so (K1)
 native.set('GetActiveWindow',()=>p(active));
 native.set('RegisterWindowMessageW',()=>layoutWake);
 native.set('PostMessageW',(window,event)=>{posted.push({window:window.value,event});return 1;});

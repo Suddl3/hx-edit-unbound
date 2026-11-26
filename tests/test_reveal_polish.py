@@ -1694,5 +1694,39 @@ class ReviewFindingsTests(unittest.TestCase):
         self.assertIn("const next = workbenchSecondClick(choiceClicks, block.dsp + ':' + block.id + ':' + key, Date.now());", page)
 
 
+class UnboundLookTests(unittest.TestCase):
+    """K1 (live 2026-11-26 00:33, owner-trials 20261126-003329-7a940e89): since the start-up cover, HX Edit's title stayed
+    "HX Edit - Helix Floor": the banner took the cover (a window of HX Edit's process of the same size) for HX Edit's
+    main window, and the DSP meter, which makes the title and icon ours, was put on it."""
+
+    def test_k1_the_banner_takes_only_an_unowned_window(self):
+        banner = text('nav_banner.js')
+        valid = between(banner, '  function validWindow(hwnd) {', '\n  }\n')
+        self.assertIn('!getRelative(hwnd, 4).isNull()) return false;', valid)          # GW_OWNER: HX Edit's own has none
+        self.assertIn("const getRelative = win('GetWindow', 'pointer', ['pointer', 'uint']);", banner)
+        self.assertIn("native.set('GetWindow',", text('../tests/nav_banner_probe.cjs'))
+        keep = text('window_keep.js')
+        self.assertIn('owner, NULL, instance, NULL);', keep)                           # (the cover is owned)
+
+    def test_k1_what_unbound_look_did_reaches_the_trace(self):
+        library = text('NamLibrary.cs')
+        apply = between(library, '    public static string Apply(IntPtr window)', '\n    static string Said(')
+        self.assertIn('named = "renamed"; }', apply)
+        self.assertIn('else if (title.StartsWith(Name)) named = "already";', apply)
+        self.assertIn('icon = "set";', apply)
+        self.assertIn('static string Said(string named, string icon) { return "title=" + named + " icon=" + icon; }', library)
+        self.assertIn('LookSaid(UnboundLook.Apply(parent));', library)
+        self.assertIn('try{Console.Out.WriteLine("unboundLook "+said);Console.Out.Flush();}catch(Exception){}', library)
+        sys.path.insert(0, str(ROOT))
+        import dsp_meter
+        traced, chosen = [], []
+        meter = dsp_meter.DspMeter.__new__(dsp_meter.DspMeter)
+        meter.trace, meter.on_choice = traced.append, chosen.append
+        meter._clicks(['unboundLook title=renamed icon=set\n', 'level\n', 'unboundLook title=skipped icon=failed\n'])
+        self.assertEqual(traced, [{'type': 'unboundLook', 'title': 'renamed', 'icon': 'set'},
+                                  {'type': 'unboundLook', 'title': 'skipped', 'icon': 'failed'}])
+        self.assertEqual(chosen, ['level'])
+
+
 if __name__ == '__main__':
     unittest.main()

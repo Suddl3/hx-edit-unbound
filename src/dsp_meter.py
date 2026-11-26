@@ -94,6 +94,11 @@ class DspMeter:
         # The helper writes one line per choice from the HX Unbound menu.
         try:
             for line in output:
+                if line.startswith('unboundLook '):
+                    # what the helper did to HX Edit's title and icon (renamed / already / skipped; set / kept / failed)
+                    said = dict(part.split('=', 1) for part in line.split()[1:] if '=' in part)
+                    self.trace({'type': 'unboundLook', 'title': said.get('title'), 'icon': said.get('icon')})
+                    continue
                 if line.strip() in self.CHOICES:
                     try:
                         self.on_choice(line.strip())
