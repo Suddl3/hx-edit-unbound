@@ -331,7 +331,8 @@ class ClickRuleTests(unittest.TestCase):
         self.assertEqual(page.count("pickRule(block, item, '"), 1)              # (its double-click: a second click, PR #9 P2)
         rule = between(page, 'function pickRule(block, item, how) {', '\n}')
         # a "+": a click adds at once
-        self.assertIn("if (block.isPlace) { item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture); return; }", rule)
+        self.assertIn("    item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);\n    return;\n  }", rule)
+        self.assertIn("if (f.full) { toast(", rule)                                        # (one that does not fit: its reason)
         # a click lines up (no ask), a double-click replaces
         click = between(rule, "if (how === 'click') {", '  }\n')
         self.assertNotIn('ask(', click)

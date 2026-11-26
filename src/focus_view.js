@@ -181,16 +181,43 @@ function focusQueue(queue, command, limit = 32) {
   return queue;
 }
 
-// Whether a DSP has room for model `next` in place of model `now`, by the Floor's own figures (dsp_meter.js: what
-// its blocks use of what they may). null when it fits or cannot be known; else the words for the user.
-// now / next: cost keys (focusCostKey); a capture not measured yet costs what its model does.
-function focusRoom(view, loads, now, next, dsp) {
+// Whether a DSP has room for model `next` in place of model `now`, as HX Edit itself decides it: what the Floor's
+// meter shows on the DSP (dsp_meter.js: what its blocks use of what they may), less what the block replaced uses
+// there, plus the new model's own figure in HX Edit's catalog (costs.admit: HelixModelDefs; a NAM block: the Floor
+// firmware's declared NAM cost, 36 of 75, whatever the capture then uses on the meter). Seen live 2026-11-26 12:53
+// (owner-trials 20261126-121349, preset 006): a NAM capture added at 42.2 used and a capture swapped in for a 23 block
+// at 65.2 were refused by HX Edit (-8611: 42.2 + 36 and 65.2 - 23 + 36 are over 75) though the capture used 27 on the
+// meter once in; the same add went through at 25.2, and a Litigator (17) after it at 52.2. For stock models the meter
+// and the catalog agree (Litigator 17 / 17, Archetype Clean 23.0 / 23.05).
+// costs: {admit: HX Edit's figures by model, real: what the meter measured by cost key}; a plain map is taken as both.
+// now / next: cost keys (focusCostKey). null when it fits or cannot be known; else the words for the user.
+function focusRoom(view, costs, now, next, dsp) {
   if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
-  const costOf = key => { const own = Number(loads[key]); return key != null && Number.isFinite(own) ? own : Number(loads[String(key).split('#')[0]]); };
-  const cost = costOf(next);
+  const admit = (costs && costs.admit) || costs || {}, real = (costs && costs.real) || costs || {};
+  const base = key => String(key).split('#')[0];
+  const number = value => { const n = Number(value); return Number.isFinite(n) ? n : NaN; };
+  // (what the block replaced uses on the meter: its own figure, else its model's measured, else HX Edit's)
+  const uses = key => {
+    if (key == null) return 0;
+    const own = number(real[key]), model = String(key).includes('#') ? NaN : number(real[base(key)]);
+    return Number.isFinite(own) ? own : Number.isFinite(model) ? model : number(admit[base(key)]) || 0;
+  };
+  const declared = number(admit[base(next)]);
+  const cost = Number.isFinite(declared) ? declared : number(real[next]);
   if (!Number.isFinite(cost)) return null;
-  const after = Math.round((view.used - (costOf(now) || 0) + cost) * 10) / 10;
-  return after <= view.budget ? null : `DSP ${dsp + 1} has no room for that model (${after} of ${view.budget}).`;
+  const free = view.budget - view.used + uses(now);
+  if (Math.round((cost - free) * 10) / 10 <= 0) return null;
+  const share = units => Math.max(0, Math.round(100 * units / view.budget));
+  return `Not enough room on DSP ${dsp + 1}: HX Edit needs ${share(cost)}% of it free for that block, and ${share(free)}% is free. ` +
+         `Remove or change a block on Path ${dsp + 1} first.`;
+}
+// HX Edit's answer -8611 to an add or a model change: the DSP has no room for it by HX Edit's own count (focusRoom;
+// four of them live 2026-11-26 12:52-12:53). The words for the user, else null (another answer).
+function focusRefusal(error, dsp) {
+  if (!/\(-8611\)/.test(String(error && error.message || error))) return null;
+  const path = Number.isInteger(dsp) && dsp >= 0 && dsp <= 1 ? ' on DSP ' + (dsp + 1) : '';
+  return `HX Edit refused it: not enough room${path} for that block by its own count. Remove or change a block` +
+         (path ? ` on Path ${dsp + 1}` : '') + ' first.';
 }
 
 // What moves a block's controls and how its snapshots differ (the Workbench's Bypass and controllers / Snapshot
@@ -561,7 +588,8 @@ function installFocusView(options, parts) {
   const notify = options.focusWriteNotify !== false;
   const estimates = options.focusLoads || {};
   let measured = {};          // {type: 'focusCommand', action: 'costs'}: what the Workbench has measured so far
-  const costsNow = () => Object.assign({}, estimates, measured);
+  // (HX Edit's own figures for what a new block needs, and what the meter measured for what a block uses: focusRoom)
+  const costsNow = () => ({admit: estimates, real: measured});
   const chainBlock = /^block\d{1,2}$/, modelSymbol = /^[A-Za-z0-9_]{3,64}$/;
   function swap(command) {
     // Another model, or a capture, for a block of the chain: refused with a word by the DSP meter when the DSP
@@ -908,7 +936,10 @@ function installFocusView(options, parts) {
       catch (error) {
         drag = null; changed = true;
         send({type: 'toneTrace', reason: 'focus-view', stage: command.action ? 'swap-failed' : 'write-failed', key: String(command.key || command.action).slice(0, 32), error: String(error.message)});
-        if (['add', 'remove', 'move', 'moveSplit', 'route', 'endpoint', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
+        // (HX Edit's -8611, no room by its own count: said plainly, focusRefusal)
+        const refused = ['add', 'capture', 'model'].includes(command.action) ? focusRefusal(error, command.dsp) : null;
+        if (refused) send({type: 'dspNotice', text: refused});
+        else if (['add', 'remove', 'move', 'moveSplit', 'route', 'endpoint', 'assign', 'snapValue', 'splitType', 'redo', 'ir', 'undo', 'rename'].includes(command.action)) send({type: 'dspNotice', text: 'HX Edit did not make that change.'});
         // (a look that could not be asked: the page says that setlist could not be read; a load: said at once)
         if (command.action === 'look') looking = {setlist: command.setlist, at: Date.now(), state: 'failed'};
         if (command.action === 'presetIn') { loadingIn = null; send({type: 'dspNotice', text: 'HX Edit did not load that preset: ' + String(error.message)}); }
@@ -1288,5 +1319,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusStepsGone, focusPreviewSteps, focusPreviewChain, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, focusStripDue, focusStripTrace, FOCUS_STRIP_CHECK_MS, installFocusView };
+  module.exports = { focusStepsGone, focusPreviewSteps, focusPreviewChain, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, focusRefusal, focusStripDue, focusStripTrace, FOCUS_STRIP_CHECK_MS, installFocusView };
 }

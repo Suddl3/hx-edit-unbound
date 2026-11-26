@@ -202,13 +202,16 @@ class PerCaptureScriptTests(unittest.TestCase):
         self.assertEqual(run_js(['focus_view.js'], f'focusCostKey("{NAM}", 127, {captures})'), NAM + '#' + DELUXE)
         self.assertEqual(run_js(['focus_view.js'], f'focusCostKey("{NAM}", 5, {captures})'), NAM)
         self.assertEqual(run_js(['focus_view.js'], f'focusCostKey("HD2_Chorus", null, {captures})'), 'HD2_Chorus')
-        loads = json.dumps({NAM: 36, NAM + '#' + DELUXE: 27})
-        view = json.dumps({'used': 45, 'budget': 75})
-        # Deluxe Reverb (27) fits where the model's 36 would not
-        self.assertIsNone(run_js(['focus_view.js'], f'focusRoom({view}, {loads}, null, "{NAM}#{DELUXE}", 0)'))
-        self.assertEqual(run_js(['focus_view.js'], f'focusRoom({view}, {loads}, null, "{NAM}#{JCM}", 0)'),
-                         'DSP 1 has no room for that model (81 of 75).')
-        self.assertIsNone(run_js(['focus_view.js'], f'focusRoom({json.dumps({"used": 70, "budget": 75})}, {loads}, "{NAM}#{DELUXE}", "HD2_X", 0)'))
+        # What a NAM block needs free is HX Edit's own figure (the firmware's 36), whatever the capture uses on the
+        # meter (Deluxe Reverb 27): live 2026-11-26 12:53, HX Edit refused it at 42.2 used (-8611). What a NAM block
+        # replaced or moved frees is its own measured figure.
+        costs = json.dumps({'admit': {NAM: 36, 'HD2_X': 2}, 'real': {NAM: 27, NAM + '#' + DELUXE: 27}})
+        view = json.dumps({'used': 42.2, 'budget': 75})
+        self.assertEqual(run_js(['focus_view.js'], f'focusRoom({view}, {costs}, null, "{NAM}#{DELUXE}", 0)'),
+                         'Not enough room on DSP 1: HX Edit needs 48% of it free for that block, and 44% is free. '
+                         'Remove or change a block on Path 1 first.')
+        self.assertIsNone(run_js(['focus_view.js'], f'focusRoom({json.dumps({"used": 25.2, "budget": 75})}, {costs}, null, "{NAM}#{DELUXE}", 0)'))
+        self.assertIsNone(run_js(['focus_view.js'], f'focusRoom({json.dumps({"used": 70, "budget": 75})}, {costs}, "{NAM}#{DELUXE}", "HD2_X", 0)'))
 
     def test_the_script_and_the_page_look_costs_up_by_capture(self):
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
@@ -219,7 +222,7 @@ class PerCaptureScriptTests(unittest.TestCase):
         self.assertIn("result.push({slot, id: typeof capture.id === 'string' ? capture.id : null,", nam_view)
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("cost = Number(costs[costKey(block)]);", page)                   # the panel: its own figure only
-        self.assertIn("cost = isNam(block) ? 0 : costOf(captureKey(c));", page)          # the picker's captures
+        self.assertIn("cost = isNam(block) ? 0 : costOf(captureKey(c)), need = isNam(block) ? 0 : admitOf(catalog.nam[0]);", page)   # the picker's captures
         self.assertIn("left: view.budget - view.used + (costOf(costKey(block)) || 0)", page)   # Room on DSP
         self.assertIn("Number(costs[catalog.nam[0] + '#' + row.id])", page)              # the library's "% of a DSP"
         self.assertNotIn('costs[block.model]', page)

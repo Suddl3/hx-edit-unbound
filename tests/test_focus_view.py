@@ -809,7 +809,8 @@ class ScriptTests(unittest.TestCase):
 
     def test_a_model_is_refused_where_the_dsp_has_no_room(self):
         room = lambda view, now, then: run_js(['focus_view.js'], f'focusRoom({json.dumps(view)}, {{A: 5, B: 30, C: 20}}, {json.dumps(now)}, {json.dumps(then)}, 1)')
-        self.assertEqual(room({'used': 54, 'budget': 75}, 'A', 'B'), 'DSP 2 has no room for that model (79 of 75).')
+        self.assertEqual(room({'used': 54, 'budget': 75}, 'A', 'B'),
+                         'Not enough room on DSP 2: HX Edit needs 40% of it free for that block, and 35% is free. Remove or change a block on Path 2 first.')
         self.assertIsNone(room({'used': 54, 'budget': 75}, 'A', 'C'))               # 69 of 75
         self.assertIsNone(room({'used': 54, 'budget': 75}, 'B', 'B'))
         self.assertIsNone(room(None, 'A', 'B'))                                     # no figure from the Floor: HX Edit decides
