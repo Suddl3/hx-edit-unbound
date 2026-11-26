@@ -35,6 +35,15 @@ sealed class ToneBrowser : Form
     [DllImport("user32.dll")] static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hwnd);
     [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
     [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    // A dark title bar (DWMWA_USE_IMMERSIVE_DARK_MODE 20; 19 before Windows 10 20H1), as our other dark windows.
+    static void DarkTitle(IntPtr window)
+    {
+        int on = 1;
+        try { if (DwmSetWindowAttribute(window, 20, ref on, 4) != 0) DwmSetWindowAttribute(window, 19, ref on, 4); }
+        catch (Exception) { }
+    }
     [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SetParent(IntPtr hwnd, IntPtr parent);
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
@@ -292,6 +301,8 @@ sealed class ToneBrowser : Form
         Font = new Font("Segoe UI", 9.0f, FontStyle.Regular);
         using (var resource = typeof(ToneBrowser).Assembly.GetManifestResourceStream("ToneBrowser.ico"))
             if (resource != null) Icon = new Icon(resource);
+        // HX Edit Unbound's own icon on this window and its taskbar entry (Level, Floor look, TONE3000 popped out)
+        try { Icon = AppIcon.Make(SystemInformation.IconSize.Width); } catch (Exception) { }
         presentation = new PresentationController(
             () => panelVisible && dock.Width > 60 && dock.Height > 60 && IsWindow(parent),
             ReparentPane, ApplyPresentationLayout,
@@ -382,12 +393,12 @@ sealed class ToneBrowser : Form
         var work = Screen.FromHandle(parent).WorkingArea;
         // HX Edit Unbound's violet-to-teal icon, as HX Edit's window has it (NamLibrary.cs UnboundLook).
         // (parent is a panel inside HX Edit: its top-level window carries the icon)
-        var unbound = SendMessage(GetAncestor(parent, 2), 0x7F, (IntPtr)1, IntPtr.Zero);   // GA_ROOT; WM_GETICON, ICON_BIG
-        if (unbound != IntPtr.Zero) try { Icon = (Icon)Icon.FromHandle(unbound).Clone(); } catch (Exception) { }
+        // (HX Edit Unbound's own icon, AppIcon: no longer HX Edit's window's, which carried the old colours, U3)
         floatingHost = new Form { Text = Text, Icon = Icon, StartPosition = FormStartPosition.Manual,
             FormBorderStyle = FormBorderStyle.Sizable, ShowInTaskbar = true, AutoScaleMode = AutoScaleMode.None,
             BackColor = BackColor, Bounds = SavedBounds(savedBoundsFile) ?? FloatingBounds(work),
             MinimumSize = new Size(Math.Min(640, work.Width), Math.Min(420, work.Height)) };
+        floatingHost.HandleCreated += (sender, args) => DarkTitle(floatingHost.Handle);
         floatingHost.Resize += (sender, args) => { if (windowMode == WindowMode.Floating) LayoutPane(); };
         floatingHost.ResizeEnd += (sender, args) => SaveBounds(savedBoundsFile, floatingHost.Bounds);
         floatingHost.FormClosing += (sender, args) => {
@@ -886,7 +897,7 @@ sealed class ToneBrowser : Form
     internal static bool IsSideAction(string action)
     {
         return action != null && Regex.IsMatch(action,
-            @"^(end|keep:\d{1,6}|save:\d{1,6}:\d{1,3}|target:[01]:block\d{1,2}|model:\d{1,12})$");
+            @"^(end|keep:\d{1,6}|save:\d{1,6}:\d{1,3}|target:[01]:block\d{1,2}|model:\d{1,12}|replace:\d{1,3}|auditionSelected|retry|source)$");
     }
 
     void HandleSideAction(string action)
@@ -895,10 +906,19 @@ sealed class ToneBrowser : Form
         else if (IsSideAction(action)) SendAction(action);
     }
 
+    // The card row: in the Workbench (it sent the side page) none at all (U1, 2026-11-25: the tone card and its
+    // actions are in the side panel, the rail has the library, the page's X closes TONE3000); the library page as
+    // before; elsewhere (Classic) the card as before.
+    int CardHeight(int height)
+    {
+        return sideHtml != null && !library ? 0 : DetailHeight(height, library, hasTone);
+    }
+
     // Popped out (floating) with a side page: the side column at the right; docked: none (the Workbench draws its tray).
+    // (in device pixels: 360 of the page's own at the window's scale, so the page fits its column, U3)
     void LayoutSide()
     {
-        int width = windowMode == WindowMode.Floating && sideHtml != null ? SideWidth : 0;
+        int width = windowMode == WindowMode.Floating && sideHtml != null ? SideWidth * Math.Max(96, DeviceDpi) / 96 : 0;
         if ((int)sideColumn.Width == width) return;
         sideColumn.Width = width;
         side.Visible = width > 0;
@@ -922,7 +942,7 @@ sealed class ToneBrowser : Form
                 SetWindowPos(Handle, IntPtr.Zero, 0, 0, client.Width, client.Height, 0x0010);
                 applied = floatingBounds;
             }
-            int height = DetailHeight(client.Height - (targetBar.Visible ? targetBar.Height : 0), library, hasTone);
+            int height = CardHeight(client.Height - (targetBar.Visible ? targetBar.Height : 0));
             if (detailRow.Height != height) detailRow.Height = height;
             bool canDock = panelVisible && dock.Width > 60 && dock.Height > 60;
             if (popOut.Enabled != canDock)
@@ -938,7 +958,7 @@ sealed class ToneBrowser : Form
         if (!show) return;
         var bounds = dock;
         // The NAM library page covers the TONE3000 catalog while it is open.
-        var detailHeight = DetailHeight(dock.Height - (targetBar.Visible ? targetBar.Height : 0), library, hasTone);
+        var detailHeight = CardHeight(dock.Height - (targetBar.Visible ? targetBar.Height : 0));
         if (detailRow.Height != detailHeight) detailRow.Height = detailHeight;
         if (bounds != applied)
         {
@@ -967,5 +987,57 @@ sealed class ToneBrowser : Form
         Uri uri;
         return Uri.TryCreate(address, UriKind.Absolute, out uri) && uri.Scheme == "https" && uri.IsDefaultPort &&
             (uri.Host == "www.tone3000.com" || uri.Host == "tone3000.com");
+    }
+}
+
+// HX Edit Unbound's app icon (the Workbench's logo: a dark rounded square with two violet-to-teal chevrons), drawn here
+// so every window of ours carries it (U3, 2026-11-25: the popped TONE3000 window had HX Edit's old one). The same
+// drawing is in NamLibrary.cs (UnboundLook) for HX Edit's own window.
+static class AppIcon
+{
+    internal static Bitmap Draw(int size)
+    {
+        var picture = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(picture))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+            float k = size / 32f, r = 7 * k;
+            var box = new RectangleF(0.5f * k, 0.5f * k, 31 * k, 31 * k);
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                path.AddArc(box.X, box.Y, 2 * r, 2 * r, 180, 90);
+                path.AddArc(box.Right - 2 * r, box.Y, 2 * r, 2 * r, 270, 90);
+                path.AddArc(box.Right - 2 * r, box.Bottom - 2 * r, 2 * r, 2 * r, 0, 90);
+                path.AddArc(box.X, box.Bottom - 2 * r, 2 * r, 2 * r, 90, 90);
+                path.CloseFigure();
+                using (var fill = new System.Drawing.Drawing2D.LinearGradientBrush(box, Color.FromArgb(0x23, 0x1f, 0x31), Color.FromArgb(0x14, 0x12, 0x1c), 90f))
+                    g.FillPath(fill, path);
+                using (var edge = new Pen(Color.FromArgb(23, 255, 255, 255), Math.Max(1f, k)))
+                    g.DrawPath(edge, path);
+            }
+            using (var ink = new System.Drawing.Drawing2D.LinearGradientBrush(new PointF(6 * k, 6 * k), new PointF(26 * k, 26 * k),
+                       Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x3f, 0xd3, 0xc8)))
+            {
+                var blend = new System.Drawing.Drawing2D.ColorBlend
+                {
+                    Colors = new[] { Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x5f, 0xa8, 0xf2), Color.FromArgb(0x3f, 0xd3, 0xc8) },
+                    Positions = new[] { 0f, 0.5f, 1f }
+                };
+                ink.InterpolationColors = blend;
+                using (var pen = new Pen(ink, 2.4f * k) { StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                           EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+                {
+                    g.DrawLines(pen, new[] { new PointF(7.5f * k, 8 * k), new PointF(13.8f * k, 16 * k), new PointF(7.5f * k, 24 * k) });
+                    g.DrawLines(pen, new[] { new PointF(24.5f * k, 8 * k), new PointF(18.2f * k, 16 * k), new PointF(24.5f * k, 24 * k) });
+                }
+            }
+        }
+        return picture;
+    }
+
+    internal static Icon Make(int size)
+    {
+        using (var picture = Draw(size)) return Icon.FromHandle(picture.GetHicon());
     }
 }

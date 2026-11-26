@@ -1649,8 +1649,12 @@ static class UnboundLook
             {
                 var exe = ImageOf(window);
                 if (exe == null) { failed = true; return; }
-                big = Tinted(exe, SystemInformation.IconSize.Width);
-                small = Tinted(exe, SystemInformation.SmallIconSize.Width);
+                // (HX Edit Unbound's app icon, the Workbench's logo, as the TONE3000 window has it: AppIcon, U3; the
+                // tinted HX Edit icon, Tinted, only when it cannot be drawn)
+                try { big = AppIcon.Draw(SystemInformation.IconSize.Width).GetHicon(); small = AppIcon.Draw(SystemInformation.SmallIconSize.Width).GetHicon(); }
+                catch (Exception) { big = small = IntPtr.Zero; }
+                if (big == IntPtr.Zero) big = Tinted(exe, SystemInformation.IconSize.Width);
+                if (small == IntPtr.Zero) small = Tinted(exe, SystemInformation.SmallIconSize.Width);
                 if (big == IntPtr.Zero) { failed = true; return; }
             }
             if (SendMessage(window, WM_GETICON, (IntPtr)1, IntPtr.Zero) != big)
@@ -2017,5 +2021,57 @@ class DspMeter : Form
         if(AnchorWidth(0)!=0||AnchorWidth(-1)!=0||AnchorWidth(1484)!=1484)throw new Exception("DSP meter span anchor");
         var parsed=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>("{\"dsp\":[{\"load\":42,\"used\":27,\"budget\":75,\"level\":\"green\"},null]}");
         if(!(parsed["dsp"] is IList)||Label(((IList)parsed["dsp"])[0],0)!="DSP 1  27/75")throw new Exception("DSP meter input lists");
+    }
+}
+
+// HX Edit Unbound's app icon (the Workbench's logo: a dark rounded square with two violet-to-teal chevrons), drawn here
+// so every window of ours carries it (U3, 2026-11-25: the popped TONE3000 window had HX Edit's old one). The same
+// drawing is in tone_browser.cs (the TONE3000 window).
+static class AppIcon
+{
+    internal static Bitmap Draw(int size)
+    {
+        var picture = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(picture))
+        {
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+            float k = size / 32f, r = 7 * k;
+            var box = new RectangleF(0.5f * k, 0.5f * k, 31 * k, 31 * k);
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                path.AddArc(box.X, box.Y, 2 * r, 2 * r, 180, 90);
+                path.AddArc(box.Right - 2 * r, box.Y, 2 * r, 2 * r, 270, 90);
+                path.AddArc(box.Right - 2 * r, box.Bottom - 2 * r, 2 * r, 2 * r, 0, 90);
+                path.AddArc(box.X, box.Bottom - 2 * r, 2 * r, 2 * r, 90, 90);
+                path.CloseFigure();
+                using (var fill = new System.Drawing.Drawing2D.LinearGradientBrush(box, Color.FromArgb(0x23, 0x1f, 0x31), Color.FromArgb(0x14, 0x12, 0x1c), 90f))
+                    g.FillPath(fill, path);
+                using (var edge = new Pen(Color.FromArgb(23, 255, 255, 255), Math.Max(1f, k)))
+                    g.DrawPath(edge, path);
+            }
+            using (var ink = new System.Drawing.Drawing2D.LinearGradientBrush(new PointF(6 * k, 6 * k), new PointF(26 * k, 26 * k),
+                       Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x3f, 0xd3, 0xc8)))
+            {
+                var blend = new System.Drawing.Drawing2D.ColorBlend
+                {
+                    Colors = new[] { Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x5f, 0xa8, 0xf2), Color.FromArgb(0x3f, 0xd3, 0xc8) },
+                    Positions = new[] { 0f, 0.5f, 1f }
+                };
+                ink.InterpolationColors = blend;
+                using (var pen = new Pen(ink, 2.4f * k) { StartCap = System.Drawing.Drawing2D.LineCap.Round,
+                           EndCap = System.Drawing.Drawing2D.LineCap.Round, LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+                {
+                    g.DrawLines(pen, new[] { new PointF(7.5f * k, 8 * k), new PointF(13.8f * k, 16 * k), new PointF(7.5f * k, 24 * k) });
+                    g.DrawLines(pen, new[] { new PointF(24.5f * k, 8 * k), new PointF(18.2f * k, 16 * k), new PointF(24.5f * k, 24 * k) });
+                }
+            }
+        }
+        return picture;
+    }
+
+    internal static Icon Make(int size)
+    {
+        using (var picture = Draw(size)) return Icon.FromHandle(picture.GetHicon());
     }
 }

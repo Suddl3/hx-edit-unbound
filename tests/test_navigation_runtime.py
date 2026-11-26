@@ -643,7 +643,7 @@ class NavigationNativeTests(unittest.TestCase):
           let active={navigation:true,bound:true,targetVersion:2,quarantined:false},workflowRequest=null;
           let exporting=true,pending,calls=[];const profile={},AUDITION_SLOT=128;
           const namView={setWorkflowBusy:()=>calls.push('pause'),inventoryBusy:()=>exporting};
-          const poll=(_r,next)=>pending=next,atTarget=()=>true,audition=()=>calls.push('audition');
+          const poll=(_r,next)=>pending=next,atTarget=()=>true,audition=()=>calls.push('audition'),boundModel=()=>'HD2_AmpNAMLite';
         ''' + function('run') + '''
           run({action:'audition',session:1,id:1,targetVersion:2});
           const first=[...calls];pending(false);exporting=false;pending(false);

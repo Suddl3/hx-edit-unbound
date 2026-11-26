@@ -965,7 +965,7 @@ out
         tray = between(page, 'function drawTray() {', 'function libraryRow(')
         # (T1, 2026-11-25: the question is the Plays on row's line, the row always at the top)
         self.assertIn("el('div', 'askline', 'Which block should play it? Click one.')", tray)
-        self.assertIn("if (!on) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", tray)
+        self.assertIn("if (!on && !c.pedal) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", tray)
         self.assertIn("'This preset has no NAM block: add one to hear a tone here.'", tray)
         self.assertIn("title(aim) + ', Path ' + (aim.dsp + 1)", tray)
         self.assertLess(tray.index('Which block should play it?'), tray.index('if (playing) {'))
@@ -978,7 +978,8 @@ out
         launcher = text('start-hx-edit-nam.pyw')
         self.assertIn("preview.tone_action(f\"target:{value['dsp']}:{value['id']}\")", launcher)
         preview = text('tone_preview.py')
-        self.assertIn(r"re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}|model:\d{1,12}', action)", preview)
+        self.assertIn(r"re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}|model:\d{1,12}|'", preview)
+        self.assertIn(r"r'replace:\d{1,3}|auditionSelected|retry|source', action)", preview)
         self.assertIn("reply = self.command(session, 'target', dsp=int(dsp), block=block)", preview)
         self.assertIn("'ask': bool(state.get('ask')), 'none': bool(state.get('none')),", preview)
         strip = text('tone_browser.cs')
@@ -1089,7 +1090,7 @@ class ToneTargetAlwaysTests(unittest.TestCase):
         self.assertIn("'Which block should play it? Click one.'", tray)
         self.assertIn("'This preset has no NAM block: add one to hear a tone here.'", tray)
         self.assertIn("'Picked the wrong one? Click the other block: the preview moves there and this block gets its own capture back.'", tray)
-        self.assertIn("if (!on) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", tray)
+        self.assertIn("if (!on && !c.pedal) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", tray)
         self.assertLess(tray.index("'Plays on'"), tray.index('if (playing) {'))
         self.assertNotIn('if (!playing && t.ask', tray)                  # (not only before a choice any more)
         self.assertIn(".plays .tiles button.on::before { content: '\\25B6  plays here';", page)
@@ -1128,10 +1129,10 @@ class ToneTargetAlwaysTests(unittest.TestCase):
     def test_t4_the_popped_window_has_the_side_panel(self):
         strip = text('tone_browser.cs')
         self.assertIn('const string SideUrl = "https://hx-edit-nam.invalid/side";', strip)
-        self.assertIn('int width = windowMode == WindowMode.Floating && sideHtml != null ? SideWidth : 0;', strip)
+        self.assertIn('int width = windowMode == WindowMode.Floating && sideHtml != null ? SideWidth * Math.Max(96, DeviceDpi) / 96 : 0;', strip)
         self.assertIn('layout.Controls.Add(side, 1, 0);', strip)
         self.assertIn('layout.SetColumnSpan(details, 2);', strip)
-        self.assertIn(r'@"^(end|keep:\d{1,6}|save:\d{1,6}:\d{1,3}|target:[01]:block\d{1,2}|model:\d{1,12})$"', strip)
+        self.assertIn(r'@"^(end|keep:\d{1,6}|save:\d{1,6}:\d{1,3}|target:[01]:block\d{1,2}|model:\d{1,12}|replace:\d{1,3}|auditionSelected|retry|source)$"', strip)
         preview = text('tone_preview.py')
         self.assertIn("browser.send('sidePage', html=SIDE.read_text(encoding='utf-8'))", preview)
         self.assertIn("browser.send('side', data=side)", preview)
@@ -1183,7 +1184,7 @@ const words = node => [node.text || '', node.textContent || '', ...(node.childre
                       "ask('tray', {do: 'end', trial: p.trial});", "ask('tray', {do: 'keep', trial: p.trial});"):
             self.assertIn(words, banner)
         now = between(page, 'function previewNow() {', 'function previewKey()')
-        self.assertIn('if (!t || !t.preview || !state) return null;', now)
+        self.assertIn("if (!t || !t.preview || !state || toolShown !== 'tone') return null;", now)
         chain = between(page, 'function drawChain(force) {', 'function dspShare(k) {')
         self.assertIn('previewKey()]);', chain)
         self.assertIn('if (banner) head.unshift(banner);', chain)
@@ -1252,6 +1253,122 @@ class ToneTargetLiveFixTests(unittest.TestCase):
         self.assertIn("send({ type: 'toneFocus', session: active.id, page: '' });", front)
         preview = text('tone_preview.py')
         self.assertIn("self.script.post({'type': 'toneFront', 'payload': {'session': self.session}})", preview)
+
+
+class NickTryTests(unittest.TestCase):
+    """Nick's own try of f2989ac (2026-11-25 ~20:50, owner-trials 20261125-204145-5f0efc48 and his screenshots): U1 the
+    bottom bar goes, U2 HX Edit's status strip, U3 the popped window's look, U4 closing it, U5 the top bar's menus,
+    U6 NAM Pedal blocks."""
+
+    def test_u1_no_bottom_bar_in_the_workbench_and_nothing_it_did_is_lost(self):
+        strip = text('tone_browser.cs')
+        self.assertIn('return sideHtml != null && !library ? 0 : DetailHeight(height, library, hasTone);', strip)
+        self.assertEqual(strip.count('CardHeight('), 3)                     # (its definition and both layouts)
+        preview = text('tone_preview.py')
+        for words in ("'said': said[0], 'busy': said[1],", "'replace': [[int(n), str(name)] for n, name in (taken or [])][:128],",
+                      "'can_retry': browse_failed[0]}", 'said[0], said[1] = str(message or \'\'), bool(busy)'):
+            self.assertIn(words, preview)
+        side = text('tone_side.html')
+        for words in ("say('replace:' + list.value)", "say('retry')", "say('auditionSelected')", "say('source')", "el('div', 'said'"):
+            self.assertIn(words, side)
+        page = text('workbench.html')
+        tray = between(page, 'function drawTray() {', 'function libraryRow(')
+        for words in ("ask('tray', {do: 'replace', slot: Number(pick.value)})", "ask('tray', {do: 'retry'})",
+                      "ask('tray', {do: 'preview'})", "ask('tray', {do: 'source'})", "el('div', 'said' + (t.busy ? ' busy' : ''))"):
+            self.assertIn(words, tray)
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("preview.tone_action({'preview': 'auditionSelected', 'retry': 'retry', 'source': 'source'}[value['do']])", launcher)
+        self.assertIn('preview.tone_action(f"replace:{value[\'slot\']}")', launcher)
+
+    def test_u2_hx_edits_status_strip_follows_the_panes(self):
+        view = text('nam_view.js')
+        strip = between(view, '    statusStrip(dark) {', '\n    },')
+        self.assertIn('canonical(findWidget(main, 0x73746277, 1));', strip)              # stbw
+        self.assertIn('if (geometry.readU32() === 0x6d61696e) { main = widget; break; }', strip)   # main
+        self.assertIn('if (hits.length !== 1) return {found: false, why: \'matches\', matches: hits.length};', strip)
+        self.assertIn('const STRIP_STOCK = 0xff1d1d1d, STRIP_DARK = 0xff14161b;', view)
+        script = text('focus_view.js')
+        self.assertIn("if (was !== on) { stripDark = null; if (!on) namView.queueSidebarAction(() => keepStrip(false)); }", script)
+        self.assertIn('keepStrip(true);', between(script, 'function refresh(window) {', '  function focusSteer(cursor) {'))
+        self.assertIn("send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...result});", script)
+        self.assertIn('MENU_DARK = Object.freeze({ bar: 0x001b1614,', text('menu_dark.js'))   # (the same gray, as BGR)
+        res = Path(r'E:\Dev\HelixNam\research\hx-edit-nam-review\floor-port\navigation-build-20261112\live\app\res\main.xml')
+        if res.is_file():
+            xml = res.read_text(encoding='utf-8', errors='replace')
+            at = xml.index('id="stbw"')
+            self.assertIn('<bg_color>0xFF1D1D1D</bg_color>', xml[at:at + 200])
+
+    def test_u3_the_popped_window_is_dark_carries_our_icon_and_its_panel_fits(self):
+        strip = text('tone_browser.cs')
+        self.assertIn('floatingHost.HandleCreated += (sender, args) => DarkTitle(floatingHost.Handle);', strip)
+        self.assertIn('if (DwmSetWindowAttribute(window, 20, ref on, 4) != 0) DwmSetWindowAttribute(window, 19, ref on, 4);', strip)
+        self.assertIn('try { Icon = AppIcon.Make(SystemInformation.IconSize.Width); } catch (Exception) { }', strip)
+        self.assertNotIn('Icon.FromHandle(unbound)', strip)
+        library = text('NamLibrary.cs')
+        self.assertIn('big = AppIcon.Draw(SystemInformation.IconSize.Width).GetHicon();', library)
+        for source in (strip, library):
+            self.assertIn('static class AppIcon', source)
+            self.assertIn('Color.FromArgb(0x9b, 0x84, 0xf6), Color.FromArgb(0x5f, 0xa8, 0xf2), Color.FromArgb(0x3f, 0xd3, 0xc8)', source)
+        side = text('tone_side.html')
+        self.assertIn('overflow-x: hidden;', side)
+        self.assertIn('* { overflow-wrap: anywhere; }', side)
+        self.assertIn('flex: 1 1 92px; max-width: 132px; min-width: 0;', side)
+
+    def test_u4_closing_the_window_ends_the_tray_on_the_page(self):
+        preview = text('tone_preview.py')
+        self.assertIn("self._to_workbench('toneEnded', {'session': session})", preview)
+        self.assertLess(preview.index("self._to_workbench('toneEnded'"), preview.index('self.bounds_override = None\n                    if self.on_browser_closed:'))
+        page = text('workbench.html')
+        self.assertIn("else if (message.type === 'session' && message.kind === 'toneEnded') { toneGone();", page)
+        self.assertIn("if (!t || !t.preview || !state || toolShown !== 'tone') return null;", page)
+
+    def test_u5_the_top_bars_menus_put_the_docked_window_aside(self):
+        page = text('workbench.html')
+        self.assertIn("const topMenuOpen = () => !$('presetList').hidden || !$('menu').hidden;", page)
+        sync = between(page, 'function syncTool() {', '\nfunction toolPresentation(')
+        self.assertIn("const hide = topMenuOpen(), place = hide ? {...rect, hide: true} : rect, placed = JSON.stringify(place);", sync)
+        for opener in ('function openPresets() {', 'function closePresets(keepLook) {', 'function openMenu() {'):
+            self.assertIn('syncTool();', between(page, opener, '\n}\n'))
+        self.assertIn("function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); syncTool(); }", page)
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn("place = dict(place, visible=False)", launcher)
+        # a preset change while a preview plays: the context events end it with the clean-up (tone_view)
+        tone = text('tone_view.js')
+        self.assertIn("if (active.transfer) settleCleanup(CONTEXT_SETTLE_MS);", tone)
+
+    def test_u6_a_nam_pedal_block_is_never_a_preview_target(self):
+        script = text('focus_view.js')
+        self.assertIn(".map(block => block.model === 'HD2_AmpNAMPedal' ? {...block, pedal: true} : block);", script)
+        tone = text('tone_view.js')
+        piece = between(tone, '  let previewHold = null;', '  function parameterPanel(')
+        stubs = PreviewTargetTests.STUBS + 'let selectedController = null; const controllerReady = () => false, block = () => "", releaseTarget = () => {}; let targetVersion = 0;\n'
+        out = run_js_source(stubs + piece, '''(() => {
+          const r = {};
+          const pedalOnly = [{dsp: 0, id: 'block1', slot: 9, pedal: true}];
+          r.one = steerPreview({nams: pedalOnly, cursor: {dsp: 0, id: 'block0'}});
+          r.oneSteer = {target: active.steer.target, none: active.steer.none, pedalOnly: active.steer.pedalOnly, listed: active.steer.nams.length};
+          active = {navigation: true, id: 2};
+          const mixed = [{dsp: 0, id: 'block1', slot: 9, pedal: true}, {dsp: 1, id: 'block3', slot: 10}];
+          r.mixed = steerPreview({nams: mixed, cursor: {dsp: 0, id: 'block1'}});
+          r.mixedTarget = active.steer.target.id;
+          try { chooseTarget({dsp: 0, block: 'block1'}); r.refused = ''; } catch (error) { r.refused = error.message; }
+          r.pick = pagePick({dsp: 0, id: 'block1'});
+          return r;
+        })()''')
+        self.assertEqual(out['one'], {'page': {'dsp': 0, 'id': 'block0'}, 'click': None})   # (not selected for a preview)
+        self.assertEqual(out['oneSteer'], {'target': None, 'none': True, 'pedalOnly': True, 'listed': 1})
+        self.assertEqual(out['mixedTarget'], 'block3')                                     # the A2 Lite block, not the selected pedal
+        self.assertEqual(out['refused'], 'That is a NAM Pedal block: it plays pedal versions only.')
+        self.assertTrue(out['pick'])                                                       # a pedal block picked: only shown
+        run = between(tone, '  function run(request) {', "    if (request.action === 'save') {")
+        self.assertIn("if (request.action === 'audition' && request.pedal !== true && boundModel() === 'HD2_AmpNAMPedal') {", run)
+        preview = text('tone_preview.py')
+        self.assertIn("**({'pedal': True} if play_mode[0] == 'pedal' else {}),", preview)
+        self.assertEqual(preview.count('play_mode[0] = mode'), 2)                           # TONE3000 and the library's preview
+        page = text('workbench.html')
+        self.assertIn("if (!on && !c.pedal) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});", page)
+        self.assertIn("'NAM Pedal block: plays pedal versions only'", page)
+        self.assertIn("if (!on && !c.pedal) tile.onclick = () => say('target:' + c.dsp + ':' + c.id);", text('tone_side.html'))
 
 
 if __name__ == '__main__':

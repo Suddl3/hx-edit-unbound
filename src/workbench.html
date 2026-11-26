@@ -383,6 +383,13 @@
   .plays .tiles button.on { border: 2px solid #b070e0; background: rgb(176 112 224 / .12); padding: 8px 5px 6px; cursor: default; }
   .plays .tiles button.on::before { content: '\25B6  plays here'; position: absolute; top: -9px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: #b070e0; color: #fff; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 8px; }
   .plays .tiles button.off img { opacity: .45; }
+  .plays .tiles button.pedal { opacity: .5; cursor: default; }
+  .plays .tiles button.pedal small { color: #f0c94a; }
+  .tray .said { color: var(--dim); font-size: 12px; line-height: 1.45; display: flex; gap: 8px; align-items: baseline; }
+  .tray .said.busy::before { content: ''; flex: none; width: 8px; height: 8px; border-radius: 50%; background: #f0c94a; }
+  .tray .row2 { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .tray .row2 select { flex: 1 1 160px; min-width: 0; font: inherit; color: var(--ink); background: #15181e; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; }
+  .tray .link { background: none; border: 0; color: #b9a2ff; padding: 0; font-size: 12px; text-decoration: underline; }
   .plays .tiles.asking button { border-color: #f0c94a66; }
   .np label.profile { display: grid; gap: 4px; color: var(--dim); font-size: 12px; }
   .np label.profile select { font: inherit; color: var(--ink); background: #15181e; border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; }
@@ -1284,7 +1291,7 @@ function drawChain(force) {
 // A TONE3000 preview playing now (the session's tray word, toneTray): its tone and the block it plays on, else null.
 function previewNow() {
   const t = toneTray;
-  if (!t || !t.preview || !state) return null;
+  if (!t || !t.preview || !state || toolShown !== 'tone') return null;   // (only while the TONE3000 window is open, U4)
   const playing = (t.tray || []).find(i => i.state === 'ready' && i.trial === t.trial);
   if (!playing) return null;
   const block = t.target ? ownBlock((state.blocks || []).find(b => same(b, t.target)) || null, t.target) : null;
@@ -2700,6 +2707,7 @@ function fillPresets() {
 function openPresets() {
   closeMenu(); shownPresets = ''; fillPresets();
   $('presetList').hidden = false; $('presetButton').setAttribute('aria-expanded', 'true');
+  syncTool();
   centerIn($('presetList'), $('presetList').querySelector('.cur:not(.pinned)'));
 }
 // A row in the middle of its own list: only the list scrolls (scrollIntoView also scrolled the drawer around it, which
@@ -2711,6 +2719,7 @@ function centerIn(list, row) {
 }
 function closePresets(keepLook) {
   $('presetList').hidden = true; $('presetButton').setAttribute('aria-expanded', 'false');
+  syncTool();
   // (closed, it no longer looks at another setlist, unless the Presets drawer or view still shows it, or a preset of
   // that setlist is being loaded from it: keepLook)
   if (!keepLook) letLookGo();
@@ -2963,6 +2972,7 @@ function openMenu() {
     // right from one launch to the next when it is away.)
     ...(options.menuRow ? [el('hr'), item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar))] : []));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
+  syncTool();
 }
 // ---- the layouts (Batch 4): this page arranged three ways (workbench_layout.js) ----------------------------------------
 // layout: the one shown. Switching is instant: only where things sit and how the chain and the block's controls are
@@ -3093,7 +3103,7 @@ function layoutThumb(kind) {
   }[kind];
   return `<svg class="th" viewBox="0 0 96 58" aria-hidden="true">${body}</svg>`;
 }
-function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); }
+function closeMenu() { $('menu').hidden = true; $('menuButton').setAttribute('aria-expanded', 'false'); syncTool(); }
 let toastTimer = 0;
 // A word that stays on screen until OK (the launcher no longer shows a box of its own for the Workbench's session): a
 // Clear that did not happen, what a preview left behind. A newer word replaces it.
@@ -3362,6 +3372,9 @@ function send2page(why) {
   box.replaceChildren(words);
   ask('toolClose', {why});                                        // (nothing left half open; the launcher traces it)
 }
+// One of the top bar's menus is open (the layout menu, the preset list with its setlists): the docked tool's window
+// would cover it (a window cannot go under the page's menus), so it steps aside until the menu closes (U5).
+const topMenuOpen = () => !$('presetList').hidden || !$('menu').hidden;
 function frameRect() {
   const body = view.full ? $('vbody').querySelector('.t3web') || $('vbody') : $('toolBody'), r = body.getBoundingClientRect(), k = window.devicePixelRatio || 1;
   return {x: Math.round(r.left * k), y: Math.round(r.top * k), w: Math.round(r.width * k), h: Math.round(r.height * k)};
@@ -3373,7 +3386,10 @@ function syncTool() {
   if (toolShown && toolShown !== name && toolPopped) { toolPopped = false; shownRail = ''; drawRail(); }   // (another tool: the launcher closes the one out)
   if (toolShown !== name) { toolShown = name; toolPlaced = key; toolAskedAt = Date.now(); ask('tool', {name, ...rect}); waitForTool(); }
   else if (toolPopped) { toolPlaced = key; toolPopped = false; shownRail = ''; drawRail(); ask('toolDock', rect); }   // (back in)
-  else if (key !== toolPlaced) { toolPlaced = key; ask('toolPlace', rect); }
+  else {
+    const hide = topMenuOpen(), place = hide ? {...rect, hide: true} : rect, placed = JSON.stringify(place);
+    if (placed !== toolPlaced) { toolPlaced = placed; ask('toolPlace', place); }
+  }
 }
 function toolPresentation(mode) {
   // The window's own Pop out ("floating") or Dock ("embedded"), as the launcher saw it (session "presentation")
@@ -4910,11 +4926,14 @@ function drawTray() {
     if (t.ask) plays.append(el('div', 'askline', 'Which block should play it? Click one.'));
     const tiles = el('div', 'tiles' + (t.ask ? ' asking' : ''));
     for (const c of choices) {
-      const block = ownBlock((state.blocks || []).find(b => same(b, c)), c), on = same(c, t.target), tile = el('button', (on ? 'on' : '') + (c.enabled === false ? ' off' : ''));
+      const block = ownBlock((state.blocks || []).find(b => same(b, c)), c), on = same(c, t.target);
+      const tile = el('button', (on ? 'on' : '') + (c.enabled === false ? ' off' : '') + (c.pedal ? ' pedal' : ''));
       const name = block ? title(block) : c.name || 'NAM';
-      tile.title = on ? 'The preview plays on this block' : 'Play the preview on ' + name + ', Path ' + (c.dsp + 1) + (c.enabled === false ? ' (this block is off: switch it on to hear it)' : '');
-      tile.append(image(block ? pictures(block) : captureUrls({}), '', true), name, el('small', '', 'Path ' + (c.dsp + 1)));
-      if (!on) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});
+      // (a NAM Pedal block plays pedal versions only: shown, dimmed, never the target, U6)
+      tile.title = c.pedal ? 'NAM Pedal block: plays pedal versions only' : on ? 'The preview plays on this block' :
+        'Play the preview on ' + name + ', Path ' + (c.dsp + 1) + (c.enabled === false ? ' (this block is off: switch it on to hear it)' : '');
+      tile.append(image(block ? pictures(block) : captureUrls({}), '', true), name, el('small', '', c.pedal ? 'NAM Pedal block' : 'Path ' + (c.dsp + 1)));
+      if (!on && !c.pedal) tile.onclick = () => ask('tray', {do: 'target', dsp: c.dsp, id: c.id});
       tiles.append(tile);
     }
     plays.append(tiles);
@@ -4958,6 +4977,24 @@ function drawTray() {
     card.append(row, profileList());
     list.append(card);
   }
+  // What TONE3000's bottom bar said and offered (U1, the bar is gone): its line, the slot to replace when every User IR
+  // slot is taken, Try again, Preview the tone again, View on TONE3000.
+  if (t.said) { const line = el('div', 'said' + (t.busy ? ' busy' : '')); line.append(el('span', '', t.said)); list.append(line); }
+  const taken = Array.isArray(t.replace) ? t.replace : [];
+  if (taken.length) {
+    const row = el('div', 'row2'), pick = el('select'), go = el('button', 'btn sm', 'Replace');
+    for (const [slot, name] of taken) pick.append(new Option('User IR ' + slot + ' \u00b7 ' + name, String(slot)));
+    pick.value = String(taken[taken.length - 1][0]);
+    go.title = 'Deletes the profile in that slot and auditions this one there';
+    go.onclick = () => ask('tray', {do: 'replace', slot: Number(pick.value)});
+    row.append(pick, go);
+    list.append(row);
+  }
+  const offers = el('div', 'row2');
+  if (t.can_retry) { const retry = el('button', 'btn sm', 'Try again'); retry.onclick = () => ask('tray', {do: 'retry'}); offers.append(retry); }
+  if (tone && !playing && t.bound && !t.busy) { const again = el('button', 'btn sm', 'Preview'); again.title = 'Hear the tone picked on the block again'; again.onclick = () => ask('tray', {do: 'preview'}); offers.append(again); }
+  if (tone) { const page = el('button', 'link', 'View on TONE3000'); page.title = "Open this tone's page on TONE3000"; page.onclick = () => ask('tray', {do: 'source'}); offers.append(page); }
+  if (offers.childElementCount) list.append(offers);
   const item = (it, hot) => {
     const row = el('div', 'ti' + (hot ? ' hot' : ''));
     row.append(image(captureUrls({icon: it.icon}), '', true, true), el('b', '', it.name));
@@ -4975,7 +5012,7 @@ function drawTray() {
   for (const [title, these] of groups) if (these.length) list.append(el('h5', '', title), ...these.map(i => item(i, false)));
   if (!all.length) list.append(el('span', 'note2', 'Pick a tone on the site. It shows here while it gets ready; then you can load it on the Floor. ' +
     (t.ask || t.none ? '' : aim && !t.bound ? 'It plays on ' + title(aim) + ', Path ' + (aim.dsp + 1) + '.' : t.bound === false ? 'Select a NAM block in the chain first: the preview plays on it.' : '')));
-  if (t.text) list.append(el('span', 'note2', t.text));
+  if (t.text && !t.said) list.append(el('span', 'note2', t.text));
   const bar = el('div', 'bar'), used = (state.captures || []).length + (state.irs || []).length, open = el('button', 'btn sm', 'Open the library');
   open.onclick = () => setView('open', 'library');
   const n = el('b', 'num', String(Math.max(0, 128 - used)));
@@ -5144,6 +5181,7 @@ function receive(message) {
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
   else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
+  else if (message.type === 'session' && message.kind === 'toneEnded') { toneGone(); shownChain = ''; if (state && catalog) drawChain(); return; }
   else if (message.type === 'session' && message.kind === 'tone') { toolArrived(); toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); drawChain(); return; }
   else if (message.type === 'session' && message.kind === 'toolOpen') { toolArrived(); return; }
   else if (message.type === 'session' && message.kind === 'presentation') { toolPresentation(message.data && message.data.mode); return; }

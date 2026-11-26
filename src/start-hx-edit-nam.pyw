@@ -664,6 +664,12 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     trial, slot = value.get('trial'), value.get('slot')
                     if preview is not None and value.get('do') == 'end':
                         preview.tone_action('end')
+                    elif preview is not None and value.get('do') in ('preview', 'retry', 'source'):
+                        # the tray's Preview (the tone picked, again), Try again, View on TONE3000 (the bar's, U1)
+                        preview.tone_action({'preview': 'auditionSelected', 'retry': 'retry', 'source': 'source'}[value['do']])
+                    elif (preview is not None and value.get('do') == 'replace' and isinstance(value.get('slot'), int)
+                          and not isinstance(value.get('slot'), bool) and 1 <= value['slot'] <= 128):
+                        preview.tone_action(f"replace:{value['slot']}")                   # every slot taken: this one
                     elif (preview is not None and value.get('do') == 'profile' and isinstance(value.get('id'), int)
                           and not isinstance(value.get('id'), bool) and 0 < value['id'] < 10 ** 12):
                         preview.tone_action(f"model:{value['id']}")                       # the card's Profile list
@@ -763,8 +769,11 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         preview.front_tool()
                     return
                 if name == 'toolPlace':
-                    # The Workbench was resized while a tool sits over its lower panel: the tool follows.
+                    # The Workbench was resized while a tool sits over its lower panel: the tool follows. hide: one of
+                    # the page's top-bar menus is open over it (a window cannot be drawn under the page's menus, U5).
                     place = workbench_panel(value)
+                    if place is not None and isinstance(value, dict) and value.get('hide') is True:
+                        place = dict(place, visible=False)
                     if place is not None and preview is not None and preview.bounds_override is not None:
                         preview.place_over(place)
                     return

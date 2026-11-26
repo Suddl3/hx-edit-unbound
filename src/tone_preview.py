@@ -397,7 +397,8 @@ class TonePreview:
         plays on ("target:<dsp>:<block>", as the window's own chooser sends it)."""
         browser = self.browser
         if (not self.workbench and self.bounds_override is not None and browser is not None and isinstance(action, str)
-                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}|model:\d{1,12}', action)):
+                and re.fullmatch(r'keep:\d{1,6}|save:\d{1,6}:\d{1,3}|end|target:[01]:block\d{1,2}|model:\d{1,12}|'
+                                 r'replace:\d{1,3}|auditionSelected|retry|source', action)):
             browser.actions.put(action)
             return True
         return False
@@ -652,6 +653,7 @@ class TonePreview:
                     except Exception:    # (the Workbench's own bookkeeping: never the session's close)
                         pass
                 if self.bounds_override is not None:
+                    self._to_workbench('toneEnded', {'session': session})   # (the page's tray, banner and tag go)
                     self.bounds_override = None
                     if self.on_browser_closed:
                         try:
@@ -724,6 +726,9 @@ class TonePreview:
                 tray_out()
 
         waiting_tone = [False]      # a tone clicked while the tray asked which block plays it
+        said = ['', False]          # the last status line and whether it is a busy one (the side panel shows it, U1)
+        browse_failed = [False]     # TONE3000's catalog did not open: the side panel offers Try again
+        play_mode = ['original']    # the conversion of the audition being played (a NAM Pedal block takes 'pedal' only)
         prepared_files = {}         # (tone:profile, conversion) -> the file prepared for it this session
         if self._in_workbench():
             browser.send('sidePage', html=SIDE.read_text(encoding='utf-8'))   # (shown when popped out)
@@ -749,7 +754,12 @@ class TonePreview:
                     # blocks, the one it goes to, and the tray's question or "no NAM block"
                     'choices': list(state.get('choices') or [])[:16], 'target': state.get('target'),
                     'ask': bool(state.get('ask')), 'none': bool(state.get('none')),
-                    'preview': bool(state.get('preview')), 'tone': picked}
+                    'preview': bool(state.get('preview')), 'tone': picked,
+                    # (the window's bottom bar is gone in the Workbench, U1: its line, its slot to replace when every
+                    # User IR slot is taken, Try again after a failed catalog)
+                    'said': said[0], 'busy': said[1],
+                    'replace': [[int(n), str(name)] for n, name in (taken or [])][:128],
+                    'can_retry': browse_failed[0]}
             self._to_workbench('tone', data)
             # the popped-out window's own side panel: the same, with its pictures (tone_side.html)
             side = dict(data)
@@ -800,6 +810,7 @@ class TonePreview:
             nonlocal text
             if not busy:
                 text = message
+            said[0], said[1] = str(message or ''), bool(busy)
             if not self.headless and self.sidebar_status:
                 self.sidebar_status({'text':message, 'busy':busy})
             tray_out()
@@ -878,6 +889,7 @@ class TonePreview:
                     return 'The selected block changed during download. Select the tone again to audition on the new block.'
                 reply = self.command(session, 'audition', file=path,
                                      **({'targetVersion': target_version} if self.navigation else {}),
+                                     **({'pedal': True} if play_mode[0] == 'pedal' else {}),
                                      **({'replace': replace} if replace else {}))
                 slot = reply.get('slot')
                 free_slots = reply.get('freeSlots', [])
@@ -957,6 +969,8 @@ class TonePreview:
                             name=name, gear=tone.get('gear', ''), source=source, wav=path)
 
             remember_link(models[index]['id'], tone_url(tone))   # the profile's name ends with this model ID
+            play_mode[0] = mode
+
             def prepared():
                 # (the same profile and conversion again, e.g. a preview moved to another block: the file made before)
                 found = prepared_files.get((key, mode))
@@ -988,6 +1002,7 @@ class TonePreview:
                 status('Cancelled: choose the conversion to audition this capture.')
                 return
             status('Loading the capture from the library…', busy=True)
+            play_mode[0] = mode
 
             def prepare():
                 folder = tempfile.mkdtemp(prefix='library-', dir=self.workspace)
@@ -1490,6 +1505,8 @@ class TonePreview:
                 self._trace('selection', 'received', session)
                 if error:
                     browser.send('browseError', text=error)
+                    browse_failed[0] = True
+                    status(error)
                     continue
                 if selection is None:
                     break
@@ -1721,6 +1738,7 @@ class TonePreview:
                 except (OSError, ValueError, KeyError) as error:
                     status(f'Library: {error}')
             if action == 'retry' and worker is None and client_id:
+                browse_failed[0] = False
                 start_selection()
             if current is None:
                 continue

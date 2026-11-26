@@ -393,6 +393,14 @@ function installFocusView(options, parts) {
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
   let refreshSkips = 12;    // trace lines for refreshes left out (finish)
+  let stripDark = null;     // the status strip's colour as last set (keepStrip)
+  function keepStrip(dark) {
+    if (stripDark === dark || !namView.statusStrip) return;
+    stripDark = dark;
+    let result;
+    try { result = namView.statusStrip(dark); } catch (error) { result = {found: false, error: String(error.message)}; }
+    send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...result});
+  }
   let selectAsked = null;   // the page's last pick, until a reading has it selected (trace "select-shown")
   // HX Edit's own panel tab while a pane covers HX Edit: traced on each change ("hx-tab"), and put back on EDIT when it is
   // on BYPASS/CONTROLLER ASSIGN ("hx-tab-edit"), at most once a second: the panes have their own Bypass and
@@ -848,6 +856,7 @@ function installFocusView(options, parts) {
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
     keepEditTab();
+    keepStrip(true);
     // A block the page picked: clicked before this reading rather than after it, so the reading itself carries HX
     // Edit's new selection (its click fires HX Edit's own events, which make it a full reading): one turn of HX Edit's
     // UI thread less between the click and the page's panel. (The first block of a preset is still picked after.)
@@ -1008,7 +1017,9 @@ function installFocusView(options, parts) {
   function focusSteer(cursor) {
     let shown = cursor, steerTo = null;
     if (!known || !toneView.steerPreview) return {shown, steerTo};
-    const nams = known.filter(block => namEngines.includes(block.model) && /^block\d{1,2}$/.test(block.id));
+    // (a NAM Pedal block is listed as one, marked: it plays pedal versions only and is never a preview target, U6)
+    const nams = known.filter(block => namEngines.includes(block.model) && /^block\d{1,2}$/.test(block.id))
+      .map(block => block.model === 'HD2_AmpNAMPedal' ? {...block, pedal: true} : block);
     const mine = cursor && cursor.block ? {dsp: cursor.dsp, id: cursor.block} : null;
     const steer = toneView.steerPreview({nams, cursor: mine});
     if (!steer) return {shown, steerTo};
@@ -1066,7 +1077,10 @@ function installFocusView(options, parts) {
         try { targetBinding.setValue(open.editor, open.dsp, open.id, open.key, open.value, 'end'); finish(open.editor, open.dsp, open.id, open.key, open.value); } catch (_) { /* the block is gone */ }
       });
     }
+    const was = on;
     on = value === true;
+    // HX Edit's status strip: the panes' gray while a pane covers HX Edit, its own again for Classic (U2)
+    if (was !== on) { stripDark = null; if (!on) namView.queueSidebarAction(() => keepStrip(false)); }
     if (timer) { clearInterval(timer); timer = null; }
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null; downFollow = null;
     pickKey = null; pickTries = 0;

@@ -661,6 +661,11 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   const chainIds = [0x73663078, 0x73663178]; // sf0x, sf1x
   const chainPoint = Memory.alloc(8);
   const postMessage = winApi('PostMessageW', 'int', ['pointer', 'uint', 'pointer', 'pointer']);
+  const redrawWindow = winApi('RedrawWindow', 'int', ['pointer', 'pointer', 'pointer', 'uint']);
+  // HX Edit's status strip (res/main.xml "stbw": My Account, the device, updates): its colour as main.xml gives it
+  // (0xFF1D1D1D) and the panes' dark gray (menu_dark.js MENU_DARK.bar, #14161B), and where the panel keeps it.
+  const STRIP_STOCK = 0xff1d1d1d, STRIP_DARK = 0xff14161b;
+  let stripAt;                 // undefined: not looked for yet; null: not found; {at, kind} once found
   let pendingDrop = null;
 
   let chainCache = {at: 0, boxes: []};
@@ -1928,6 +1933,40 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     // views it switches, "etvw" (EDIT: the model list and the parameter pane PRVW) and "cavw" (the assign view). After
     // Focus Mode HX Edit was found on the assign tab (live 2026-11-25 14:05): no parameter pane, and its panel no
     // longer follows the selected block, which TONE3000 and the Library's Preview / Put on the Floor bind to.
+    // HX Edit's status strip in the panes' dark gray while a pane covers HX Edit's screen, main.xml's own colour again
+    // for Classic (U2, 2026-11-25: Nick, "does not match"). The panel ("stbw", under the window's root view "main") keeps
+    // its colour in its own memory: looked for there once, as a whole 0xAARRGGBB word or as four floats (R, G, B, A),
+    // and written only where it is found exactly once; otherwise nothing is written. On HX Edit's UI thread.
+    // Returns {found, kind, offset, dark} for the trace.
+    statusStrip(dark) {
+      if (stripAt === undefined) {
+        stripAt = null;
+        let widget = this.chainPanel(), main = NULL;
+        for (let depth = 0; depth < 14 && widget && !widget.isNull(); depth++) {
+          const geometry = widget.add(0x54).readPointer();
+          if (geometry.isNull()) break;
+          if (geometry.readU32() === 0x6d61696e) { main = widget; break; }       // "main"
+          widget = geometry.add(0x14).readPointer();
+        }
+        const strip = main.isNull() ? NULL : canonical(findWidget(main, 0x73746277, 1));   // "stbw"
+        if (strip.isNull()) return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw'};
+        const shade = 0x1d / 255, hits = [];
+        for (let offset = 0; offset < 0x400; offset += 4) {
+          const at = strip.add(offset);
+          if (at.readU32() === STRIP_STOCK) hits.push({at, kind: 'argb', offset});
+          else if (offset <= 0x3f0 && [0, 4, 8].every(k => Math.abs(at.add(k).readFloat() - shade) < 0.002) &&
+                   Math.abs(at.add(12).readFloat() - 1) < 0.002) hits.push({at, kind: 'float', offset});
+        }
+        if (hits.length !== 1) return {found: false, why: 'matches', matches: hits.length};
+        stripAt = hits[0];
+      }
+      if (!stripAt) return {found: false, why: 'not-found-before'};
+      const colour = dark ? STRIP_DARK : STRIP_STOCK;
+      if (stripAt.kind === 'argb') stripAt.at.writeU32(colour);
+      else [(colour >>> 16) & 0xff, (colour >>> 8) & 0xff, colour & 0xff].forEach((c, k) => stripAt.at.add(4 * k).writeFloat(c / 255));
+      if (!sidebarHost.isNull()) redrawWindow(getAncestor(sidebarHost, 2), NULL, NULL, 0x0001 | 0x0080 | 0x0100);   // GA_ROOT; INVALIDATE|ALLCHILDREN|UPDATENOW
+      return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark};
+    },
     editPanelTab() {
       const view = sidebar();
       if (!view) return null;

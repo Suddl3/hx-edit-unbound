@@ -230,7 +230,8 @@ class ToneTests(unittest.TestCase):
                 patch('tone_preview.prepare_model', return_value='p.wav') as prepare:
             preview.browse(browser, 1, 'key')
         self.assertEqual([c.args[0]['id'] for c in prepare.call_args_list], [2])     # only the picked one
-        self.assertEqual(preview.command.call_args_list, [call(1, 'audition', file='p.wav')])
+        # (a pedal version says so: a NAM Pedal block takes pedal versions only, U6)
+        self.assertEqual(preview.command.call_args_list, [call(1, 'audition', file='p.wav', pedal=True)])
 
     def test_a_profile_from_tone3000_finds_its_tone_page_again(self):
         import tone3000

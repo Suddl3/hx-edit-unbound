@@ -519,7 +519,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const bound = active.bound && !active.quarantined && atTarget();
     // Which block plays it (steerPreview): the preset's NAM blocks, the one the preview goes to, and whether the
     // player is asked (two or more, none picked) or there is none.
-    const steer = active.steer || null, named = b => ({dsp: b.dsp, id: b.id, name: b.name, slot: b.slot, own: b.own ?? null, lane: b.lane, enabled: b.enabled !== false});
+    const steer = active.steer || null, named = b => ({dsp: b.dsp, id: b.id, name: b.name, slot: b.slot, own: b.own ?? null, lane: b.lane, enabled: b.enabled !== false, pedal: b.pedal === true});
     const payload = { type: 'toneTarget', session: active.id, version: active.targetVersion,
       bound: !!bound, label: bound ? active.targetLabel : '',
       choices: steer ? steer.nams.map(named) : [], target: steer && steer.target ? named(steer.target) : null,
@@ -537,6 +537,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
         // A NAM block is selected and Preview binds it: after a snapshot change or reselecting the
         // block the card said "Select a NAM block" while Preview worked (Floor, November 13).
         payloadCanBind(selected) ? 'Ready to audition on the selected NAM block.' :
+        steer?.pedalOnly ? 'This preset has only NAM Pedal blocks: they play pedal versions only. Add a NAM A2 Lite block to hear a tone here.' :
         steer?.none ? 'This preset has no NAM block: add one to hear a tone here.' :
         steer?.target ? `Pick a tone to hear it on ${steer.target.name}, Path ${steer.target.dsp + 1}.` :
         steer?.ask ? 'Which block should play it? Choose one of the preset’s NAM blocks.' :
@@ -763,13 +764,17 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     const nams = (reading.nams || []).filter(b => b && [0, 1].includes(b.dsp) && /^block\d{1,2}$/.test(b.id))
       .map(b => ({dsp: b.dsp, id: b.id, slot: Number.isInteger(b.slot) ? b.slot : null, lane: b.path === 1 ? 1 : 0,
-                  position: Number.isInteger(b.position) ? b.position : null, name: blockName(b), own: ownSlot(b), enabled: b.enabled !== false}));
+                  position: Number.isInteger(b.position) ? b.position : null, name: blockName(b), own: ownSlot(b), enabled: b.enabled !== false,
+                  pedal: b.pedal === true}));
+    // (a NAM Pedal block plays pedal versions only: shown, never a target, U6)
+    const playable = nams.filter(b => !b.pedal);
     const page = previewHold ? previewHold.page : cursor;
-    if (active.choice && !nams.some(b => sameBlock(b, active.choice))) active.choice = null;
-    const own = nams.find(b => sameBlock(b, page));
+    if (active.choice && !playable.some(b => sameBlock(b, active.choice))) active.choice = null;
+    const own = playable.find(b => sameBlock(b, page));
     const target = steerAside ? own || null :
-      (active.choice && nams.find(b => sameBlock(b, active.choice))) || own || (nams.length === 1 ? nams[0] : null);
-    active.steer = {nams, target: target || null, ask: !steerAside && !target && nams.length > 1, none: !nams.length, aside: steerAside};
+      (active.choice && playable.find(b => sameBlock(b, active.choice))) || own || (playable.length === 1 ? playable[0] : null);
+    active.steer = {nams, target: target || null, ask: !steerAside && !target && playable.length > 1, none: !playable.length,
+                    pedalOnly: !playable.length && nams.length > 0, aside: steerAside};
     let click = null;
     if (target && !sameBlock(target, cursor) && !previewBusy() && !steerAside) {
       const again = steerClick && sameBlock(steerClick, target);
@@ -796,7 +801,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     const steer = active.steer, target = steer && steer.target;
     const asBefore = () => { steerPicked = {dsp: pick.dsp, id: pick.id, at: Date.now()}; previewHold = null; return false; };
     if (!target || sameBlock(pick, target)) return asBefore();
-    const nam = steer.nams.find(b => sameBlock(b, pick));
+    const nam = steer.nams.find(b => sameBlock(b, pick) && !b.pedal);
     if (nam && !previewBusy()) {
       // a NAM block picked: the preview plays on it from now on (a selected NAM block wins)
       active.choice = plainBlock(nam);
@@ -817,6 +822,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     }
     const nam = (active.steer?.nams || []).find(b => b.dsp === request.dsp && b.id === request.block);
     if (!nam) throw new Error('That block is not one of this preset\u2019s NAM blocks now.');
+    if (nam.pedal) throw new Error('That is a NAM Pedal block: it plays pedal versions only.');
     active.choice = plainBlock(nam);
     steerClick = null; steerAside = false;
     // (bound to another block, nothing playing: unbound until HX Edit has the chosen one selected and it is bound)
@@ -4895,6 +4901,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       }
       if (!active.bound || active.quarantined || !atTarget() || request.targetVersion !== active.targetVersion) {
         throw new Error('The selected NAM target changed. Select the tone again for the current block.');
+      }
+      // (a NAM Pedal block plays pedal versions only: a full A2 Lite capture is not previewed on it, from TONE3000 or
+      // the library; U6, 2026-11-25)
+      if (request.action === 'audition' && request.pedal !== true && boundModel() === 'HD2_AmpNAMPedal') {
+        throw new Error('This is a NAM Pedal block: it plays pedal versions only. Pick a NAM A2 Lite block, or the Pedal version of this capture.');
       }
     }
     if (request.action === 'save') {
