@@ -1110,11 +1110,20 @@ let catalog = null, state = null, dsp = null, options = {}, visible = !host;
 let costs = {};          // each model's DSP as the Floor's meter measured it ({type: "dspCosts"}, workbench.py)
 // A model's DSP: as measured on the Floor where it has been, else HX Edit's estimate (catalog.loads). NaN: unknown.
 // A key may be a capture's ("<model>#<capture id>", dsp_costs.key_of: each capture costs its own): one not measured
-// yet costs what its model does.
+// yet costs the Floor firmware's declared NAM cost (catalog.loads: 36 of 75, 48%), never another capture's figure
+// (live 2026-11-26 13:2x: the model's figure followed the newest capture measured, 36 or 27, so unmeasured tiles
+// read 48% on one day and 36% on another). The same for a NAM model with no capture of the library.
 const costOf = key => {
   const own = Number(costs[key]), symbol = String(key).split('#')[0], found = Number(costs[symbol]);
-  return Number.isFinite(own) && own > 0 ? own : Number.isFinite(found) && found > 0 ? found : Number((catalog && catalog.loads || {})[symbol]);
+  const declared = Number((catalog && catalog.loads || {})[symbol]);
+  if (Number.isFinite(own) && own > 0 && (String(key).includes('#') || !(catalog && catalog.nam.includes(symbol)))) return own;
+  if (String(key).includes('#') || (catalog && catalog.nam.includes(symbol))) return declared;
+  return Number.isFinite(found) && found > 0 ? found : declared;
 };
+// What HX Edit needs free to add a model or change a block to it: its own catalog figure (catalog.loads; a NAM block:
+// the firmware's declared cost, whatever the capture then uses), as focus_view.js focusRoom checks it. A model with no
+// figure there: what it costs (costOf).
+const admitOf = symbol => { const declared = Number((catalog && catalog.loads || {})[symbol]); return Number.isFinite(declared) ? declared : costOf(symbol); };
 // The cost key of a capture of the library on NAM's engine, and of a block (its capture's when its slot holds one)
 const captureKey = c => c && /^[0-9a-f]{64}$/.test(String(c.id || '')) ? catalog.nam[0] + '#' + c.id : catalog.nam[0];
 const costKey = block => {
@@ -1714,7 +1723,7 @@ function swapBox(block, item, shape) {
     el('span', '', f.full ? 'Not enough room on DSP ' + (block.dsp + 1) : (f.share ? f.share + ' of DSP ' : 'DSP ') + (block.dsp + 1)));
   box.append(image(f.pics, 'swappic', true), words);
   const go = el('button', 'btn pri swapgo', 'Replace');
-  go.disabled = f.full; go.title = f.full ? 'It does not fit the room left on DSP ' + (block.dsp + 1) : 'Replace ' + title(block) + ' (Enter)';
+  go.disabled = f.full; go.title = f.full ? 'It does not fit: ' + f.why :'Replace ' + title(block) + ' (Enter)';
   go.onclick = replaceLined;
   if (shape === 'card') return [box, go];
   box.append(go); return [box];
@@ -2265,19 +2274,26 @@ function pickItems(block, s) {
 // whether it fits the DSP's room (space: room(block))
 function choiceFacts(block, space, item) {
   const costText = cost => space && Number.isFinite(cost) ? Math.round(100 * cost / space.budget) + '%' : '';
-  let pics, tintOf, name, mark, inUse, full, words, share;
+  // (whether it fits, as HX Edit decides it: what it needs free is its catalog figure, admitOf; the tile shows what it
+  // uses, costOf. A NAM capture measured at 36% still needs 48% free to go in: live 2026-11-26, preset 006)
+  const needs = need => 'HX Edit needs ' + costText(need) + ' of DSP ' + (block.dsp + 1) + ' free for it, ' +
+    Math.max(0, Math.round(100 * space.left / space.budget)) + '% is free';
+  let pics, tintOf, name, mark, inUse, full, words, share, why = '';
   if (item.symbol) {
-    const m = catalog.models[item.symbol], cost = costOf(item.symbol);
-    inUse = item.symbol === block.model; full = !inUse && !!space && Number.isFinite(cost) && cost > space.left + 1e-6;
+    const m = catalog.models[item.symbol], cost = costOf(item.symbol), need = admitOf(item.symbol);
+    inUse = item.symbol === block.model; full = !inUse && !!space && Number.isFinite(need) && need > space.left + 1e-6;
     pics = m.pictures; tintOf = m.tint; name = m.name; share = costText(cost); mark = inUse ? 'in use' : share;
-    words = m.name + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
+    if (full) why = needs(need);
+    words = m.name + (full ? ': not enough room (' + why + ')' : '');
   } else {
-    const c = item.capture, cost = isNam(block) ? 0 : costOf(captureKey(c));   // (its own, else s.namCost's figure)
-    inUse = isNam(block) && block.slot === c.slot; full = !inUse && !!space && Number.isFinite(cost) && cost > space.left + 1e-6;
+    // (on a NAM block a capture is its Index: nothing more to fit; elsewhere a new NAM block)
+    const c = item.capture, cost = isNam(block) ? 0 : costOf(captureKey(c)), need = isNam(block) ? 0 : admitOf(catalog.nam[0]);
+    inUse = isNam(block) && block.slot === c.slot; full = !inUse && !!space && Number.isFinite(need) && need > space.left + 1e-6;
     pics = captureUrls(c); tintOf = NAM_TINT; name = c.name; share = isNam(block) ? '' : costText(cost); mark = inUse ? 'in use' : isNam(block) ? 'slot ' + c.slot : share;
-    words = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room on DSP ' + (block.dsp + 1) : '');
+    if (full) why = needs(need);
+    words = c.name + ' (' + namKind(c) + ', IR slot ' + c.slot + ')' + (full ? ': not enough room (' + why + ')' : '');
   }
-  return {pics, tintOf, name, mark, inUse, full, words, share};
+  return {pics, tintOf, name, mark, inUse, full, words, share, why};
 }
 const choiceKey = item => item.symbol ? 'm:' + item.symbol : 'c:' + item.capture.slot;
 // One choice as a card (the picker) or a row (Classic+): its picture, name, mark and what a click does (pickRule)
@@ -2316,7 +2332,14 @@ function choiceDouble(block, key) {
   return next.double;
 }
 function pickRule(block, item, how) {
-  if (block.isPlace) { item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture); return; }
+  if (block.isPlace) {
+    // (a choice that does not fit is not asked of HX Edit: the reason instead, live 2026-11-26 12:53: HX Edit refused
+    // it and the page said only "HX Edit did not make that change.")
+    const f = choiceFacts(block, room(block), item);
+    if (f.full) { toast(f.name + ' does not fit: ' + f.why + '. Remove or change a block on Path ' + (block.dsp + 1) + ' first.'); return; }
+    item.symbol ? pickModel(block, item.symbol) : pickCapture(block, item.capture);
+    return;
+  }
   if (how === 'click' && choiceDouble(block, choiceKey(item))) how = 'double';
   const f = choiceFacts(block, room(block), item);
   if (f.inUse) { if (lined) { lined = null; redrawPick(); } return; }
