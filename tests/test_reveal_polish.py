@@ -1801,5 +1801,93 @@ class SceneAndSideTests(unittest.TestCase):
         self.assertIn("if (layout === 'classicplus' && next.drawer !== view.drawer) sideAuto = false;", page)
 
 
+class LoadOnFloorNameTests(unittest.TestCase):
+    """M1 (live 2026-11-26 10:30, owner-trials 20261126-101858-4b0e42d6): right after TONE3000's "Load on Floor · slot 29"
+    the Plays on tile said "IR slot 29" with no picture and the strip "Preview plays on MTCH HD30 II Edge FAT CA 914439
+    · Path 1" (the IR's raw name): the slot check had not read slot 29 back, so the slot had no library capture."""
+
+    def notes(self):
+        nam = text('nam_view.js')
+        piece = between(nam, '  const slotNotes = new Map();', '\n  // --- Model caption width')
+        piece = piece.replace('  const slotNotes = new Map();', '', 1)
+        return ('const AUDITION_SLOT = 128; const profiles = {}; let slotLedger = {entries: () => ledger, contentFor: s => '
+                '(ledger.find(e => e[0] === s) || [])[1]}; let ledger = []; const payloadMetadata = {c1: {name: "Read back"}};'
+                ' const slotNotes = new Map();\n' + piece)
+
+    def test_m1_the_written_capture_names_its_slot_until_the_slot_changes_or_is_read(self):
+        out = run_js_source(self.notes(), '''(() => {
+          const r = {};
+          r.before = profileLabel(29) || null;                                     // nothing registered: refused
+          r.refused = noteCapture(29, {name: 'Matchless HC-30 - EF86 - Edge of Breakup', icon: 'black_compact'});
+          profiles[29] = 'MTCH HD30 II Edge FAT CA 914439';                        // registerProfile
+          r.raw = profileLabel(29);
+          r.noted = noteCapture(29, {name: 'Matchless HC-30 - EF86 - Edge of Breakup', icon: 'black_compact', gear: 'amp', instrument: 'guitar'});
+          r.named = profileLabel(29);
+          r.badIcon = noteCapture(30, {name: 'x', icon: '../x'});                  // (no raw name on 30)
+          r.preview = noteCapture(128, {name: 'x'});
+          ledger = [[29, 'c1']];                                                   // the slot check's own answer wins
+          r.read = profileLabel(29);
+          ledger = [];
+          profiles[29] = 'Another IR';                                             // the slot changed: forgotten
+          r.changed = profileLabel(29);
+          r.kept = slotNotes.has(29);
+          return r;
+        })()''')
+        self.assertEqual(out, {'before': None, 'refused': False, 'raw': 'MTCH HD30 II Edge FAT CA 914439', 'noted': True,
+                               'named': 'Matchless HC-30 - EF86 - Edge of Breakup', 'badIcon': False, 'preview': False,
+                               'read': 'Read back', 'changed': 'Another IR', 'kept': False})
+
+    def test_m1_the_workbench_lists_it_with_its_picture_until_the_slot_check_has_it(self):
+        nam = text('nam_view.js')
+        installed = between(nam, '    installedCaptures() {', '\n    noteCapture,')
+        self.assertIn("const note = !read.has(slot) && notedCapture(slot);", installed)
+        self.assertIn("result.push({slot, id: null, name: note.name, gear: note.gear, icon: note.icon, instrument: note.instrument});", installed)
+        # tone_view: noted at the save, the chooser's name cache for the slot dropped
+        tone = text('tone_view.js')
+        save = between(tone, "    if (request.action === 'save') {", '\n      return;\n')
+        self.assertIn('namView.noteCapture?.(slot, request.capture);', save)
+        self.assertIn('steerNames.delete(slot);', save)
+        self.assertLess(save.index('namView.registerProfile(saved)'), save.index('namView.noteCapture?.(slot, request.capture);'))
+        self.assertLess(save.index('namView.noteCapture'), save.index('keepSaved(request, trial, saved);'))   # (before captureTarget's label)
+        # the page names and pictures a NAM block by state.captures (installedCaptures): no change there
+        page = text('workbench.html')
+        self.assertIn("return (state.captures || []).find(c => c.slot === block.slot) || {slot: block.slot, name: 'IR slot ' + block.slot, icon: ''};", page)
+
+    def test_m1_tone_preview_sends_the_librarys_name_and_picture_with_the_save(self):
+        preview = text('tone_preview.py')
+        self.assertIn('capture=kept_capture(self.library, kept, playing),', preview)
+        sys.path.insert(0, str(ROOT))
+        import tempfile
+        import tone_preview
+        from hashlib import sha256
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder, 'capture.nam')
+            path.write_bytes(b'{"capture": 1}')
+            identity = sha256(path.read_bytes()).hexdigest()
+
+            class Library:
+                def __init__(self, entries):
+                    self._entries = entries
+
+                def entries(self):
+                    return self._entries
+
+                def icon_for(self, entry):
+                    return entry.get('icon') or 'picked:' + entry.get('name', '')
+
+            kept = {'path': path, 'name': 'Matchless HC-30 – EF86', 'gear': 'amp'}
+            # kept on this PC already, under its first name and picture: those
+            known = Library({identity: {'name': 'Matchless HC-30 - EF86 - Edge of Breakup', 'gear': 'amp', 'icon': 'black_compact'}})
+            self.assertEqual(tone_preview.kept_capture(known, kept),
+                             {'name': 'Matchless HC-30 - EF86 - Edge of Breakup', 'icon': 'black_compact', 'gear': 'amp', 'instrument': 'guitar'})
+            # new: what keep() is about to give it
+            self.assertEqual(tone_preview.kept_capture(Library({}), kept)['name'], 'Matchless HC-30 – EF86')
+            self.assertEqual(tone_preview.kept_capture(Library({}), kept)['icon'], 'picked:Matchless HC-30 – EF86')
+            # no library: the tray's
+            self.assertEqual(tone_preview.kept_capture(None, None, {'name': 'Tray name', 'icon': 'black_rat'}),
+                             {'name': 'Tray name', 'icon': 'black_rat', 'gear': ''})
+            self.assertEqual(tone_preview.kept_capture(None, None), {})
+
+
 if __name__ == '__main__':
     unittest.main()

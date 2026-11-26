@@ -174,6 +174,29 @@ def capture_icon(name, gear=None):
         return ''
 
 
+def kept_capture(library, kept, item=None):
+    """What the library calls the capture Load on Floor writes (M1, live 2026-11-26 10:30: the block was named by the
+    slot's raw IR name until the slot check read it back): its entry's name and picture when this PC keeps it already
+    (the same file is one entry, with its first name), else what keep() is about to give it; with no library, the
+    tray's. {name, icon, gear, instrument}, or {} when unknown."""
+    try:
+        if library is not None and kept:
+            from hashlib import sha256
+            import nam_library
+            identity = kept.get('id')
+            if not identity and Path(kept['path']).is_file():
+                identity = sha256(Path(kept['path']).read_bytes()).hexdigest()
+            entry = (library.entries().get(identity) if identity else None) or {
+                'name': kept.get('name') or Path(kept['path']).stem, 'gear': kept.get('gear') or ''}
+            return {'name': str(entry.get('name') or '')[:96], 'icon': str(library.icon_for(entry) or ''),
+                    'gear': str(entry.get('gear') or ''), 'instrument': nam_library.instrument_of(entry)}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    if isinstance(item, dict) and item.get('name'):
+        return {'name': str(item['name'])[:96], 'icon': str(item.get('icon') or ''), 'gear': str(item.get('gear') or '')}
+    return {}
+
+
 def render_card(tone=None, models=(), library=False, tray=False):
     """tray: the window sits in the Workbench (docked or popped out): the tone, its Profile list and its actions are
     in the side panel (the Workbench's tray, or the popped window's own side page), so the card is only its footer:
@@ -1567,7 +1590,10 @@ class TonePreview:
                     continue
                 status(f'Saving to User IR {destination}…', busy=True)
                 try:
+                    # (the capture's own name and picture, as the library has it, for the block now holding it: M1)
+                    playing = next((item for item in tray if item.get('trial') == trial), None)
                     reply = self.command(session, 'save', slot=int(destination),
+                                         capture=kept_capture(self.library, kept, playing),
                                          **({'targetVersion': self.navigation_state.get('version')} if self.navigation else {}))
                     slot = reply.get('slot')
                     free_slots = reply.get('freeSlots', [])

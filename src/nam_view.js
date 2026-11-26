@@ -348,9 +348,31 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     discoveryControls?.slotsChanged(slots);
   }
 
+  // The capture TONE3000's Load on Floor has just written, by slot (M1, live 2026-11-26 10:30): until the slot check
+  // reads the slot back, the slot has no library capture, and the tile, the strip and the chain named it "IR slot 29"
+  // or by its raw IR name ("MTCH HD30 II Edge FAT CA 914439"), without its picture. Named and pictured as the library
+  // has it (tone_preview kept_capture) while the slot holds what was written (its raw name the one registered then);
+  // the slot check's own answer comes first once it has one.
+  const slotNotes = new Map();          // slot -> {raw, name, icon, gear, instrument}
+  function notedCapture(slot) {
+    const note = slotNotes.get(slot);
+    if (!note) return null;
+    if (!Object.hasOwn(profiles, slot) || profiles[slot] !== note.raw) { slotNotes.delete(slot); return null; }
+    return note;
+  }
+  function noteCapture(slot, capture) {
+    if (!Number.isInteger(slot) || slot < 1 || slot >= AUDITION_SLOT || !capture || typeof capture !== 'object') return false;
+    const name = typeof capture.name === 'string' ? capture.name.trim().slice(0, 96) : '';
+    if (!name || !Object.hasOwn(profiles, slot)) return false;
+    const icon = typeof capture.icon === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(capture.icon) ? capture.icon : '';
+    slotNotes.set(slot, {raw: profiles[slot], name, icon, gear: typeof capture.gear === 'string' ? capture.gear.slice(0, 32) : '',
+                         instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar'});
+    return true;
+  }
+
   function profileLabel(slot) {
     const content = slotLedger?.contentFor(slot);
-    return content && payloadMetadata[content]?.name || profiles[slot];
+    return content && payloadMetadata[content]?.name || notedCapture(slot)?.name || profiles[slot];
   }
 
   // --- Model caption width -------------------------------------------------------------------
@@ -2105,8 +2127,19 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         result.push({slot, id: typeof capture.id === 'string' ? capture.id : null, name: capture.name || profiles[slot] || 'Capture', gear: capture.gear || '', icon: capture.icon || '',
           instrument: ['guitar', 'bass', 'any'].includes(capture.instrument) ? capture.instrument : 'guitar'});
       }
+      // (and a capture Load on Floor has just written, until the slot check has read its slot: noteCapture, M1)
+      const read = new Set(slotLedger.entries().map(([slot]) => slot));
+      let noted = false;
+      for (const slot of [...slotNotes.keys()]) {
+        const note = !read.has(slot) && notedCapture(slot);
+        if (!note) continue;
+        result.push({slot, id: null, name: note.name, gear: note.gear, icon: note.icon, instrument: note.instrument});
+        noted = true;
+      }
+      if (noted) result.sort((a, b) => a.slot - b.slot);
       return result;
     },
+    noteCapture,
     requestSlotCheck() { requestLibraryVerification(); },
     // The slot check has completed (all slots, or all it could read) since proof was last discarded.
     slotCheckDone: () => inventoryState === 'verified' || inventoryState === 'partial',

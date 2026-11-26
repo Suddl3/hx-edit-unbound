@@ -4926,6 +4926,10 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       const saved = namView.importPreview(trial.source, slot);
       awaitImport(request, saved, () => {
         if (!namView.registerProfile(saved)) throw new Error(`Check User IR ${slot} on Helix.`);
+        // (named and pictured as the library has the capture, not by the slot's raw IR name, before the slot check
+        // reads it back: the strip, the Plays on tile and the chain; M1, live 2026-11-26 10:30)
+        namView.noteCapture?.(slot, request.capture);
+        steerNames.delete(slot);
         request.savedSlot = slot;
         keepSaved(request, trial, saved);
       });
