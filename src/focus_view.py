@@ -575,6 +575,7 @@ class FocusView:
         self.process = None
         self.on = False
         self.on_ready = None          # called once when the page next reports ready (the launcher's switch, S3)
+        self.on_shown = None          # called once when the pane's window is first shown over HX Edit (the start-up cover, J4)
         self.window = None
         self.bounds = None
         self.raised = True            # the pane above HX Edit's other child windows (set_raise)
@@ -1143,7 +1144,15 @@ class FocusView:
                 self._write('P', {'type': 'notice', 'text': value})
         elif kind == 'pane':
             event = value.get('type')
-            if event == 'ready':                       # the page has loaded: what it draws with, then what to draw
+            if event == 'shown':                       # the pane's own (dark) window is up over HX Edit, page or not
+                self.trace({'type': 'focusView', 'event': 'shown'})
+                shown, self.on_shown = self.on_shown, None
+                if shown:
+                    try:
+                        shown()
+                    except Exception:    # (the launcher's own bookkeeping: never the pane's)
+                        pass
+            elif event == 'ready':                       # the page has loaded: what it draws with, then what to draw
                 self.page_ready = True
                 self._write('P', {'type': 'catalog', 'catalog': self.catalog()})
                 self._show_look()

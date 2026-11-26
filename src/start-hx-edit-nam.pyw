@@ -856,6 +856,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                             covered[0] = False
                             trace({'type': 'windowKeeper', 'event': 'cover-release', 'why': why, 'layout': layout_kept()})
                             script.post({'type': 'startCover', 'payload': {'on': False, 'why': why}})
+                    # (the pane's own dark window first, J4: its page does not load while the cover is over it)
+                    workbench.on_shown = lambda: uncover('pane-shown')
                     workbench.on_ready = lambda: uncover('page-ready')
                     after_resume.append(lambda: workbench_mode(True, keep=False))
                     after_resume.append(lambda: Timer(8.0, lambda: uncover('launcher-timeout')).start())

@@ -585,6 +585,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   const screenToClient = winApi('ScreenToClient', 'int', ['pointer', 'pointer']);
   const cursorPoint = Memory.alloc(8);
   const getWindowOwner = winApi('GetWindowThreadProcessId', 'uint', ['pointer', 'pointer']);
+  const getWindowRelative = winApi('GetWindow', 'pointer', ['pointer', 'uint']);
   const windowOwner = Memory.alloc(4);
   const setCapture = winApi('SetCapture', 'pointer', ['pointer']);
   const getCapture = winApi('GetCapture', 'pointer', []);
@@ -790,7 +791,9 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
       if (!hwnd.isNull()) {
         const root = getAncestor(hwnd, 2), view = sidebar();
         windowOwner.writeU32(0);getWindowOwner(root, windowOwner);
-        if (view && windowOwner.readU32() === Process.id && getClientRect(root, clientRect) &&
+        // (HX Edit's own main window has no owner; the start-up cover of window_keep.js, a window of this process of the
+        // same size, is owned by it and must never be taken for it: the pane would follow the cover, J4)
+        if (view && windowOwner.readU32() === Process.id && getWindowRelative(root, 4).isNull() && getClientRect(root, clientRect) &&
             clientRect.add(8).readS32() >= view.parent.w && clientRect.add(12).readS32() >= view.side.y + view.side.h)
           sidebarHost = root;
       }

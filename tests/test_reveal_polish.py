@@ -1553,5 +1553,35 @@ class StartCoverTests(unittest.TestCase):
         self.assertIn("'windowKeeper',", launcher)                                        # (its events reach the trace)
 
 
+class StartCoverShownTests(unittest.TestCase):
+    """Live check of 3fda63a (2026-11-26 00:00, owner-trials 20261125-235954-793eb19b): the cover still only came down
+    on the 8 s timeout, the page reported ready after it, and the trace learnt HX Edit's window (focusBounds) only once
+    the cover had gone."""
+
+    def test_the_cover_is_never_taken_for_hx_edits_window(self):
+        view = text('nam_view.js')
+        pump = between(view, '  function pumpSidebarPresentation(hwnd = NULL) {', '\n  }\n')
+        self.assertIn('getWindowRelative(root, 4).isNull()', pump)                       # GW_OWNER: none, as HX Edit's own
+        self.assertLess(pump.index('getWindowRelative(root, 4).isNull()'), pump.index('sidebarHost = root;'))
+        self.assertIn("const getWindowRelative = winApi('GetWindow', 'pointer', ['pointer', 'uint']);", view)
+        keep = text('window_keep.js')
+        self.assertIn('owner, NULL, instance, NULL);', keep)                              # (the cover is owned by HX Edit's window)
+
+    def test_the_cover_comes_off_when_the_panes_own_window_is_up(self):
+        pane = text('focus_view.cs')
+        arrange = between(pane, '    void Arrange()', '\n    }\n')
+        self.assertIn('if (show && !toldShown) { toldShown = true; Send(new { type = "shown" }); }', arrange)
+        script = text('focus_view.py')
+        self.assertIn("if event == 'shown':", script)
+        self.assertIn("shown, self.on_shown = self.on_shown, None", script)
+        self.assertIn('self.on_shown = None', script)
+        launcher = text('start-hx-edit-nam.pyw')
+        start = between(launcher, '                if workbench_start:\n                    # (the start-up cover, J4', 'ir_dots = [')
+        self.assertIn("workbench.on_shown = lambda: uncover('pane-shown')", start)
+        self.assertIn("workbench.on_ready = lambda: uncover('page-ready')", start)        # (still: whichever comes first)
+        self.assertIn("after_resume.append(lambda: Timer(8.0, lambda: uncover('launcher-timeout')).start())", start)
+        self.assertIn('if covered[0] and not detached.is_set():', start)                 # (once)
+
+
 if __name__ == '__main__':
     unittest.main()

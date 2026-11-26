@@ -118,7 +118,7 @@ sealed class FocusView : Form
     readonly Timer watch = new Timer { Interval = 250 };
     readonly List<string> waiting = new List<string>();   // messages for the page that came before it loaded
     Rectangle place, applied;
-    bool wanted, loaded, started, closing, raise = true;
+    bool wanted, loaded, started, closing, raise = true, toldShown;
 
     FocusView(IntPtr parent, string profile, string page, List<KeyValuePair<string, string>> hosts, TextWriter output)
     {
@@ -177,6 +177,9 @@ sealed class FocusView : Form
             if (!show && ContainsFocus) SetFocus(parent);
             Visible = show;
             Post("{\"type\":\"shown\",\"shown\":" + (show ? "true" : "false") + "}");
+            // (the launcher too, the first time: its start-up cover over HX Edit comes off once this dark pane is up;
+            // the page itself does not load while covered, J4)
+            if (show && !toldShown) { toldShown = true; Send(new { type = "shown" }); }
         }
         // Stay above HX Edit's other child windows (the NAM tab raises itself when it lays out):
         // SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE. The keyboard focus is never taken here.
