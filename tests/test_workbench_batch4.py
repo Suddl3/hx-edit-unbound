@@ -91,7 +91,7 @@ class ChooserTests(unittest.TestCase):
         switch = between(text, 'function setLayout(name, mine) {', '// ---- Rig on stage')
         self.assertIn('const next = workbenchLayoutOf(name);', switch)
         self.assertIn("ask('layout', next)", switch)
-        self.assertIn('commitView(workbenchSwitch(view, layout), true);', switch)
+        self.assertIn('commitView(switched.view, true);', switch)                          # (workbenchSwitchSide, Q4)
         # nothing of the preset, the selected block, a rename or the unsaved mark is touched; nothing restarts
         for kept in ('pendingName', 'naming', 'savedMark', 'state', "ask('select'", "ask('menu'", 'snapHeld', 'pending ='):
             self.assertNotIn(kept, switch.replace('picking', ''))

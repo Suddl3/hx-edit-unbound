@@ -2993,13 +2993,17 @@ function setLayout(name, mine) {
   const next = workbenchLayoutOf(name);
   if (mine) { layoutAsked = {name: next, at: Date.now()}; ask('layout', next); }   // (kept in settings.json for the next launch)
   if (next === layout) return;
+  const from = layout;
   layout = next;
   // (the block picker is a dialog of the Workbench and the stage; Classic+ shows the model list in place of it)
   if (picking && picking.block && layout === 'classicplus') picking = false;
   const app = $('app');
   for (const key of Object.keys(LAYOUT_NAMES)) app.classList.toggle('lay-' + key, key === layout);
   shownRail = ''; shownDrawer = ''; shownFrame = ''; shownChain = ''; shownPanel = ''; $('drawer').replaceChildren();
-  commitView(workbenchSwitch(view, layout), true);
+  // (Classic+'s own Presets list closes as Classic+ is left; one the player opened stays: workbenchSwitchSide, Q4)
+  const switched = workbenchSwitchSide(view, from, layout, sideAuto);
+  sideAuto = switched.auto;
+  commitView(switched.view, true);
 }
 // ---- Rig on stage (Batch 4): the chain's gear standing on the preset's scene --------------------------------------
 // The chain is the Workbench's own (workbenchPaths, drawPath: both paths, lane B, the split and the mixer, the inputs
@@ -3049,6 +3053,7 @@ function followScene() {
 // own Floor look scene, else the scene of the block selected as it comes up, then frozen. Not kept across a relaunch
 // (the pin's state is): the next launch freezes the preset's scene by the same rule as it comes up.
 let frozenScene = null;                                         // {key: the preset, name}
+let sceneTrack = null, sceneTimer = null;                       // (workbenchSceneSettled)
 const sceneKey = () => { const p = state.preset; return JSON.stringify(p ? [p.setlist, p.number, p.name] : null); };
 function stageScene() {
   const mine = look && presetLook(), whole = mine && usableScene(mine.scene);
@@ -3057,7 +3062,13 @@ function stageScene() {
   const key = sceneKey();
   if (frozenScene && frozenScene.key === key) return frozenScene.name;
   const name = followScene();
-  if (state.blocks.length && state.selected) frozenScene = {key, name};
+  // (frozen only once the blocks shown are this preset's: the same preset, blocks and selection for a moment; until
+  // then, and a moment after the last reading, looked at again: workbenchSceneSettled, Q3)
+  const sig = JSON.stringify([(state.blocks || []).map(b => [b.dsp, b.id, b.model, b.slot]), state.selected && [state.selected.dsp, state.selected.id]]);
+  const check = workbenchSceneSettled(sceneTrack, key, sig, Date.now());
+  sceneTrack = check.track;
+  if (check.settled && state.blocks.length && state.selected) { frozenScene = {key, name}; clearTimeout(sceneTimer); }
+  else { clearTimeout(sceneTimer); sceneTimer = setTimeout(() => { if (layout === 'stage') { shownChain = ''; drawChain(true); syncStage(); } }, WORKBENCH_SCENE_SETTLE_MS + 50); }
   return name;
 }
 const stageKey = () => [stageScene(), !!look, scenePinned()];
@@ -3208,8 +3219,12 @@ const THINGS = {
 // the frame's body (TonePreview.place_over) until each has its own view here.
 const OLD_PAGES = new Set(['tone']);
 const levelsIn = v => v.full === 'level' || (!v.full && v.half === 'level');
+// Whether the side list showing is the one Classic+ opened by itself (workbenchSwitchSide); the player's own choice
+// of list makes it theirs.
+let sideAuto = false;
 function setView(action, name) {
   const next = workbenchView(view, action, name, layout);
+  if (layout === 'classicplus' && next.drawer !== view.drawer) sideAuto = false;
   // (closing Levels stops a scan or an Apply and puts the presets back: asked first)
   if (levelsIn(view) && !levelsIn(next) && levelRunning()) {
     confirmBox((levelRunning() === 'apply' ? 'Levels is applying. ' : 'Levels is busy. ') + 'Closing it stops that and puts the presets back as they were.', 'Close Levels')

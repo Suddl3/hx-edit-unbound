@@ -405,7 +405,7 @@ class ScenePinTests(unittest.TestCase):
         # pressed on: the scene showing now is frozen for this preset; off: it follows again
         self.assertIn('frozenScene = pinned ? null : {key: sceneKey(), name: stageScene()};', page)
         # a preset coming up with the pin on: frozen once its blocks and a selection are read
-        self.assertIn('if (state.blocks.length && state.selected) frozenScene = {key, name};', scene)
+        self.assertIn('if (check.settled && state.blocks.length && state.selected) { frozenScene = {key, name};', scene)   # (once settled, Q3)
         self.assertIn("const sceneKey = () => { const p = state.preset; return JSON.stringify(p ? [p.setlist, p.number, p.name] : null); };", page)
         head = between(page, 'function stageHead() {', '\n}')
         self.assertIn("pin = el('button', 'glassbtn scenepin' + (pinned ? ' on' : ''));", head)
@@ -1748,6 +1748,57 @@ class ClassicPlusClassNameTests(unittest.TestCase):
         import re
         users = re.findall(r"el\('[a-z]+', '([^']*\b(?:node|note)\b[^']*)'", page)
         self.assertTrue(all(cls.split()[0] in ('node', 'note') for cls in users), users)
+
+
+class SceneAndSideTests(unittest.TestCase):
+    """Q3 and Q4 of the live check of 7b0323b (Nick's yes, 2026-11-26): the pinned scene of Rig on stage frozen from the
+    preset that was leaving; Classic+'s own Presets list left open beside the stage."""
+
+    def test_q3_a_switch_whose_header_comes_before_its_blocks_freezes_the_new_presets_scene(self):
+        out = run_js(['workbench_layout.js'], '''(() => {
+          // the stage asks at each reading: [key, blocks+selection, ms]; frozen once the same for WORKBENCH_SCENE_SETTLE_MS
+          let track = null; const r = [];
+          for (const [key, sig, at] of [['032', 'A', 0], ['032', 'A', 800],            // 032 settled
+                                        ['031', 'A', 1000], ['031', 'A', 1300],        // 031's header, 032's blocks still
+                                        ['031', 'B', 1500], ['031', 'B', 1900], ['031', 'B', 2300]]) {   // 031's own blocks
+            const next = workbenchSceneSettled(track, key, sig, at); track = next.track; r.push(next.settled);
+          }
+          return r;
+        })()''')
+        self.assertEqual(out, [False, True, False, False, False, False, True])
+        page = text('workbench.html')
+        scene = between(page, 'function stageScene() {', '\n}\n')
+        self.assertIn('const check = workbenchSceneSettled(sceneTrack, key, sig, Date.now());', scene)
+        self.assertIn('if (check.settled && state.blocks.length && state.selected) { frozenScene = {key, name};', scene)
+        self.assertIn('WORKBENCH_SCENE_SETTLE_MS + 50', scene)                         # (looked at again after the last reading)
+        self.assertNotIn('if (state.blocks.length && state.selected) frozenScene = {key, name};', scene)
+        self.assertIn("const sceneKey = () => { const p = state.preset; return JSON.stringify(p ? [p.setlist, p.number, p.name] : null); };", page)
+        # the pinned scene is not kept in settings.json: only the pin's on/off ("workbenchScenePin")
+        launcher = text('start-hx-edit-nam.pyw')
+        self.assertIn('nam_catalog.save_setting(SCENE_PIN, choice)', launcher)
+        self.assertNotIn('frozenScene', launcher)
+
+    def test_q4_leaving_classic_plus_closes_only_the_list_it_opened_itself(self):
+        out = run_js(['workbench_layout.js'], '''(() => {
+          const r = {};
+          let s = workbenchSwitchSide({drawer: '', half: '', full: ''}, 'workbench', 'classicplus', false);
+          r.enter = [s.view.drawer, s.auto];                                   // opened by Classic+ itself
+          r.leave = workbenchSwitchSide(s.view, 'classicplus', 'stage', s.auto).view.drawer;
+          s = workbenchSwitchSide({drawer: 'captures', half: '', full: ''}, 'workbench', 'classicplus', false);
+          r.mine = [s.view.drawer, s.auto, workbenchSwitchSide(s.view, 'classicplus', 'stage', s.auto).view.drawer];
+          r.chosenAfter = workbenchSwitchSide({drawer: 'presets', half: '', full: ''}, 'classicplus', 'workbench', false).view.drawer;
+          r.stay = workbenchSwitchSide({drawer: 'presets', half: '', full: ''}, 'classicplus', 'classicplus', true).auto;
+          return r;
+        })()''')
+        self.assertEqual(out['enter'], ['presets', True])
+        self.assertEqual(out['leave'], '')                                      # Classic+'s own: closes
+        self.assertEqual(out['mine'], ['captures', False, 'captures'])          # the player's: stays
+        self.assertEqual(out['chosenAfter'], 'presets')                         # chosen by the player in Classic+: stays
+        self.assertTrue(out['stay'])
+        page = text('workbench.html')
+        layout_ = between(page, 'function setLayout(name, mine) {', '\n}\n')
+        self.assertIn('const switched = workbenchSwitchSide(view, from, layout, sideAuto);', layout_)
+        self.assertIn("if (layout === 'classicplus' && next.drawer !== view.drawer) sideAuto = false;", page)
 
 
 if __name__ == '__main__':

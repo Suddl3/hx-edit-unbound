@@ -262,6 +262,29 @@ function workbenchPick(block, held, hxSelected, now) {
 // Nick's habit from Classic, where a double-click replaces): the same choice for the same block within
 // WORKBENCH_SWAP_REPEAT_MS. Asked twice, HX Edit made it twice: two undo steps, and the first Undo seemed to do nothing.
 const WORKBENCH_SWAP_REPEAT_MS = 1500;
+// Rig on stage's pinned scene (Reveal B11: one scene for the preset) is frozen once the blocks shown belong to the
+// preset: the same preset (key) and the same blocks and selection (sig) for WORKBENCH_SCENE_SETTLE_MS. On a switch the
+// page could see the new preset's header while the old preset's blocks and selection still showed, and froze the old
+// preset's scene under the new key (live 2026-11-26 00:5x: 032's "Studio Desk" on 031). track: {key, sig, since} or
+// null; returns {settled, track}. Pure.
+const WORKBENCH_SCENE_SETTLE_MS = 700;
+function workbenchSceneSettled(track, key, sig, now) {
+  if (!track || track.key !== key || track.sig !== sig) return {settled: false, track: {key, sig, since: now}};
+  return {settled: now - track.since >= WORKBENCH_SCENE_SETTLE_MS, track};
+}
+
+// The side list across a layout switch (workbenchSwitch), and whether Classic+ opened it by itself (auto): Classic+
+// always shows one and opens Presets when none is open; leaving Classic+, a list it opened by itself closes, one the
+// player opened stays (live 2026-11-26: Presets stayed open beside Rig on stage after Classic+). Returns {view, auto}.
+// Pure.
+function workbenchSwitchSide(view, from, to, auto) {
+  let v = {drawer: '', half: '', full: '', ...(view || {})};
+  if (from === 'classicplus' && to !== 'classicplus' && auto && v.drawer === WORKBENCH_SIDE_FIRST) v = {...v, drawer: ''};
+  const had = v.drawer, next = workbenchSwitch(v, to);
+  const opened = to !== 'classicplus' ? false : from === 'classicplus' ? !!auto : !had && !!next.drawer;
+  return {view: next, auto: opened};
+}
+
 // A click on a choice (the picker's card, Classic+'s row, the input/output chooser's tile): the second click on the
 // same choice within WORKBENCH_DOUBLE_MS is its double-click. The first click lines the choice up and redraws the list,
 // so the browser's own dblclick went to a new element and never fired (PR #9 review, P2). last: {key, at} or null;
@@ -621,7 +644,7 @@ function workbenchSlotUsers(usage, slot, loaded) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { workbenchSecondClick, WORKBENCH_DOUBLE_MS, workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchPicked, workbenchPick, WORKBENCH_PICK_HOLD_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
+  module.exports = { workbenchSceneSettled, WORKBENCH_SCENE_SETTLE_MS, workbenchSwitchSide, workbenchSecondClick, WORKBENCH_DOUBLE_MS, workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchPicked, workbenchPick, WORKBENCH_PICK_HOLD_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
                      workbenchAdded, WORKBENCH_ADD_SELECT_MS, workbenchPresetKey, workbenchAddFollow, workbenchAddSelect, workbenchView, workbenchRailOn, workbenchUnsaved,
                      WORKBENCH_LAYOUTS, workbenchLayoutOf, workbenchSizes, WORKBENCH_SIDE_FIRST, workbenchSwitch, workbenchPlaces, WORKBENCH_NAME_LIMITS, workbenchNameTyped, workbenchNameDone,
