@@ -668,6 +668,14 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   // (the panel keeps the word as 0xAABBGGRR: written as 0xff14161b it showed (27, 22, 20), red and blue swapped, live
   // 2026-11-25 22:28:25; the gray as stored is 0xff1b1614)
   const abgr = argb => ((argb & 0xff00ff00) | ((argb & 0xff) << 16) | ((argb >>> 16) & 0xff)) >>> 0;
+  // Which match is the strip's colour, the same every run: the word at offset 24 (where the live run of 1309bfc found
+  // it, 2026-11-25 22:28:25, and wrote the colour that showed), else the only word, else (no word at all) the only
+  // four-float form; null otherwise. (9525aed's run found two matches, 22:45:09, and changed nothing.) Pure.
+  const stripPick = hits => {
+    const words = hits.filter(h => h.kind === 'argb'), floats = hits.filter(h => h.kind === 'float');
+    return words.find(h => h.offset === 24) || (words.length === 1 ? words[0] : null) ||
+           (!words.length && floats.length === 1 ? floats[0] : null);
+  };
   let stripAt;                 // undefined: not looked for yet; null: not found; {at, kind} once found
   let pendingDrop = null;
 
@@ -1962,15 +1970,17 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
           else if (offset <= 0x3f0 && [0, 4, 8].every(k => Math.abs(at.add(k).readFloat() - shade) < 0.002) &&
                    Math.abs(at.add(12).readFloat() - 1) < 0.002) hits.push({at, kind: 'float', offset});
         }
-        if (hits.length !== 1) return {found: false, why: 'matches', matches: hits.length};
-        stripAt = hits[0];
+        const seen = hits.map(h => h.kind + '@' + h.offset);        // (every match, for the trace)
+        const chosen = stripPick(hits);
+        if (!chosen) return {found: false, why: 'matches', matches: hits.length, at: seen};
+        stripAt = {...chosen, seen};
       }
       if (!stripAt) return {found: false, why: 'not-found-before'};
       const colour = dark ? STRIP_DARK : STRIP_STOCK;
       if (stripAt.kind === 'argb') stripAt.at.writeU32(abgr(colour));
       else [(colour >>> 16) & 0xff, (colour >>> 8) & 0xff, colour & 0xff].forEach((c, k) => stripAt.at.add(4 * k).writeFloat(c / 255));
       if (!sidebarHost.isNull()) redrawWindow(getAncestor(sidebarHost, 2), NULL, NULL, 0x0001 | 0x0080 | 0x0100);   // GA_ROOT; INVALIDATE|ALLCHILDREN|UPDATENOW
-      return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark};
+      return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, at: stripAt.seen};
     },
     editPanelTab() {
       const view = sidebar();

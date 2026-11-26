@@ -1285,7 +1285,7 @@ class NickTryTests(unittest.TestCase):
         strip = between(view, '    statusStrip(dark) {', '\n    },')
         self.assertIn('canonical(findWidget(main, 0x73746277, 1));', strip)              # stbw
         self.assertIn('if (geometry.readU32() === 0x6d61696e) { main = widget; break; }', strip)   # main
-        self.assertIn('if (hits.length !== 1) return {found: false, why: \'matches\', matches: hits.length};', strip)
+        self.assertIn("const chosen = stripPick(hits);", strip)                              # (StatusStripPickTests)
         self.assertIn('const STRIP_STOCK = 0xff1d1d1d, STRIP_DARK = 0xff14161b;', view)
         script = text('focus_view.js')
         self.assertIn("if (was !== on) { stripDark = null; if (!on) namView.queueSidebarAction(() => keepStrip(false)); }", script)
@@ -1411,6 +1411,31 @@ class StatusStripColourTests(unittest.TestCase):
                          ['ff1b1614', 'ff1d1d1d'])
         strip = between(view, '    statusStrip(dark) {', '\n    },')
         self.assertIn("if (stripAt.kind === 'argb') stripAt.at.writeU32(abgr(colour));", strip)
+
+
+class StatusStripPickTests(unittest.TestCase):
+    """Live check of 9525aed (2026-11-25 22:45, owner-trials 20261125-224458): the search found two matches and wrote
+    nothing; 1309bfc's run had found one, the word at offset 24."""
+
+    def test_the_match_is_chosen_the_same_way_every_run_and_all_matches_are_traced(self):
+        view = text('nam_view.js')
+        pick = between(view, '  const stripPick = hits => {', '\n  };') + '\n  };'
+        cases = '''[
+          stripPick([{kind: 'argb', offset: 24}, {kind: 'argb', offset: 88}]),
+          stripPick([{kind: 'float', offset: 40}, {kind: 'argb', offset: 24}]),
+          stripPick([{kind: 'argb', offset: 88}]),
+          stripPick([{kind: 'argb', offset: 88}, {kind: 'argb', offset: 120}]),
+          stripPick([{kind: 'float', offset: 40}]),
+          stripPick([{kind: 'float', offset: 40}, {kind: 'argb', offset: 88}]),
+          stripPick([{kind: 'float', offset: 40}, {kind: 'float', offset: 60}]),
+          stripPick([])]'''
+        out = run_js_source(pick, cases)
+        self.assertEqual(out, [{'kind': 'argb', 'offset': 24}, {'kind': 'argb', 'offset': 24}, {'kind': 'argb', 'offset': 88},
+                               None, {'kind': 'float', 'offset': 40}, {'kind': 'argb', 'offset': 88}, None, None])
+        strip = between(view, '    statusStrip(dark) {', '\n    },')
+        self.assertIn("const seen = hits.map(h => h.kind + '@' + h.offset);", strip)
+        self.assertIn("if (!chosen) return {found: false, why: 'matches', matches: hits.length, at: seen};", strip)
+        self.assertIn('return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, at: stripAt.seen};', strip)
 
 
 if __name__ == '__main__':
