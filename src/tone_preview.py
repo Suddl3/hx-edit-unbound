@@ -142,6 +142,16 @@ CAPTURE_ICONS = Path(__file__).with_name('nam_capture_icons')
 _picture_uris = {}
 
 
+def start_failure(error):
+    """What the Workbench's TONE3000 view says when the window could not be made or started, in plain words."""
+    if isinstance(error, PermissionError):
+        return ('One of its files is in use by another window of HX Edit Unbound. Try again; if it keeps happening, '
+                'close HX Edit Unbound and start it again.')
+    if isinstance(error, ToneError):
+        return str(error)
+    return f'Its window could not be prepared on this PC ({error}). Try again.'
+
+
 def picture_uri(icon):
     """A capture picture (nam_capture_icons/<icon>.png) as a data: URI for the window's side page; '' if none."""
     if not isinstance(icon, str) or not re.fullmatch(r'[a-z0-9_]{1,48}', icon):
@@ -563,6 +573,7 @@ class TonePreview:
         browser = None
         notice = None
         slot = None
+        opened = False
         started = monotonic()
         self._trace('browser', 'started', session)
         try:
@@ -585,6 +596,7 @@ class TonePreview:
             if self.navigation and isinstance(browser_pid, int) and browser_pid > 0:
                 self.script.post({'type': 'toneBrowserProcess', 'payload': {'session': session, 'pid': browser_pid}})
             if browser.wait_ready():
+                opened = True
                 self._trace('browser', 'ready', session, started=started)
                 if not self.workbench and self.bounds_override is not None:
                     self._to_workbench('toolOpen', {'ready': True})   # (the Workbench's view stops waiting for it)
@@ -602,12 +614,19 @@ class TonePreview:
                         flow.close()   # a scan or Apply stops, the routing goes back, the watcher ends
             else:
                 self._trace('browser', 'unavailable', session, started=started)
+                if self._in_workbench():
+                    self._to_workbench('toolFailed', {'text': 'Its window did not start. Check that the Microsoft Edge '
+                                                              'WebView2 Runtime is installed, then try again.'})
         except (ToneError, ValueError, OSError) as error:
             self._trace('browser', 'failed', session, started=started)
             traceback.print_exc()            # the local launch log only; the trace never holds exceptions
             if self.headless and self.sidebar_status:
                 self.sidebar_status({'text':str(error), 'error':str(error), 'busy':False})
-            if not self.detached.is_set():
+            if self._in_workbench() and not opened:
+                # (the Workbench's view says it, in place of "HX Edit had no place to open it"; its Try again builds
+                # the window again; no second, raw notice: fresh install 2026-11-25, J2)
+                self._to_workbench('toolFailed', {'text': start_failure(error)})
+            elif not self.detached.is_set():
                 notice = (str(error), 0x10)
         except Exception:
             self._trace('browser', 'failed', session, started=started)

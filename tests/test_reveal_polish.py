@@ -2,6 +2,7 @@
 
 Each test names its item. No editor, no device: the page's and the scripts' own text, and their pure parts in node."""
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
@@ -504,7 +505,7 @@ class ToneOpensTests(unittest.TestCase):
         page = text('workbench.html')
         self.assertIn('const TOOL_WAIT_MS = 6000;', page)
         self.assertIn("ask('tool', {name, ...rect}); waitForTool(); }", page)
-        fail = between(page, 'function send2page(why) {', '\n}')
+        fail = between(page, 'function send2page(why, said) {', '\n}')
         self.assertIn("el('b', '', 'TONE3000 did not open.')", fail)
         self.assertIn("again = el('button', 'btn', 'Try again');", fail)
         self.assertIn("ask('toolClose', {why});", fail)
@@ -1436,6 +1437,80 @@ class StatusStripPickTests(unittest.TestCase):
         self.assertIn("const seen = hits.map(h => h.kind + '@' + h.offset);", strip)
         self.assertIn("if (!chosen) return {found: false, why: 'matches', matches: hits.length, at: seen};", strip)
         self.assertIn('return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, at: stripAt.seen};', strip)
+
+
+class FreshInstallToneTests(unittest.TestCase):
+    """A real fresh install of 2c2008e (2026-11-25, release-parent): J1 TONE3000 did not open ("[Errno 13] Permission
+    denied: ...Microsoft.Web.WebView2.Core.dll"), J2 its message blamed a missing place, J3 the tray's free slots."""
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows file locks')
+    def test_j1_the_sdk_files_held_open_by_the_workbench_pane_are_left_alone(self):
+        import ctypes
+        import shutil
+        import tempfile
+        from unittest.mock import patch
+        sys.path.insert(0, str(ROOT))
+        import tone_browser
+        system = Path(os.environ.get('WINDIR', r'C:\Windows')) / 'System32' / 'version.dll'
+        if not system.is_file():
+            self.skipTest('no system DLL to map')
+        data = system.read_bytes()
+        names = [Path(name).name for name in tone_browser.SDK_ASSETS]
+
+        class Sdk:
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def read(self, name): return data
+
+        with tempfile.TemporaryDirectory() as folder:
+            build = Path(folder)
+            for name in names:
+                shutil.copyfile(system, build / name)
+            kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+            kernel.LoadLibraryExW.restype = ctypes.c_void_p
+            kernel.LoadLibraryExW.argtypes = [ctypes.c_wchar_p, ctypes.c_void_p, ctypes.c_uint32]
+            kernel.FreeLibrary.argtypes = [ctypes.c_void_p]
+            held = kernel.LoadLibraryExW(str(build / names[0]), None, 0x20)       # LOAD_LIBRARY_AS_IMAGE_RESOURCE
+            self.assertTrue(held)
+            try:
+                with self.assertRaises(PermissionError):                          # (what the old code did)
+                    (build / names[0]).write_bytes(data)
+                (build / names[1]).unlink()                                       # one missing: the SDK is opened
+                with patch.object(tone_browser, 'browser_sdk', return_value=Sdk()):
+                    tone_browser.place_sdk(build)                                 # the held one is the same: left alone
+                self.assertEqual((build / names[1]).read_bytes(), data)
+                # held and different: a plain error, not a raw one
+                with patch.object(tone_browser, 'browser_sdk', return_value=type('S', (Sdk,), {'read': lambda self, n: b'other'})()):
+                    (build / names[2]).unlink()
+                    with self.assertRaises(tone_browser.ToneError) as caught:
+                        tone_browser.place_sdk(build)
+                    self.assertIn('is in use by another window of HX Edit Unbound', str(caught.exception))
+            finally:
+                kernel.FreeLibrary(held)
+        # both helpers place the SDK through it
+        self.assertIn('    place_sdk(build)\n', text('tone_browser.py'))
+        self.assertIn('    place_sdk(build)', text('focus_view.py'))
+        self.assertNotIn('(build / Path(name).name).write_bytes(sdk.read(name))', text('tone_browser.py') + text('focus_view.py'))
+
+    def test_j2_a_window_that_could_not_start_says_why_and_try_again_builds_it_again(self):
+        preview = text('tone_preview.py')
+        self.assertIn("self._to_workbench('toolFailed', {'text': start_failure(error)})", preview)
+        sys.path.insert(0, str(ROOT))
+        import tone_preview
+        self.assertIn('in use by another window', tone_preview.start_failure(PermissionError(13, 'Permission denied')))
+        self.assertEqual(tone_preview.start_failure(tone_preview.ToneError('Plain words.')), 'Plain words.')
+        page = text('workbench.html')
+        self.assertIn("else if (message.type === 'session' && message.kind === 'toolFailed') { send2page('tone-failed',", page)
+        send = between(page, 'function send2page(why, said) {', '\n}\n')
+        self.assertIn("el('span', '', said || 'HX Edit had no place to open it. Pick a block in the chain, then try again.')", send)
+        self.assertIn("again.onclick = () => { const name = toolShown; toolShown = '';", send)
+
+    def test_j3_the_trays_free_slots_count_the_floors_other_captures_and_keep_128(self):
+        page = text('workbench.html')
+        self.assertIn('const floorUsed = () => (state.captures || []).length + (state.otherCaptures || []).length + (state.irs || []).length;', page)
+        self.assertIn('const floorFree = () => Math.max(0, 127 - floorUsed());', page)
+        self.assertIn("const n = el('b', 'num', String(floorFree()));", page)
+        self.assertNotIn('128 - used', page)
 
 
 if __name__ == '__main__':

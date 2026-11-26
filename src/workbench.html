@@ -3360,17 +3360,18 @@ function waitForTool() {
   }, TOOL_WAIT_MS);
 }
 function toolArrived() { toolUp = true; clearTimeout(toolWaitTimer); const box = $('vbody').querySelector('.t3web .waiting'); if (box) box.replaceChildren('Opening TONE3000\u2026'); }
-function send2page(why) {
-  // (the TONE3000 view's waiting line becomes what happened and a way on)
+function send2page(why, said) {
+  // (the TONE3000 view's waiting line becomes what happened and a way on; said: what the session said failed, J2)
   const box = $('vbody').querySelector('.t3web .waiting');
   if (!box) return;
+  clearTimeout(toolWaitTimer);
   const again = el('button', 'btn', 'Try again');
   again.onclick = () => { const name = toolShown; toolShown = ''; box.replaceChildren('Opening TONE3000\u2026'); if (name) syncTool(); };
   const words = el('div', 'notopen');
   words.append(el('b', '', 'TONE3000 did not open.'),
-    el('span', '', 'HX Edit had no place to open it. Pick a block in the chain, then try again.'), again);
+    el('span', '', said || 'HX Edit had no place to open it. Pick a block in the chain, then try again.'), again);
   box.replaceChildren(words);
-  ask('toolClose', {why});                                        // (nothing left half open; the launcher traces it)
+  if (!said) ask('toolClose', {why});                             // (nothing left half open; the launcher traces it)
 }
 // One of the top bar's menus is open (the layout menu, the preset list with its setlists), or one of the page's own
 // dialogs or notices (the "has unsaved changes" question, Save, a confirmation, a notice to OK: ".modal", ".sticky"):
@@ -4852,7 +4853,8 @@ function drawLibrary() {
   filters.append(el('h5', '', 'Instrument'));
   for (const [inst, label] of [['guitar', 'Guitar'], ['bass', 'Bass']]) filters.append(fr(label, count(r => r.instrument === inst || r.instrument === 'any'), libInstrument === inst, () => { libInstrument = libInstrument === inst ? '' : inst; drawLibrary(); }));
   // the Floor's 128 IR slots: captures and plain IRs share them
-  const caps = (state.captures || []).length, irs = (state.irs || []).length, meter = el('div', 'slots'), bar = el('u'), ci = el('i'), ii = el('s');
+  // (the other captures on the Floor, not in this PC's library, are captures too: J3)
+  const caps = (state.captures || []).length + (state.otherCaptures || []).length, irs = (state.irs || []).length, meter = el('div', 'slots'), bar = el('u'), ci = el('i'), ii = el('s');
   ci.style.width = (100 * caps / 128) + '%'; ii.style.width = (100 * irs / 128) + '%'; bar.append(ci, ii);
   const keys = el('span'), k1 = el('i', 'key'), k2 = el('i', 'key'); k1.style.background = '#b070e0'; k2.style.background = '#f23091';
   keys.append(k1, caps + ' captures  ', k2, irs + ' IRs');
@@ -4899,11 +4901,16 @@ function drawLibrary() {
 // window sits in the Workbench: getting ready (downloading, converting), ready (previewing on the selected NAM block:
 // Load on Floor, Keep on this PC: the window's own commands, "tray" -> TonePreview.tone_action), on the Floor.
 let toneTray = null, shownTray = '';
+// The Floor's IR slots in use: this PC's captures, the other captures on the Floor (not in this PC's library: on a
+// fresh install, all of them) and the plain IRs; free: of slots 1-127 (128 is kept for previews). Before, the other
+// captures were not counted: a fresh install's tray said 120 free while the Floor slots view said 30 of 128 used (J3).
+const floorUsed = () => (state.captures || []).length + (state.otherCaptures || []).length + (state.irs || []).length;
+const floorFree = () => Math.max(0, 127 - floorUsed());
 function drawTray() {
   const box = view.full === 'tone' ? $('vbody').querySelector('.tray') : null;
   if (!box || !catalog || !state) return;
   const t = toneTray || {tray: []};
-  const key = JSON.stringify([t, (state.captures || []).length, (state.irs || []).length,
+  const key = JSON.stringify([t, (state.captures || []).length, (state.irs || []).length, (state.otherCaptures || []).length,
                               (t.choices || []).map(c => { const b = (state.blocks || []).find(x => same(x, c)); return b ? b.slot : null; })]);
   if (key === shownTray && box.childElementCount) return;
   shownTray = key;
@@ -5016,9 +5023,9 @@ function drawTray() {
   if (!all.length) list.append(el('span', 'note2', 'Pick a tone on the site. It shows here while it gets ready; then you can load it on the Floor. ' +
     (t.ask || t.none ? '' : aim && !t.bound ? 'It plays on ' + title(aim) + ', Path ' + (aim.dsp + 1) + '.' : t.bound === false ? 'Select a NAM block in the chain first: the preview plays on it.' : '')));
   if (t.text && !t.said) list.append(el('span', 'note2', t.text));
-  const bar = el('div', 'bar'), used = (state.captures || []).length + (state.irs || []).length, open = el('button', 'btn sm', 'Open the library');
+  const bar = el('div', 'bar'), open = el('button', 'btn sm', 'Open the library');
   open.onclick = () => setView('open', 'library');
-  const n = el('b', 'num', String(Math.max(0, 128 - used)));
+  const n = el('b', 'num', String(floorFree()));
   bar.append('Free slots on the Floor ', n, el('span', 'sp'), open);
   reusable = gather(box);
   try { box.replaceChildren(head, list, bar); } finally { reusable = null; }
@@ -5187,6 +5194,7 @@ function receive(message) {
   else if (message.type === 'session' && message.kind === 'toneEnded') { toneGone(); shownChain = ''; if (state && catalog) drawChain(); return; }
   else if (message.type === 'session' && message.kind === 'tone') { toolArrived(); toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); drawChain(); return; }
   else if (message.type === 'session' && message.kind === 'toolOpen') { toolArrived(); return; }
+  else if (message.type === 'session' && message.kind === 'toolFailed') { send2page('tone-failed', String(message.data && message.data.text || '') || 'Its window could not start.'); return; }
   else if (message.type === 'session' && message.kind === 'presentation') { toolPresentation(message.data && message.data.mode); return; }
   else if (message.type === 'session' && message.kind === 'notice') { stickyNote(message.data && message.data.text); return; }
   else if (message.type === 'session') { levelSessionMessage(message.kind, message.data || {}); return; }

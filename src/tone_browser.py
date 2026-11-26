@@ -53,6 +53,31 @@ def browser_sdk():
     return ZipFile(BytesIO(archive))
 
 
+def place_sdk(build):
+    """The WebView2 SDK files beside a helper (ToneBrowser.exe, FocusView.exe: both in build/tone-browser-<version>),
+    each written only when it is missing or its bytes differ. The Workbench pane (FocusView.exe, built and started
+    first) holds them open, so rewriting them all failed: a fresh install, 2026-11-25, "[Errno 13] Permission denied:
+    ...Microsoft.Web.WebView2.Core.dll", and TONE3000 did not open. When all are there the SDK is not opened at all."""
+    build = Path(build)
+    build.mkdir(parents=True, exist_ok=True)
+    targets = [(name, build / Path(name).name) for name in SDK_ASSETS]
+    if all(target.is_file() for _, target in targets):
+        return
+    with browser_sdk() as sdk:
+        for name, target in targets:
+            data = sdk.read(name)
+            try:
+                if target.is_file() and target.read_bytes() == data:
+                    continue
+            except OSError:
+                pass
+            try:
+                target.write_bytes(data)
+            except PermissionError as error:
+                raise ToneError(f'{target.name} is in use by another window of HX Edit Unbound and could not be '
+                                'updated. Close HX Edit Unbound, then start it again.') from error
+
+
 def write_browser_icon(executable, destination):
     """Copy the stock PE's icon resources to ICO without executing/loading it."""
     data = Path(executable).read_bytes()
@@ -156,10 +181,7 @@ def prepare_browser():
     exe = build / 'ToneBrowser.exe'
     if exe.is_file() and (not source.is_file() or exe.stat().st_mtime_ns >= source.stat().st_mtime_ns):
         return exe
-    build.mkdir(parents=True, exist_ok=True)
-    with browser_sdk() as sdk:
-        for name in SDK_ASSETS:
-            (build / Path(name).name).write_bytes(sdk.read(name))
+    place_sdk(build)
     compiler = Path(os.environ['WINDIR']) / 'Microsoft.NET' / 'Framework' / 'v4.0.30319' / 'csc.exe'
     references = ['System.Windows.Forms.dll', 'System.Drawing.dll', 'System.Web.Extensions.dll']
     references.extend(str(build / Path(name).name) for name in SDK_ASSETS[:2])

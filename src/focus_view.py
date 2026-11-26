@@ -528,17 +528,13 @@ def write_notify(settings=None):
 
 def prepare_focus():
     """FocusView.exe, built beside the TONE3000 pane with the same WebView2 SDK (compiled once per source)."""
-    from tone_browser import SDK_ASSETS, SDK_VERSION, browser_sdk
+    from tone_browser import SDK_ASSETS, SDK_VERSION, place_sdk
     source = ROOT / 'focus_view.cs'
     build = ROOT / 'build' / f'tone-browser-{SDK_VERSION}'
     exe = build / 'FocusView.exe'
     if exe.is_file() and (not source.is_file() or exe.stat().st_mtime_ns >= source.stat().st_mtime_ns):
         return exe
-    build.mkdir(parents=True, exist_ok=True)
-    if not all((build / Path(name).name).is_file() for name in SDK_ASSETS):
-        with browser_sdk() as sdk:
-            for name in SDK_ASSETS:
-                (build / Path(name).name).write_bytes(sdk.read(name))
+    place_sdk(build)                      # (shared with the TONE3000 window: only what is missing or differs)
     compiler = Path(os.environ.get('WINDIR', r'C:\Windows')) / 'Microsoft.NET' / 'Framework' / 'v4.0.30319' / 'csc.exe'
     references = ['System.Windows.Forms.dll', 'System.Drawing.dll', 'System.Web.Extensions.dll',
                   *(str(build / Path(name).name) for name in SDK_ASSETS[:2])]
