@@ -256,6 +256,35 @@ function focusFirstBlock(blocks) {
   chain.sort((a, b) => a.dsp - b.dsp || a.position - b.position || a.path - b.path);
   return chain.length ? {dsp: chain[0].dsp, id: chain[0].id} : null;
 }
+// HX Edit's status strip (keepStrip): the panes' dark gray while a pane covers HX Edit (Workbench, Classic+, Rig on
+// stage, Focus), HX Edit's own (29, 29, 29) in Classic. Its colour is looked at, not remembered: about once a second
+// (FOCUS_STRIP_CHECK_MS) and at once when the colour wanted changes, it is written only when it is not the one wanted.
+// Remembered as written, it stayed wrong after layout switches (N1, Nick's own use of 0b2a854: the old gray on a pane
+// layout, the new gray on Classic): HX Edit redraws the strip from its own style, and a turn-off write held back by
+// the retry wait was never made. track: {want, why, at, said} or null; cause: why the colour wanted changed.
+// focusStripDue -> {due, track}; focusStripTrace(track, dark, result) -> {trace (for the trace, or null), track}:
+// each change of the colour wanted, and each write, traced {strip: dark|stock, why, wrote}; why "repainted" when the
+// strip had gone back by itself. Pure.
+const FOCUS_STRIP_CHECK_MS = 1000;
+function focusStripDue(track, dark, cause, now) {
+  const t = track || {want: null, why: '', at: 0, said: ''};
+  if (t.want !== dark) {
+    return {due: true, track: {...t, want: dark, at: now, why: (t.want === null ? 'start-' : '') + (cause || (dark ? 'pane-on' : 'classic'))}};
+  }
+  if (now - t.at < FOCUS_STRIP_CHECK_MS) return {due: false, track: t};
+  return {due: true, track: {...t, at: now}};
+}
+function focusStripTrace(track, dark, result) {
+  if (result && result.found) {
+    const wrote = !result.same;
+    const trace = track.why || wrote ? {strip: dark ? 'dark' : 'stock', why: track.why || 'repainted', wrote,
+                                        ...(result.was ? {was: result.was} : {}), kind: result.kind, offset: result.offset} : null;
+    return {trace, track: {...track, why: '', said: ''}};
+  }
+  const word = JSON.stringify(result || null);
+  if (word === track.said) return {trace: null, track};
+  return {trace: {...(result || {}), strip: 'none', why: track.why || 'check'}, track: {...track, said: word}};
+}
 function focusCaptures(found, previous, inventory) {
   // The captures on the Floor for the pane's names and pictures. A change to the chain makes HX Edit announce a
   // new signal flow, which sends the whole slot list back to be checked (2-4 s): checked, it is empty meanwhile.
@@ -409,18 +438,24 @@ function installFocusView(options, parts) {
   const POLL_MS = 250, FULL_MS = 2000;
   let on = false, timer = null, queued = false, queuedAt = 0, editor = NULL, lastState = '', lastBounds = '', reports = 6, writeReports = 12;
   let refreshSkips = 12;    // trace lines for refreshes left out (finish)
-  let stripDark = null;     // the status strip's colour as last set (keepStrip)
-  let stripAgainAt = 0, stripSaid = '';
-  function keepStrip(dark) {
-    if (stripDark === dark || !namView.statusStrip) return;
-    if (Date.now() < stripAgainAt) return;
+  // HX Edit's status strip (focusStripDue, N1): looked at on the pane's readings while a pane is on, and, once it has
+  // been darkened, by a light watch while Classic shows (stripWatch: one look a second on HX Edit's UI thread).
+  let stripTrack = null, stripWatch = null;
+  function keepStrip(dark, cause) {
+    if (!namView.statusStrip) return;
+    const due = focusStripDue(stripTrack, dark, cause, Date.now());
+    stripTrack = due.track;
+    if (!due.due) return;
     let result;
     try { result = namView.statusStrip(dark); } catch (error) { result = {found: false, error: String(error.message)}; }
-    // (HX Edit's views not there yet: tried again a second later, the trace once per outcome)
-    if (result && result.again) stripAgainAt = Date.now() + 1000;
-    else stripDark = dark;
-    const word = JSON.stringify(result);
-    if (word !== stripSaid) { stripSaid = word; send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...result}); }
+    const said = focusStripTrace(stripTrack, dark, result);
+    stripTrack = said.track;
+    if (said.trace) send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...said.trace});
+    if (dark && result && result.found && !stripWatch) {
+      stripWatch = setInterval(() => {
+        if (!on) namView.queueSidebarAction(() => { if (!on) keepStrip(false, 'classic'); });
+      }, FOCUS_STRIP_CHECK_MS);
+    }
   }
   let selectAsked = null;   // the page's last pick, until a reading has it selected (trace "select-shown")
   // HX Edit's own panel tab while a pane covers HX Edit: traced on each change ("hx-tab"), and put back on EDIT when it is
@@ -877,7 +912,7 @@ function installFocusView(options, parts) {
     }
     if (drag && Date.now() - drag.at > DRAG_IDLE_MS) endDrag('idle');
     keepEditTab();
-    keepStrip(true);
+    keepStrip(true, 'pane-on');
     // A block the page picked: clicked before this reading rather than after it, so the reading itself carries HX
     // Edit's new selection (its click fires HX Edit's own events, which make it a full reading): one turn of HX Edit's
     // UI thread less between the click and the page's panel. (The first block of a preset is still picked after.)
@@ -1103,7 +1138,8 @@ function installFocusView(options, parts) {
     const was = on;
     on = value === true;
     // HX Edit's status strip: the panes' gray while a pane covers HX Edit, its own again for Classic (U2)
-    if (was !== on) { stripDark = null; if (!on) namView.queueSidebarAction(() => keepStrip(false)); }
+    // (the pane's readings keep it dark; Classic: at once, then by the watch; never once a pane is back on)
+    if (was !== on && !on) namView.queueSidebarAction(() => { if (!on) keepStrip(false, 'classic'); });
     if (timer) { clearInterval(timer); timer = null; }
     lastState = ''; lastBounds = ''; queued = false; known = null; changed = true; wanted = null; onFloor = []; addFollow = null; downFollow = null;
     pickKey = null; pickTries = 0;
@@ -1243,9 +1279,9 @@ function installFocusView(options, parts) {
     });
   }
   listen(); commands();
-  return { set, dispose() { set(false); hook.detach(); } };
+  return { set, dispose() { set(false); if (stripWatch) clearInterval(stripWatch); hook.detach(); } };
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusStepsGone, focusPreviewSteps, focusPreviewChain, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, installFocusView };
+  module.exports = { focusStepsGone, focusPreviewSteps, focusPreviewChain, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, focusStripDue, focusStripTrace, FOCUS_STRIP_CHECK_MS, installFocusView };
 }

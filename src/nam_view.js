@@ -699,7 +699,14 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     return words.find(h => h.offset === 24) || (words.length === 1 ? words[0] : null) ||
            (!words.length && floats.length === 1 ? floats[0] : null);
   };
-  let stripAt;                 // undefined: not looked for yet; null: not found; {at, kind} once found
+  let stripAt;                 // undefined: not looked for yet; null: not found; {at, kind, widget} once found
+  // The strip's colour as it stands: 'dark', 'stock', or 'other' (neither gray). Reads only.
+  const stripShade = s => {
+    if (s.kind === 'argb') { const word = s.at.readU32(); return word === abgr(STRIP_DARK) ? 'dark' : word === STRIP_STOCK ? 'stock' : 'other'; }
+    const rgb = [0, 4, 8].map(k => Math.round(s.at.add(k).readFloat() * 255));
+    const is = c => rgb[0] === ((c >>> 16) & 0xff) && rgb[1] === ((c >>> 8) & 0xff) && rgb[2] === (c & 0xff);
+    return is(STRIP_DARK) ? 'dark' : is(STRIP_STOCK) ? 'stock' : 'other';
+  };
   let pendingDrop = null;
 
   let chainCache = {at: 0, boxes: []};
@@ -1973,39 +1980,48 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     // for Classic (U2, 2026-11-25: Nick, "does not match"). The panel ("stbw", under the window's root view "main") keeps
     // its colour in its own memory: looked for there once, as a whole 0xAARRGGBB word or as four floats (R, G, B, A),
     // and written only where it is found exactly once; otherwise nothing is written. On HX Edit's UI thread.
-    // Returns {found, kind, offset, dark} for the trace.
+    // Looked at each time (focus_view keepStrip, about once a second, N1): the strip's widget is found again (one HX
+    // Edit has built anew is searched again, never written through the old one), its colour read, and written only
+    // when it is not the one wanted ({same: true} then: no write, no redraw). Returns {found, kind, offset, dark, was,
+    // same} for the trace.
     statusStrip(dark) {
+      let widget = this.chainPanel(), main = NULL;
+      for (let depth = 0; depth < 14 && widget && !widget.isNull(); depth++) {
+        const geometry = widget.add(0x54).readPointer();
+        if (geometry.isNull()) break;
+        if (geometry.readU32() === 0x6d61696e) { main = widget; break; }       // "main"
+        widget = geometry.add(0x14).readPointer();
+      }
+      const strip = main.isNull() ? NULL : canonical(findWidget(main, 0x73746277, 1));   // "stbw"
+      // (not built yet, or not reached from the chain yet: looked for again later; live 2026-11-25 21:50:28 the one
+      // look at start-up found no "main" and the strip stayed stock, V1)
+      if (strip.isNull()) return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw', again: true};
+      if (stripAt && !stripAt.widget.equals(strip)) stripAt = undefined;
       if (stripAt === undefined) {
         stripAt = null;
-        let widget = this.chainPanel(), main = NULL;
-        for (let depth = 0; depth < 14 && widget && !widget.isNull(); depth++) {
-          const geometry = widget.add(0x54).readPointer();
-          if (geometry.isNull()) break;
-          if (geometry.readU32() === 0x6d61696e) { main = widget; break; }       // "main"
-          widget = geometry.add(0x14).readPointer();
-        }
-        const strip = main.isNull() ? NULL : canonical(findWidget(main, 0x73746277, 1));   // "stbw"
-        // (not built yet, or not reached from the chain yet: looked for again later; live 2026-11-25 21:50:28 the one
-        // look at start-up found no "main" and the strip stayed stock, V1)
-        if (strip.isNull()) { stripAt = undefined; return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw', again: true}; }
-        const shade = 0x1d / 255, hits = [];
+        // (either gray: a strip built anew while dark is found too)
+        const hits = [], shades = [STRIP_STOCK, STRIP_DARK].map(c => [(c >>> 16) & 0xff, (c >>> 8) & 0xff, c & 0xff].map(v => v / 255));
         for (let offset = 0; offset < 0x400; offset += 4) {
-          const at = strip.add(offset);
-          if (at.readU32() === STRIP_STOCK) hits.push({at, kind: 'argb', offset});
-          else if (offset <= 0x3f0 && [0, 4, 8].every(k => Math.abs(at.add(k).readFloat() - shade) < 0.002) &&
-                   Math.abs(at.add(12).readFloat() - 1) < 0.002) hits.push({at, kind: 'float', offset});
+          const at = strip.add(offset), word = at.readU32();
+          if (word === STRIP_STOCK || word === abgr(STRIP_DARK)) hits.push({at, kind: 'argb', offset});
+          else if (offset <= 0x3f0 && Math.abs(at.add(12).readFloat() - 1) < 0.002 &&
+                   shades.some(rgb => rgb.every((v, k) => Math.abs(at.add(4 * k).readFloat() - v) < 0.002))) hits.push({at, kind: 'float', offset});
         }
         const seen = hits.map(h => h.kind + '@' + h.offset);        // (every match, for the trace)
         const chosen = stripPick(hits);
         if (!chosen) return {found: false, why: 'matches', matches: hits.length, at: seen};
-        stripAt = {...chosen, seen};
+        stripAt = {...chosen, seen, widget: strip};
       }
       if (!stripAt) return {found: false, why: 'not-found-before'};
+      const was = stripShade(stripAt), want = dark ? 'dark' : 'stock';
+      if (was === want) return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, same: true};
+      // (neither gray any more: not the strip's colour now; searched again at the next look, nothing written)
+      if (was === 'other') { stripAt = undefined; return {found: false, why: 'moved', again: true}; }
       const colour = dark ? STRIP_DARK : STRIP_STOCK;
       if (stripAt.kind === 'argb') stripAt.at.writeU32(abgr(colour));
       else [(colour >>> 16) & 0xff, (colour >>> 8) & 0xff, colour & 0xff].forEach((c, k) => stripAt.at.add(4 * k).writeFloat(c / 255));
       if (!sidebarHost.isNull()) redrawWindow(getAncestor(sidebarHost, 2), NULL, NULL, 0x0001 | 0x0080 | 0x0100);   // GA_ROOT; INVALIDATE|ALLCHILDREN|UPDATENOW
-      return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, at: stripAt.seen};
+      return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, was, at: stripAt.seen};
     },
     editPanelTab() {
       const view = sidebar();

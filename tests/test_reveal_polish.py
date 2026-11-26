@@ -1289,9 +1289,9 @@ class NickTryTests(unittest.TestCase):
         self.assertIn("const chosen = stripPick(hits);", strip)                              # (StatusStripPickTests)
         self.assertIn('const STRIP_STOCK = 0xff1d1d1d, STRIP_DARK = 0xff14161b;', view)
         script = text('focus_view.js')
-        self.assertIn("if (was !== on) { stripDark = null; if (!on) namView.queueSidebarAction(() => keepStrip(false)); }", script)
-        self.assertIn('keepStrip(true);', between(script, 'function refresh(window) {', '  function focusSteer(cursor) {'))
-        self.assertIn("send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...result});", script)
+        self.assertIn("if (was !== on && !on) namView.queueSidebarAction(() => { if (!on) keepStrip(false, 'classic'); });", script)
+        self.assertIn("keepStrip(true, 'pane-on');", between(script, 'function refresh(window) {', '  function focusSteer(cursor) {'))
+        self.assertIn("if (said.trace) send({type: 'toneTrace', reason: 'focus-view', stage: 'status-strip', ...said.trace});", script)
         self.assertIn('MENU_DARK = Object.freeze({ bar: 0x001b1614,', text('menu_dark.js'))   # (the same gray, as BGR)
         res = Path(r'E:\Dev\HelixNam\research\hx-edit-nam-review\floor-port\navigation-build-20261112\live\app\res\main.xml')
         if res.is_file():
@@ -1380,12 +1380,11 @@ class NickTryLiveTests(unittest.TestCase):
     def test_v1_the_status_strip_is_looked_for_again_until_hx_edit_has_built_it(self):
         view = text('nam_view.js')
         strip = between(view, '    statusStrip(dark) {', '\n    },')
-        self.assertIn("if (strip.isNull()) { stripAt = undefined; return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw', again: true}; }", strip)
+        self.assertIn("if (strip.isNull()) return {found: false, why: main.isNull() ? 'no-main' : 'no-stbw', again: true};", strip)
+        # (looked at again a second later: StatusStripFollowsTests)
         script = text('focus_view.js')
-        keep = between(script, '  function keepStrip(dark) {', '\n  }\n')
-        self.assertIn('if (result && result.again) stripAgainAt = Date.now() + 1000;', keep)
-        self.assertIn('else stripDark = dark;', keep)
-        self.assertIn('if (word !== stripSaid)', keep)
+        keep = between(script, '  function keepStrip(dark, cause) {', '\n  }\n')
+        self.assertIn('const due = focusStripDue(stripTrack, dark, cause, Date.now());', keep)
 
     def test_v2_the_pages_own_dialogs_put_the_docked_window_aside(self):
         page = text('workbench.html')
@@ -1436,7 +1435,7 @@ class StatusStripPickTests(unittest.TestCase):
         strip = between(view, '    statusStrip(dark) {', '\n    },')
         self.assertIn("const seen = hits.map(h => h.kind + '@' + h.offset);", strip)
         self.assertIn("if (!chosen) return {found: false, why: 'matches', matches: hits.length, at: seen};", strip)
-        self.assertIn('return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, at: stripAt.seen};', strip)
+        self.assertIn('return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, was, at: stripAt.seen};', strip)
 
 
 class FreshInstallToneTests(unittest.TestCase):
@@ -1887,6 +1886,73 @@ class LoadOnFloorNameTests(unittest.TestCase):
             self.assertEqual(tone_preview.kept_capture(None, None, {'name': 'Tray name', 'icon': 'black_rat'}),
                              {'name': 'Tray name', 'icon': 'black_rat', 'gear': ''})
             self.assertEqual(tone_preview.kept_capture(None, None), {})
+
+
+class StatusStripFollowsTests(unittest.TestCase):
+    """N1 (Nick's own use of 0b2a854, 2026-11-26): after switches between Classic and the pane layouts, HX Edit's
+    status strip sometimes showed the old gray on a pane layout and the new gray on Classic. Its colour was remembered
+    as written: HX Edit redraws it from its own style, and a turn-off write held back by the retry wait was never made."""
+
+    def test_n1_the_colour_is_looked_at_about_once_a_second_and_on_each_change(self):
+        out = run_js(['focus_view.js'], '''(() => {
+          const r = []; let t = null;
+          for (const [dark, cause, at] of [[true, 'pane-on', 0], [true, 'pane-on', 250], [true, 'pane-on', 1000],
+                                           [false, 'classic', 1100], [false, 'classic', 1500], [true, 'pane-on', 1600],
+                                           [true, 'pane-on', 2700]]) {
+            const d = focusStripDue(t, dark, cause, at); t = d.track; r.push([d.due, t.why]);
+          }
+          return [FOCUS_STRIP_CHECK_MS, r];
+        })()''')
+        self.assertEqual(out, [1000, [[True, 'start-pane-on'], [False, 'start-pane-on'], [True, 'start-pane-on'],
+                                      [True, 'classic'], [False, 'classic'], [True, 'pane-on'], [True, 'pane-on']]])
+
+    def test_n1_each_change_and_each_write_reaches_the_trace(self):
+        out = run_js(['focus_view.js'], '''(() => {
+          const r = []; let t = focusStripDue(null, true, 'pane-on', 0).track;
+          const step = (dark, result) => { const s = focusStripTrace(t, dark, result); t = s.track; r.push(s.trace); };
+          step(true, {found: false, why: 'no-main', again: true});          // not built yet: said once
+          step(true, {found: false, why: 'no-main', again: true});
+          step(true, {found: true, kind: 'argb', offset: 24, was: 'stock'});  // written: the change, why it was wanted
+          step(true, {found: true, kind: 'argb', offset: 24, same: true});    // already right: nothing
+          step(true, {found: true, kind: 'argb', offset: 24, was: 'stock'});  // HX Edit drew it back: "repainted"
+          t = focusStripDue(t, false, 'classic', 5000).track;
+          step(false, {found: true, kind: 'argb', offset: 24, same: true});   // Classic, already stock: the change still said
+          return r;
+        })()''')
+        self.assertEqual(out, [
+            {'found': False, 'why': 'start-pane-on', 'again': True, 'strip': 'none'},
+            None,
+            {'strip': 'dark', 'why': 'start-pane-on', 'wrote': True, 'was': 'stock', 'kind': 'argb', 'offset': 24},
+            None,
+            {'strip': 'dark', 'why': 'repainted', 'wrote': True, 'was': 'stock', 'kind': 'argb', 'offset': 24},
+            {'strip': 'stock', 'why': 'classic', 'wrote': False, 'kind': 'argb', 'offset': 24}])
+
+    def test_n1_classic_is_watched_and_the_strip_is_found_again_each_look(self):
+        script = text('focus_view.js')
+        keep = between(script, '  function keepStrip(dark, cause) {', '\n  }\n')
+        self.assertIn("if (!on) namView.queueSidebarAction(() => { if (!on) keepStrip(false, 'classic'); });", keep)
+        self.assertIn('}, FOCUS_STRIP_CHECK_MS);', keep)
+        self.assertNotIn('stripDark', script)
+        self.assertNotIn('stripAgainAt', script)
+        self.assertIn('if (stripWatch) clearInterval(stripWatch);', script)
+        refresh = between(script, '  function refresh(window) {', '    while (writes.length) {')
+        self.assertIn('if (!on) return;', refresh)                       # (a reading after Classic never darkens it)
+        view = text('nam_view.js')
+        strip = between(view, '    statusStrip(dark) {', '\n    },')
+        self.assertIn('if (stripAt && !stripAt.widget.equals(strip)) stripAt = undefined;', strip)
+        self.assertIn("if (was === want) return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, same: true};", strip)
+        self.assertIn("if (was === 'other') { stripAt = undefined; return {found: false, why: 'moved', again: true}; }", strip)
+        self.assertLess(strip.index('if (was === want)'), strip.index('writeU32(abgr(colour))'))
+        self.assertLess(strip.index('if (was === want)'), strip.index('redrawWindow('))
+        shade = between(view, '  const stripShade = s => {', '\n  };') + '\n  };'
+        out = run_js_source(between(view, '  const STRIP_STOCK', ';\n') + ';\n' + between(view, '  const abgr = argb =>', ';\n') + ';\n' + shade, '''(() => {
+          const word = v => ({kind: 'argb', at: {readU32: () => v}});
+          const floats = vs => ({kind: 'float', at: {add: k => ({readFloat: () => vs[k / 4]})}});
+          return [stripShade(word(0xff1b1614)), stripShade(word(0xff1d1d1d)), stripShade(word(0xff14161b)),
+                  stripShade(floats([0x14 / 255, 0x16 / 255, 0x1b / 255])), stripShade(floats([0x1d / 255, 0x1d / 255, 0x1d / 255])),
+                  stripShade(floats([0.5, 0.5, 0.5]))];
+        })()''')
+        self.assertEqual(out, ['dark', 'stock', 'other', 'dark', 'stock', 'other'])
 
 
 if __name__ == '__main__':
