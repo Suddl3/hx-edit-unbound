@@ -259,7 +259,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                           # The DSP meter is optional: a failed byte guard leaves the editor as it was.
                           "try { installDspMeter(); } catch (error) { send({type: 'dspMeter', event: 'unavailable', error: String(error.message)}); }\n"
                           # A reconnect leaves the window as the user has it (maximized stays maximized).
-                          "try { installWindowKeeper(); } catch (error) { send({type: 'windowKeeper', event: 'unavailable', error: String(error.message)}); }\n"
+                          # (with a pane layout saved, HX Edit's own screen stays covered until the pane's page is up, J4)
+                          f"try {{ installWindowKeeper({json.dumps({'cover': bool(workbench_start)})}); }} catch (error) {{ send({{type: 'windowKeeper', event: 'unavailable', error: String(error.message)}}); }}\n"
                           # HX Edit's menu row may be taken off its window only while this stands in for it (window_frame.py).
                           "try { installMenuRow(); } catch (error) { send({type: 'menuRow', event: 'unavailable', error: String(error.message)}); }\n"
                           # HX Edit's menu row drawn dark while a pane covers its screen (window_frame.py says when).
@@ -847,7 +848,17 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     library_changed()
                 workbench.show_look(nam_catalog.load_settings())
                 if workbench_start:
+                    # (the start-up cover, J4: HX Edit's window comes back once the Workbench's page is up, at most
+                    # 8 s here; the script's own limit is 10 s)
+                    covered = [True]
+                    def uncover(why):
+                        if covered[0] and not detached.is_set():
+                            covered[0] = False
+                            trace({'type': 'windowKeeper', 'event': 'cover-release', 'why': why, 'layout': layout_kept()})
+                            script.post({'type': 'startCover', 'payload': {'on': False, 'why': why}})
+                    workbench.on_ready = lambda: uncover('page-ready')
                     after_resume.append(lambda: workbench_mode(True, keep=False))
+                    after_resume.append(lambda: Timer(8.0, lambda: uncover('launcher-timeout')).start())
             ir_dots = [options.get('irDots') is not False]
             chain_art = [options.get('chainArt') is True]
             chain_options = {'chainLarge': options.get('chainLarge') is True, 'chainNames': options.get('chainNames') is not False,

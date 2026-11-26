@@ -64,9 +64,46 @@ class WindowKeeperTests(unittest.TestCase):
     def test_launcher_and_build_include_it(self):
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("'window_keep.js'", launcher)
-        self.assertIn('try { installWindowKeeper(); } catch (error)', launcher)
+        self.assertIn('try {{ installWindowKeeper(', launcher)                       # (with the start-up cover's option, J4)
         self.assertIn("'window_keep.js'", (ROOT / 'build-windows.py').read_text(encoding='utf-8'))
 
 
 if __name__ == '__main__':
     unittest.main()
+
+
+# The start-up cover (J4): the same fake world, with calls recorded and recv/setTimeout kept for the test to drive.
+COVER = HARNESS.replace("globalThis.NativeFunction = function () { return () => visible; };",
+                        "const calls = []; let exports = 0; let waiting = null; const timers = [];\n"
+                        "globalThis.recv = (type, fn) => { waiting = {type, fn}; };\n"
+                        "globalThis.setTimeout = (fn, ms) => { timers.push(ms); };\n"
+                        "globalThis.NativeFunction = function (at) { const name = at.name; return (...a) => { calls.push([name, ...a.map(x => x && x.v !== undefined ? x.v : x)]); return name === 'IsWindowVisible' ? visible : name === 'GetWindowLongW' ? 0x100 : 1; }; };") \
+    .replace("getModuleByName: () => ({ getExportByName: () => new P(1) }) };",
+             "getModuleByName: () => ({ getExportByName: name => Object.assign(new P(1), {name}) }) };") \
+    .replace("installWindowKeeper();", "installWindowKeeper({cover: true});") \
+    .replace("""const out = {
+  hookAt: hook.at,
+  reconnectVisible: call(0x5a603e, 0x1234, 1),   // reconnect, window on screen: helper gets null
+  startupHidden: call(0x5a603e, 0x1234, 0),      // first show at startup: untouched
+  otherCaller: call(0x5a7000, 0x1234, 1),        // any other caller: untouched
+  sent,
+};""", """const first = call(0x5a603e, 0x1234, 0);        // the first show: covered, the window still shown
+const covered = calls.map(c => c[0]);
+calls.length = 0;
+waiting.fn({payload: {on: false, why: 'page-ready'}});
+const out = {first, covered, waitingFor: waiting.type, timers, uncovered: calls.map(c => c.slice(0, 3)), sent: sent.map(m => m.event)};""")
+
+
+@unittest.skipUnless(NODE, 'node is not installed')
+class StartCoverTests(unittest.TestCase):
+    def test_the_first_show_is_covered_and_the_launchers_word_uncovers_it(self):
+        result = subprocess.run([NODE, '-e', COVER], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = json.loads(result.stdout)
+        self.assertEqual(out['first'], 0x1234)                                  # the show goes on (transparent)
+        self.assertEqual(out['covered'], ['IsWindowVisible', 'GetWindowLongW', 'SetWindowLongW', 'SetLayeredWindowAttributes'])
+        self.assertEqual(out['waitingFor'], 'startCover')
+        self.assertEqual(out['timers'], [10000])
+        self.assertEqual(out['uncovered'], [['SetLayeredWindowAttributes', 0x1234, 0], ['SetWindowLongW', 0x1234, -20],
+                                            ['RedrawWindow', 0x1234, 0]])
+        self.assertEqual(out['sent'], ['cover-up', 'cover-down'])
