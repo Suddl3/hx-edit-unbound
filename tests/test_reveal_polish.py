@@ -1435,7 +1435,7 @@ class StatusStripPickTests(unittest.TestCase):
         strip = between(view, '    statusStrip(dark) {', '\n    },')
         self.assertIn("const seen = hits.map(h => h.kind + '@' + h.offset);", strip)
         self.assertIn("if (!chosen) return {found: false, why: 'matches', matches: hits.length, at: seen};", strip)
-        self.assertIn('return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, was, at: stripAt.seen};', strip)
+        self.assertIn('return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, was, at: stripAt.seen, painted: shown.painted, rgb: shown.rgb};', strip)
 
 
 class FreshInstallToneTests(unittest.TestCase):
@@ -1940,10 +1940,9 @@ class StatusStripFollowsTests(unittest.TestCase):
         view = text('nam_view.js')
         strip = between(view, '    statusStrip(dark) {', '\n    },')
         self.assertIn('if (stripAt && !stripAt.widget.equals(strip)) stripAt = undefined;', strip)
-        self.assertIn("if (was === want) return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, same: true};", strip)
+        self.assertIn("if (was === want) {", strip)
         self.assertIn("if (was === 'other') { stripAt = undefined; return {found: false, why: 'moved', again: true}; }", strip)
         self.assertLess(strip.index('if (was === want)'), strip.index('writeU32(abgr(colour))'))
-        self.assertLess(strip.index('if (was === want)'), strip.index('redrawWindow('))
         shade = between(view, '  const stripShade = s => {', '\n  };') + '\n  };'
         out = run_js_source(between(view, '  const STRIP_STOCK', ';\n') + ';\n' + between(view, '  const abgr = argb =>', ';\n') + ';\n' + shade, '''(() => {
           const word = v => ({kind: 'argb', at: {readU32: () => v}});
@@ -1953,6 +1952,58 @@ class StatusStripFollowsTests(unittest.TestCase):
                   stripShade(floats([0.5, 0.5, 0.5]))];
         })()''')
         self.assertEqual(out, ['dark', 'stock', 'other', 'dark', 'stock', 'other'])
+
+
+class StatusStripRepaintTests(unittest.TestCase):
+    """Live check of b762625 (2026-11-26 11:30, owner-trials 20261126-113013-f84dc3c0): the strip's colour was written
+    (trace "wrote") but the screen stayed one write behind: invalidating HX Edit's window repainted the strip from HX
+    Edit's picture of it, and the 1 s look found the colour right and did nothing."""
+
+    def test_each_write_is_repainted_by_the_strips_own_redraw_and_read_back(self):
+        view = text('nam_view.js')
+        repaint = between(view, '  function stripRepaint(strip) {', '\n  }\n')
+        self.assertIn('redraw(strip);', repaint)                                   # HX Edit's own widget redraw (0x3baa40)
+        self.assertLess(repaint.index('redraw(strip);'), repaint.index('redrawWindow('))
+        self.assertIn("const redraw = method(0x3baa40, 'void', []);", view)
+        strip = between(view, '    statusStrip(dark) {', '\n    },')
+        write = strip[strip.index("if (stripAt.kind === 'argb') stripAt.at.writeU32(abgr(colour));"):]
+        self.assertLess(write.index('stripRepaint(strip);'), write.index('const shown = stripOnScreen(strip, colour);'))
+        self.assertNotIn('redrawWindow(', strip)                                  # (only through stripRepaint)
+
+    def test_the_look_repaints_a_right_colour_the_screen_does_not_show_three_times_at_most(self):
+        view = text('nam_view.js')
+        strip = between(view, '    statusStrip(dark) {', '\n    },')
+        same = between(strip, '      if (was === want) {', "\n      // (neither gray")
+        self.assertIn('if (shown.painted !== false || stripRedraws >= 3) {', same)
+        self.assertIn('stripRedraws++;\n        stripRepaint(strip);', same)
+        self.assertIn('stripRedraws = 0;\n      stripRepaint(strip);', strip)          # (a write starts the count again)
+        pixels = between(view, '  const stripPixels = (pixels, want) => {', '\n  };') + '\n  };'
+        out = run_js_source(pixels, '''[
+          stripPixels([[20, 22, 27], [20, 22, 27], [21, 22, 26], [29, 29, 29], null], 0xff14161b),
+          stripPixels([[29, 29, 29], [29, 29, 29], [29, 29, 29], [20, 22, 27], [29, 29, 29]], 0xff14161b),
+          stripPixels([[29, 29, 29], [29, 29, 29], [29, 29, 29], [20, 22, 27], [29, 29, 29]], 0xff1d1d1d),
+          stripPixels([[29, 29, 29], [29, 29, 29], null, null, null], 0xff1d1d1d),
+          stripPixels([null, null, null, null, null], 0xff1d1d1d)]''')
+        self.assertEqual(out, [True, False, True, None, None])
+        screen = between(view, '  function stripOnScreen(strip, want) {', '\n  }\n')
+        self.assertIn('pixels.push(c === 0xffffffff ? null : [c & 0xff, (c >>> 8) & 0xff, (c >>> 16) & 0xff]);', screen)
+        self.assertIn('finally { stripGdi.releaseDC(sidebarHost, dc); }', screen)
+
+    def test_the_trace_says_what_the_screen_showed(self):
+        out = run_js(['focus_view.js'], '''(() => {
+          const t = focusStripDue(null, false, 'classic', 0).track;
+          const wrote = focusStripTrace(t, false, {found: true, kind: 'argb', offset: 24, was: 'dark', painted: true, rgb: [29, 29, 29]});
+          const t2 = wrote.track;
+          const quiet = focusStripTrace(t2, false, {found: true, kind: 'argb', offset: 24, same: true});
+          const redrawn = focusStripTrace(t2, false, {found: true, kind: 'argb', offset: 24, same: true, redrawn: 1, painted: true,
+                                                      rgb: [29, 29, 29], before: [18, 22, 25]});
+          return [wrote.trace, quiet.trace, redrawn.trace];
+        })()''')
+        self.assertEqual(out, [
+            {'strip': 'stock', 'why': 'start-classic', 'wrote': True, 'was': 'dark', 'kind': 'argb', 'offset': 24, 'painted': True, 'rgb': [29, 29, 29]},
+            None,
+            {'strip': 'stock', 'why': 'redrawn', 'wrote': False, 'kind': 'argb', 'offset': 24, 'painted': True, 'rgb': [29, 29, 29],
+             'redrawn': 1, 'before': [18, 22, 25]}])
 
 
 if __name__ == '__main__':

@@ -699,7 +699,50 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     return words.find(h => h.offset === 24) || (words.length === 1 ? words[0] : null) ||
            (!words.length && floats.length === 1 ? floats[0] : null);
   };
+  // Whether the strip shows the colour wanted on screen: pixels read along it ([[r, g, b] | null], null: unread),
+  // each within 3 of the wanted gray (argb). true / false with three or more read, else null (cannot tell). Pure.
+  const stripPixels = (pixels, want) => {
+    const read = pixels.filter(Array.isArray);
+    if (read.length < 3) return null;
+    const rgb = [(want >>> 16) & 0xff, (want >>> 8) & 0xff, want & 0xff];
+    return read.filter(p => p.every((v, k) => Math.abs(v - rgb[k]) <= 3)).length >= 3;
+  };
   let stripAt;                 // undefined: not looked for yet; null: not found; {at, kind, widget} once found
+  let stripRedraws = 0;        // repaints asked for while the colour was right but the screen was not (at most 3)
+  // HX Edit's strip repainted by its own widget redraw, then the window painted now. On HX Edit's UI thread.
+  function stripRepaint(strip) {
+    redraw(strip);
+    if (!sidebarHost.isNull()) redrawWindow(getAncestor(sidebarHost, 2), NULL, NULL, 0x0001 | 0x0080 | 0x0100);   // GA_ROOT; INVALIDATE|ALLCHILDREN|UPDATENOW
+  }
+  // What the screen shows along the strip: five pixels near its bottom edge, from the window's own picture (GetPixel
+  // on its DC). {painted: true|false|null, rgb: the first pixel read, or null}.
+  let stripGdi = null;
+  const stripPoint = Memory.alloc(8);
+  function stripOnScreen(strip, want) {
+    try {
+      if (sidebarHost.isNull()) return {painted: null, rgb: null};
+      if (!stripGdi) {
+        const g = Process.getModuleByName('gdi32.dll');
+        stripGdi = {getDC: winApi('GetDC', 'pointer', ['pointer']), releaseDC: winApi('ReleaseDC', 'int', ['pointer', 'pointer']),
+                    getPixel: new NativeFunction(g.getExportByName('GetPixel'), 'uint32', ['pointer', 'int', 'int'], 'stdcall')};
+      }
+      const geometry = strip.add(0x54).readPointer();
+      const w = geometry.add(12).readS32() - geometry.add(4).readS32(), h = geometry.add(16).readS32() - geometry.add(8).readS32();
+      if (w < 40 || h < 6) return {painted: null, rgb: null};
+      widgetOrigin(strip, stripPoint);
+      const x = stripPoint.readS32(), y = stripPoint.add(4).readS32() + h - 3;
+      const dc = stripGdi.getDC(sidebarHost);
+      if (dc.isNull()) return {painted: null, rgb: null};
+      const pixels = [];
+      try {
+        for (const f of [0.05, 0.25, 0.5, 0.75, 0.95]) {
+          const c = stripGdi.getPixel(dc, x + Math.floor(w * f), y);
+          pixels.push(c === 0xffffffff ? null : [c & 0xff, (c >>> 8) & 0xff, (c >>> 16) & 0xff]);   // COLORREF 0x00BBGGRR
+        }
+      } finally { stripGdi.releaseDC(sidebarHost, dc); }
+      return {painted: stripPixels(pixels, want), rgb: pixels.find(Array.isArray) || null};
+    } catch (_) { return {painted: null, rgb: null}; }
+  }
   // The strip's colour as it stands: 'dark', 'stock', or 'other' (neither gray). Reads only.
   const stripShade = s => {
     if (s.kind === 'argb') { const word = s.at.readU32(); return word === abgr(STRIP_DARK) ? 'dark' : word === STRIP_STOCK ? 'stock' : 'other'; }
@@ -2013,15 +2056,29 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
         stripAt = {...chosen, seen, widget: strip};
       }
       if (!stripAt) return {found: false, why: 'not-found-before'};
-      const was = stripShade(stripAt), want = dark ? 'dark' : 'stock';
-      if (was === want) return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, same: true};
+      const was = stripShade(stripAt), want = dark ? 'dark' : 'stock', colour = dark ? STRIP_DARK : STRIP_STOCK;
+      if (was === want) {
+        // (the colour right but the screen not: repainted, at most three times until the next write; N1, live
+        // 2026-11-26 11:30: the screen stayed one write behind)
+        const shown = stripOnScreen(strip, colour);
+        if (shown.painted !== false || stripRedraws >= 3) {
+          if (shown.painted) stripRedraws = 0;
+          return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, same: true};
+        }
+        stripRedraws++;
+        stripRepaint(strip);
+        const after = stripOnScreen(strip, colour);
+        return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, same: true, redrawn: stripRedraws,
+                painted: after.painted, rgb: after.rgb, before: shown.rgb};
+      }
       // (neither gray any more: not the strip's colour now; searched again at the next look, nothing written)
       if (was === 'other') { stripAt = undefined; return {found: false, why: 'moved', again: true}; }
-      const colour = dark ? STRIP_DARK : STRIP_STOCK;
       if (stripAt.kind === 'argb') stripAt.at.writeU32(abgr(colour));
       else [(colour >>> 16) & 0xff, (colour >>> 8) & 0xff, colour & 0xff].forEach((c, k) => stripAt.at.add(4 * k).writeFloat(c / 255));
-      if (!sidebarHost.isNull()) redrawWindow(getAncestor(sidebarHost, 2), NULL, NULL, 0x0001 | 0x0080 | 0x0100);   // GA_ROOT; INVALIDATE|ALLCHILDREN|UPDATENOW
-      return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, was, at: stripAt.seen};
+      stripRedraws = 0;
+      stripRepaint(strip);
+      const shown = stripOnScreen(strip, colour);
+      return {found: true, kind: stripAt.kind, offset: stripAt.offset, dark: !!dark, was, at: stripAt.seen, painted: shown.painted, rgb: shown.rgb};
     },
     editPanelTab() {
       const view = sidebar();

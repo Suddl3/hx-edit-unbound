@@ -274,11 +274,16 @@ function focusStripDue(track, dark, cause, now) {
   if (now - t.at < FOCUS_STRIP_CHECK_MS) return {due: false, track: t};
   return {due: true, track: {...t, at: now}};
 }
+// A write is repainted at once and the screen read back ({painted, rgb}); with the colour right but the screen not,
+// the look repaints it ({redrawn}: "redrawn"), at most three times until the next write (live 2026-11-26 11:30: the
+// screen stayed one write behind the colour).
 function focusStripTrace(track, dark, result) {
   if (result && result.found) {
     const wrote = !result.same;
-    const trace = track.why || wrote ? {strip: dark ? 'dark' : 'stock', why: track.why || 'repainted', wrote,
-                                        ...(result.was ? {was: result.was} : {}), kind: result.kind, offset: result.offset} : null;
+    const trace = track.why || wrote || result.redrawn ? {strip: dark ? 'dark' : 'stock', why: track.why || (wrote ? 'repainted' : 'redrawn'), wrote,
+                                        ...(result.was ? {was: result.was} : {}), kind: result.kind, offset: result.offset,
+                                        ...('painted' in result ? {painted: result.painted, rgb: result.rgb} : {}),
+                                        ...(result.redrawn ? {redrawn: result.redrawn, before: result.before} : {})} : null;
     return {trace, track: {...track, why: '', said: ''}};
   }
   const word = JSON.stringify(result || null);
