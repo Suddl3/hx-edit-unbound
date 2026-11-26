@@ -848,7 +848,7 @@
   .params .swapline { margin: 0 18px 8px; padding: 6px 8px 6px 10px; border-radius: 8px; background: #101216; border: 1px solid #eceef2; display: flex; gap: 10px; align-items: center; }
   .params .swapline .swappic { width: 30px; height: 30px; }
   .params .swapline .swapgo { width: auto; margin-left: auto; height: 28px; padding: 0 14px; }
-  .params .swapline.note { border-color: var(--line); display: flex; gap: 8px; font-size: 12px; }
+  .params .swapline.swapdone { border-color: var(--line); display: flex; gap: 8px; font-size: 12px; }
   .mc.full > i { color: #e2483c; }
 
   /* ================= Batch 4: the layouts (workbench_layout.js WORKBENCH_LAYOUTS) ================= */
@@ -895,7 +895,7 @@
   .insp.edit > .tabs { padding: 0 6px; }
   .insp.edit > .tabview { padding: 12px 0; }
   .ecols { display: grid; grid-template-columns: 196px 232px minmax(0, 1fr); gap: 10px; padding: 10px 0 0; min-height: 0; }
-  .ecols.node { grid-template-columns: 250px minmax(0, 1fr); }
+  .ecols.nodecols { grid-template-columns: 250px minmax(0, 1fr); }   /* (not "node": the chain's split/mixer circles' class, L1) */
   .ecols > .card { border: 1px solid var(--line); border-radius: 10px; overflow-y: auto; }
   .ebox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-height: 0; min-width: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
   .ebox > h3 { margin: 0; padding: 9px 12px 7px; font-size: 12px; font-weight: 500; color: var(--dim); display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; }
@@ -2491,7 +2491,7 @@ function drawEdit(block) {
       if (tab !== 'controls') {
         body = tab === 'bypass' ? bypassView(target, list) : snapshotView(target, list);
       } else {
-        body = el('div', 'ecols' + (chain ? '' : ' node'));
+        body = el('div', 'ecols' + (chain ? '' : ' nodecols'));
         if (chain) {
           const redraw = () => { shownPanel = ''; drawPanel(); };
           // (one category list, as the picker's: the stock categories, then NAM captures, then Remove block)
@@ -2561,7 +2561,8 @@ function editParams(block, list) {
   const item = lined && same(lined, block) ? linedItem() : null, lines = el('div');
   if (item) lines.append(...swapBox(block, item, 'line'));
   else if (replaced && same(replaced, block)) {
-    const note = el('div', 'swapline note'); note.append(el('b', '', 'Replaced ' + replaced.was + '.'), el('span', '', 'Undo in the top bar puts it back.'));
+    // (its class is not "note": that is the chain's absolute split/mixer captions' class, L2)
+    const note = el('div', 'swapline swapdone'); note.append(el('b', '', 'Replaced ' + replaced.was + '.'), el('span', '', 'Undo in the top bar puts it back.'));
     lines.append(note);
   }
   // a NAM block's capture, as the Workbench's capture panel says it

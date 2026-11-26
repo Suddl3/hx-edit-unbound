@@ -1728,5 +1728,27 @@ class UnboundLookTests(unittest.TestCase):
         self.assertEqual(chosen, ['level'])
 
 
+class ClassicPlusClassNameTests(unittest.TestCase):
+    """Live check of 7b0323b (2026-11-26 00:54, owner-trials 20261126-005411-8d16e521): L1 Classic+ with an input selected
+    drew its card and a squeezed column of controls over the chain; L2 the "Replaced ..." line covered the first knob's
+    label. Both borrowed a class of the chain's own split/mixer marks ("node": absolute 30x30; "note": absolute
+    caption), which the page's rules then placed over the chain."""
+
+    def test_the_edit_area_never_takes_the_chains_node_or_note_classes(self):
+        page = text('workbench.html')
+        self.assertIn("body = el('div', 'ecols' + (chain ? '' : ' nodecols'));", page)
+        self.assertIn('.ecols.nodecols { grid-template-columns: 250px minmax(0, 1fr); }', page)
+        self.assertNotIn('.ecols.node {', page)
+        self.assertIn("const note = el('div', 'swapline swapdone');", page)
+        self.assertIn('.params .swapline.swapdone {', page)
+        self.assertNotIn("'swapline note'", page)
+        # the chain's own marks keep theirs
+        self.assertIn(".node { position: absolute; width: 30px; height: 30px;", page)
+        self.assertIn(".note { position: absolute;", page)
+        import re
+        users = re.findall(r"el\('[a-z]+', '([^']*\b(?:node|note)\b[^']*)'", page)
+        self.assertTrue(all(cls.split()[0] in ('node', 'note') for cls in users), users)
+
+
 if __name__ == '__main__':
     unittest.main()
