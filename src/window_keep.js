@@ -17,10 +17,13 @@ const windowKeepGuards = Object.freeze({
 
 // Start-up cover (J4, Nick 2026-11-25: "it flashes the classic version before loading the workbench version"): when
 // the saved layout is one of the panes (the Workbench, Classic+, Rig on stage), HX Edit's own screen is never seen.
-// Its window's first show is this same helper's call at 0x1a6039; just before it the window is made fully transparent
-// (WS_EX_LAYERED, alpha 0: the pane inside it too), and it comes back as it was when the launcher says the pane's
-// page is up ("startCover" {on: false}), or after 10 s at the latest. Classic as the saved layout: no cover.
+// Its window's first show is this same helper's call at 0x1a6039; just before it a plain dark window of ours (the
+// panes' gray, #14161B) is put over it, owned by it (so it stays above it and goes with it), and kept over its client
+// area until the launcher says the pane's page is up ("startCover" {on: false}), or 10 s at the latest. HX Edit's own
+// window is left as it is: made transparent instead (5bd2592), the pane's WebView2 did not load its page until the
+// cover came off, so it always ended on the 8 s timeout (live 2026-11-25 23:46/23:48). Classic saved: no cover.
 const START_COVER_MS = 10000;
+const START_COVER_GRAY = 0x001b1614;   // 0x00BBGGRR: #14161B, menu_dark's bar
 
 function installWindowKeeper(options = {}) {
   if (Process.arch !== 'ia32' || Process.pointerSize !== 4) throw new Error('Window keeper requires HX Edit x86');
@@ -32,21 +35,51 @@ function installWindowKeeper(options = {}) {
   }
   const user = Process.getModuleByName('user32.dll');
   const isWindowVisible = new NativeFunction(user.getExportByName('IsWindowVisible'), 'int', ['pointer']);
-  const getLong = new NativeFunction(user.getExportByName('GetWindowLongW'), 'int', ['pointer', 'int'], 'stdcall');
-  const setLong = new NativeFunction(user.getExportByName('SetWindowLongW'), 'int', ['pointer', 'int', 'int'], 'stdcall');
-  const setLayered = new NativeFunction(user.getExportByName('SetLayeredWindowAttributes'), 'int', ['pointer', 'uint', 'uint8', 'uint'], 'stdcall');
-  const redraw = new NativeFunction(user.getExportByName('RedrawWindow'), 'int', ['pointer', 'pointer', 'pointer', 'uint'], 'stdcall');
-  const GWL_EXSTYLE = -20, WS_EX_LAYERED = 0x80000, LWA_ALPHA = 2;
+  const api = (name, result, args) => new NativeFunction(user.getExportByName(name), result, args, 'stdcall');
   let cover = options.cover === true ? {wanted: true} : null;
+  // (made only when a cover is wanted: the window class, then the window, on HX Edit's own UI thread)
+  function makeCover(owner) {
+    const kernel = Process.getModuleByName('kernel32.dll'), gdi = Process.getModuleByName('gdi32.dll');
+    const getProc = new NativeFunction(kernel.getExportByName('GetProcAddress'), 'pointer', ['pointer', 'pointer'], 'stdcall');
+    const moduleHandle = new NativeFunction(kernel.getExportByName('GetModuleHandleW'), 'pointer', ['pointer'], 'stdcall');
+    const brush = new NativeFunction(gdi.getExportByName('CreateSolidBrush'), 'pointer', ['uint'], 'stdcall')(START_COVER_GRAY);
+    const instance = moduleHandle(NULL), name = Memory.allocUtf16String('HXUnboundStartCover');
+    const klass = Memory.alloc(48);                        // WNDCLASSEXW (x86)
+    klass.writeU32(48);
+    // (DefWindowProcW is forwarded to ntdll: GetProcAddress gives the function, as menu_dark.js takes it)
+    klass.add(8).writePointer(getProc(user.base, Memory.allocAnsiString('DefWindowProcW')));
+    klass.add(20).writePointer(instance);
+    klass.add(28).writePointer(api('LoadCursorW', 'pointer', ['pointer', 'pointer'])(NULL, ptr(32512)));   // IDC_ARROW
+    klass.add(32).writePointer(brush);
+    klass.add(40).writePointer(name);
+    api('RegisterClassExW', 'uint16', ['pointer'])(klass);   // (0 when already registered: the class is there all the same)
+    const rect = Memory.alloc(16);
+    api('GetWindowRect', 'int', ['pointer', 'pointer'])(owner, rect);
+    const window = api('CreateWindowExW', 'pointer', ['uint', 'pointer', 'pointer', 'uint', 'int', 'int', 'int', 'int',
+      'pointer', 'pointer', 'pointer', 'pointer'])(0x08000080, name, NULL, 0x90000000,            // NOACTIVATE|TOOLWINDOW; POPUP|VISIBLE
+      rect.readS32(), rect.add(4).readS32(), rect.add(8).readS32() - rect.readS32(), rect.add(12).readS32() - rect.add(4).readS32(),
+      owner, NULL, instance, NULL);
+    if (window.isNull()) throw new Error('the cover window was not made');
+    return {window, keep: [klass, name]};
+  }
+  // Over the owner's client area (its title bar and menu row stay visible): now, and while it is up (HX Edit may
+  // maximize or move after its first show).
+  function placeCover() {
+    if (!cover || !cover.window) return;
+    const client = Memory.alloc(16), corner = Memory.alloc(8);
+    if (!api('GetClientRect', 'int', ['pointer', 'pointer'])(cover.owner, client)) return;
+    corner.writeS32(0); corner.add(4).writeS32(0);
+    api('ClientToScreen', 'int', ['pointer', 'pointer'])(cover.owner, corner);
+    api('SetWindowPos', 'int', ['pointer', 'pointer', 'int', 'int', 'int', 'int', 'uint'])(cover.window, NULL,
+      corner.readS32(), corner.add(4).readS32(), client.add(8).readS32(), client.add(12).readS32(), 0x0004 | 0x0010 | 0x4000);   // NOZORDER|NOACTIVATE|ASYNC
+  }
   function uncover(why) {
     if (!cover || !cover.window) { if (cover) cover.wanted = false; return; }
-    const {window, style, at} = cover;
+    const {window, at, follow} = cover;
     cover = null;
-    try {
-      setLayered(window, 0, 255, LWA_ALPHA);
-      setLong(window, GWL_EXSTYLE, style);
-      redraw(window, NULL, NULL, 0x0001 | 0x0004 | 0x0080 | 0x0100);   // INVALIDATE|ERASE|ALLCHILDREN|UPDATENOW
-    } catch (_) { /* the window may be gone */ }
+    clearInterval(follow);
+    try { api('PostMessageW', 'int', ['pointer', 'uint', 'pointer', 'pointer'])(window, 0x10, NULL, NULL); }   // WM_CLOSE: gone on its own thread
+    catch (_) { /* the window may be gone */ }
     send({ type: 'windowKeeper', event: 'cover-down', why, ms: Date.now() - at });
   }
   function listenCover() {
@@ -61,12 +94,12 @@ function installWindowKeeper(options = {}) {
     onEnter(args) {
       if (cover && cover.wanted && !cover.window && this.returnAddress.equals(reconnectShow) && !args[0].isNull() &&
           !isWindowVisible(args[0])) {
-        // (the window's first show: transparent before it is drawn, until the pane's page is up)
+        // (the window's first show: our dark window goes over it first, until the pane's page is up)
         try {
-          const style = getLong(args[0], GWL_EXSTYLE);
-          setLong(args[0], GWL_EXSTYLE, style | WS_EX_LAYERED);
-          setLayered(args[0], 0, 0, LWA_ALPHA);
-          cover.window = args[0]; cover.style = style; cover.at = Date.now();
+          const made = makeCover(args[0]);
+          Object.assign(cover, {window: made.window, owner: args[0], keep: made.keep, at: Date.now()});
+          this.placeCover = true;
+          cover.follow = setInterval(placeCover, 150);
           send({ type: 'windowKeeper', event: 'cover-up' });
           setTimeout(() => uncover('timeout'), START_COVER_MS);
         } catch (error) {
@@ -78,6 +111,9 @@ function installWindowKeeper(options = {}) {
       if (!this.returnAddress.equals(reconnectShow) || args[0].isNull() || !isWindowVisible(args[0])) return;
       args[0] = NULL;
       send({ type: 'windowKeeper', event: 'kept' });
+    },
+    onLeave() {
+      if (this.placeCover) placeCover();     // (shown now: the cover to its client area at once)
     },
   });
   return { dispose() { uncover('dispose'); hook.detach(); } };

@@ -72,14 +72,20 @@ if __name__ == '__main__':
     unittest.main()
 
 
-# The start-up cover (J4): the same fake world, with calls recorded and recv/setTimeout kept for the test to drive.
+# The start-up cover (J4): the same fake world, with calls recorded, memory stubbed, and recv/timers kept for the test.
 COVER = HARNESS.replace("globalThis.NativeFunction = function () { return () => visible; };",
-                        "const calls = []; let exports = 0; let waiting = null; const timers = [];\n"
+                        "const calls = []; let waiting = null; const timers = []; let intervals = 0, cleared = 0;\n"
                         "globalThis.recv = (type, fn) => { waiting = {type, fn}; };\n"
                         "globalThis.setTimeout = (fn, ms) => { timers.push(ms); };\n"
-                        "globalThis.NativeFunction = function (at) { const name = at.name; return (...a) => { calls.push([name, ...a.map(x => x && x.v !== undefined ? x.v : x)]); return name === 'IsWindowVisible' ? visible : name === 'GetWindowLongW' ? 0x100 : 1; }; };") \
+                        "globalThis.setInterval = (fn, ms) => { intervals = ms; return 7; };\n"
+                        "globalThis.clearInterval = id => { cleared = id; };\n"
+                        "globalThis.ptr = n => new P(n);\n"
+                        "P.prototype.writeU32 = function () { return this; }; P.prototype.writePointer = function () { return this; };\n"
+                        "P.prototype.writeS32 = function () { return this; }; P.prototype.readS32 = function () { return 100; };\n"
+                        "globalThis.Memory = { alloc: () => new P(0x9000), allocUtf16String: () => new P(0x9100), allocAnsiString: () => new P(0x9200) };\n"
+                        "globalThis.NativeFunction = function (at) { const name = at.name; return (...a) => { calls.push([name, ...a.map(x => x && x.v !== undefined ? x.v : x)]); return name === 'IsWindowVisible' ? visible : name === 'CreateWindowExW' ? new P(0x7777) : name === 'GetModuleHandleW' || name === 'GetProcAddress' || name === 'LoadCursorW' || name === 'CreateSolidBrush' ? new P(5) : 1; }; };") \
     .replace("getModuleByName: () => ({ getExportByName: () => new P(1) }) };",
-             "getModuleByName: () => ({ getExportByName: name => Object.assign(new P(1), {name}) }) };") \
+             "getModuleByName: () => ({ base: new P(2), getExportByName: name => Object.assign(new P(1), {name}) }) };") \
     .replace("installWindowKeeper();", "installWindowKeeper({cover: true});") \
     .replace("""const out = {
   hookAt: hook.at,
@@ -87,23 +93,34 @@ COVER = HARNESS.replace("globalThis.NativeFunction = function () { return () => 
   startupHidden: call(0x5a603e, 0x1234, 0),      // first show at startup: untouched
   otherCaller: call(0x5a7000, 0x1234, 1),        // any other caller: untouched
   sent,
-};""", """const first = call(0x5a603e, 0x1234, 0);        // the first show: covered, the window still shown
-const covered = calls.map(c => c[0]);
+};""", """visible = 0; const args = [new P(0x1234)], ctx = { returnAddress: new P(0x5a603e) };
+hook.onEnter.call(ctx, args);                                        // the first show: covered, the window still shown
+const first = args[0].v, made = calls.map(c => c[0]), create = calls.find(c => c[0] === 'CreateWindowExW');
+calls.length = 0;
+hook.onLeave.call(ctx);                                              // shown: the cover to its client area
+const placed = calls.map(c => c[0]);
 calls.length = 0;
 waiting.fn({payload: {on: false, why: 'page-ready'}});
-const out = {first, covered, waitingFor: waiting.type, timers, uncovered: calls.map(c => c.slice(0, 3)), sent: sent.map(m => m.event)};""")
+const out = {first, made, create: create.slice(1, 5), owner: create[9], placed, waitingFor: waiting.type, timers, intervals, cleared,
+             uncovered: calls.map(c => c.slice(0, 3)), sent: sent.map(m => m.event)};""")
 
 
 @unittest.skipUnless(NODE, 'node is not installed')
 class StartCoverTests(unittest.TestCase):
-    def test_the_first_show_is_covered_and_the_launchers_word_uncovers_it(self):
+    def test_the_first_show_gets_our_dark_window_over_it_until_the_launchers_word(self):
         result = subprocess.run([NODE, '-e', COVER], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         out = json.loads(result.stdout)
-        self.assertEqual(out['first'], 0x1234)                                  # the show goes on (transparent)
-        self.assertEqual(out['covered'], ['IsWindowVisible', 'GetWindowLongW', 'SetWindowLongW', 'SetLayeredWindowAttributes'])
+        self.assertEqual(out['first'], 0x1234)                                  # HX Edit's own show goes on untouched
+        self.assertNotIn('SetLayeredWindowAttributes', out['made'])             # (its window is not made transparent)
+        self.assertNotIn('SetWindowLongW', out['made'])
+        self.assertIn('RegisterClassExW', out['made'])
+        self.assertEqual(out['create'], [0x08000080, 0x9100, 0, 0x90000000])    # NOACTIVATE|TOOLWINDOW; POPUP|VISIBLE
+        self.assertEqual(out['owner'], 0x1234)                                  # owned by HX Edit's window
+        self.assertEqual(out['placed'], ['GetClientRect', 'ClientToScreen', 'SetWindowPos'])
         self.assertEqual(out['waitingFor'], 'startCover')
         self.assertEqual(out['timers'], [10000])
-        self.assertEqual(out['uncovered'], [['SetLayeredWindowAttributes', 0x1234, 0], ['SetWindowLongW', 0x1234, -20],
-                                            ['RedrawWindow', 0x1234, 0]])
+        self.assertEqual(out['intervals'], 150)
+        self.assertEqual(out['cleared'], 7)
+        self.assertEqual(out['uncovered'], [['PostMessageW', 0x7777, 0x10]])     # WM_CLOSE to the cover only
         self.assertEqual(out['sent'], ['cover-up', 'cover-down'])

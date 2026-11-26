@@ -1517,21 +1517,22 @@ class StartCoverTests(unittest.TestCase):
     """J4 (Nick, 2026-11-25: "it flashes the classic version before loading the workbench version"): with a pane layout
     saved, HX Edit's own screen is not seen at start-up; Classic saved: unchanged."""
 
-    def test_the_first_show_is_made_transparent_until_the_pages_up(self):
+    def test_the_first_show_gets_a_dark_window_of_ours_over_it_until_the_pages_up(self):
         keep = text('window_keep.js')
         first = between(keep, '    onEnter(args) {', '\n      if (!this.returnAddress.equals(reconnectShow)')
         self.assertIn('if (cover && cover.wanted && !cover.window && this.returnAddress.equals(reconnectShow) && !args[0].isNull() &&', first)
-        self.assertIn('!isWindowVisible(args[0])) {', first)
-        self.assertIn('setLong(args[0], GWL_EXSTYLE, style | WS_EX_LAYERED);', first)
-        self.assertIn('setLayered(args[0], 0, 0, LWA_ALPHA);', first)
+        self.assertIn('const made = makeCover(args[0]);', first)
+        self.assertIn('cover.follow = setInterval(placeCover, 150);', first)
         self.assertIn("send({ type: 'windowKeeper', event: 'cover-up' });", first)
         self.assertIn("setTimeout(() => uncover('timeout'), START_COVER_MS);", first)
+        # HX Edit's own window is left as it is (made transparent, 5bd2592, the pane's page did not load until the cover
+        # came off: live 2026-11-25 23:46/23:48 every start ended on the 8 s timeout)
+        self.assertNotIn('WS_EX_LAYERED', keep)
+        self.assertIn('const START_COVER_GRAY = 0x001b1614;', keep)
         down = between(keep, '  function uncover(why) {', '\n  }\n')
-        self.assertIn('setLayered(window, 0, 255, LWA_ALPHA);', down)
-        self.assertIn('setLong(window, GWL_EXSTYLE, style);', down)                       # (its own style back)
+        self.assertIn("api('PostMessageW', 'int', ['pointer', 'uint', 'pointer', 'pointer'])(window, 0x10, NULL, NULL);", down)
         self.assertIn("send({ type: 'windowKeeper', event: 'cover-down', why, ms: Date.now() - at });", down)
         self.assertIn('let cover = options.cover === true ? {wanted: true} : null;', keep)   # (Classic: none)
-        self.assertIn("if (message.payload && message.payload.on === false) uncover(String(message.payload.why || 'launcher'));", keep)
         self.assertIn('const START_COVER_MS = 10000;', keep)
 
     def test_the_launcher_asks_for_it_with_the_saved_layout_and_ends_it_at_page_ready(self):
