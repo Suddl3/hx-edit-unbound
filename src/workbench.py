@@ -224,7 +224,9 @@ def firmware_notice(firmware, asked=True):
             'assumed': 'basic firmware settings'}.get(floor_firmware.origin(firmware))
     if not asked or what is None:
         return None
-    blocks = f'NAM {firmware.nam_load:g}%, ' + (f'NAM Pedal {firmware.pedal_load:g}%' if firmware.pedal else 'no NAM Pedal')
+    # As the picker shows it: share of a DSP's 75 meter units (3600 -> 36 units -> 48%), not the firmware's raw figure
+    blocks = (f'NAM blocks at {firmware.nam_load / 0.75:.0f}% of a DSP, '
+              + (f'NAM Pedal at {firmware.pedal_load / 0.75:.0f}%' if firmware.pedal else 'no NAM Pedal'))
     return (f'The Floor did not answer when the editor started, so it is using {what} ({blocks}). '
             'If the Floor was just switched on, close the editor and start it again in a minute.')
 

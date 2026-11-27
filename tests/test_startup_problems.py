@@ -103,18 +103,18 @@ class FirmwareNoticeTests(unittest.TestCase):
     def test_the_last_known_settings(self):
         text = workbench.firmware_notice(FloorFirmware(nam_cost=3250, pedal=True, source='remembered'))
         self.assertEqual(text, "The Floor did not answer when the editor started, so it is using the Floor's last known "
-                               "firmware settings (NAM 32.5%, NAM Pedal 7.5%). If the Floor was just switched on, close the "
+                               "firmware settings (NAM blocks at 43% of a DSP, NAM Pedal at 10%). If the Floor was just switched on, close the "
                                "editor and start it again in a minute.")
 
     def test_the_basic_settings(self):
         text = workbench.firmware_notice(FloorFirmware(source='assumed'))
         self.assertEqual(text, 'The Floor did not answer when the editor started, so it is using basic firmware settings '
-                               '(NAM 36%, no NAM Pedal). If the Floor was just switched on, close the editor and start it '
+                               '(NAM blocks at 48% of a DSP, no NAM Pedal). If the Floor was just switched on, close the editor and start it '
                                'again in a minute.')
 
     def test_settings_set_by_hand(self):
         text = workbench.firmware_notice(FloorFirmware(nam_cost=3250, source='settings'))
-        self.assertIn('so it is using the firmware settings set by hand (NAM 32.5%, no NAM Pedal)', text)
+        self.assertIn('so it is using the firmware settings set by hand (NAM blocks at 43% of a DSP, no NAM Pedal)', text)
 
     def test_no_notice_when_asking_is_turned_off(self):
         self.assertIsNone(workbench.firmware_notice(FloorFirmware(source='assumed'), asked=False))
