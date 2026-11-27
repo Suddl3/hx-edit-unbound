@@ -32,6 +32,27 @@ class LevelError(Exception):
 SNAPSHOTS_CONTROLLER = 19
 
 
+def identity(preset):
+    """Which preset something belongs to: {setlist, preset, name} (a preset header, or a measured row).
+    The same number in another setlist is another preset."""
+    preset = preset or {}
+    return {'setlist': preset.get('setlist'), 'preset': preset.get('preset'), 'name': preset.get('name') or ''}
+
+
+def same_preset(header, ident):
+    """Whether HX Edit's preset header is that preset: the same setlist and number, and the same name
+    when both have one (another preset put in that place)."""
+    now, ident = identity(header), identity(ident)
+    return (isinstance(now['setlist'], int) and now['setlist'] == ident['setlist'] and
+            now['preset'] == ident['preset'] and
+            (not now['name'] or not ident['name'] or now['name'].strip() == ident['name'].strip()))
+
+
+def describe(ident):
+    # (no setlist number: HX Edit counts setlists from 0 in the header, the Floor from 1)
+    return f'preset {ident.get("preset") or 0:03d}' + (f' "{ident["name"]}"' if ident.get('name') else '')
+
+
 def scanned_snapshots(snapshots, mode='all'):
     """The snapshots a scan measures: 'all', or 1 to n (4: the usual four footswitches; 1: presets that
     do not use snapshots). Whether an unnamed snapshot is in use cannot be told from the preset, so the
@@ -143,8 +164,15 @@ class LevelFlow:
     def _current(self, state):
         current = {'preset': state.get('preset'), 'snapshot': state.get('snapshot'),
                    'snapshots': state.get('snapshots') or []}
+        setlist = (state.get('preset') or {}).get('setlist')
         with self.lock:
             same = self._view.get('current') == current
+            # Measurements belong to the setlist they were made in: another setlist's preset 030 is
+            # another preset, so they go (a scan there starts afresh).
+            stale = isinstance(setlist, int) and not self.busy and any(
+                row.get('setlist') != setlist for row in self._view['rows'])
+        if stale:
+            self._update(rows=[], skipped={})
         if not same:
             self._update(current=current)
 
@@ -168,10 +196,12 @@ class LevelFlow:
         if not saved and not prepared:
             return ''
         reply = self.command('levelRecover', **{k: v for k, v in (saved or {}).items() if k != 'ties'})
+        if reply.get('kept') and not saved:
+            self._keep(reply['kept'])                 # the editor's record, of another preset: kept on disk
         if reply.get('other'):
             return ''                                 # another preset: kept for when it comes back
         if (saved or {}).get('ties') and reply.get('recovered'):
-            self._put_back(saved['ties'])             # the output Level per snapshot, as it was
+            self._put_back(saved['ties'], saved.get('preset'))   # the output Level per snapshot, as it was
         nam_level.forget_inputs(self.restore_file)
         return ('Measuring was cut short last time; the routing is back as it was (not saved). '
                 if reply.get('recovered') else '')
@@ -214,13 +244,19 @@ class LevelFlow:
     def apply(self, changes, target=None):
         """changes: {preset number: {snapshot: dB}}, checked against the measurements; target: {value,
         metric} the page levelled to, for each preset's "last leveled" note."""
-        clean = {}
+        clean, who = {}, {}
         rows = {(row['preset'], row['snapshot']): row for row in self.view()['rows']}
         for preset, snaps in changes.items():
             for snapshot, change in snaps.items():
                 row = rows.get((int(preset), int(snapshot)))   # a row: one snapshot, or several alike
                 if row is None or row.get('lufs') is None:
                     raise LevelError(f'Preset {int(preset):03d} snapshot {snapshot} has not been measured.')
+                # The preset it was measured in: its setlist and number (and name), never the number alone.
+                ident = identity(row)
+                if not isinstance(ident['setlist'], int):
+                    raise LevelError(f'Preset {int(preset):03d} was measured without its setlist; scan it again.')
+                if who.setdefault(int(preset), ident) != ident:
+                    raise LevelError(f'Preset {int(preset):03d} was measured twice, differently; scan it again.')
                 change = round(float(change), 1) + 0.0
                 reason = nam_level.check_change(change, row.get('peak'))
                 if reason:
@@ -228,9 +264,11 @@ class LevelFlow:
                 if change:
                     for number in row.get('snapshots') or [row['snapshot']]:
                         clean.setdefault(int(preset), {})[int(number)] = change
+        if len({ident['setlist'] for ident in who.values()}) > 1:
+            raise LevelError('These measurements come from more than one setlist; scan again.')
         if not clean:
             raise LevelError('Nothing to change: every ticked snapshot already meets the standard.')
-        self._start('apply', self._apply, clean, target)
+        self._start('apply', self._apply, clean, target, {n: who[n] for n in clean})
 
     def measure_guitar(self, seconds=10.0, name=''):
         """The player plays for `seconds` after a 3-2-1 countdown: two typical seconds become a saved
@@ -357,10 +395,18 @@ class LevelFlow:
             self.sleep(0.25)
         raise LevelError('HX Edit has not reported the current preset yet.')
 
-    def _goto(self, number, settle=True):
+    def _goto(self, number, settle=True, setlist=None):
         """The preset `number` loaded (from this setlist), its levelState. settle False: at once (a scan
-        silences it straight away and lets it settle afterwards)."""
-        state = self._here()
+        silences it straight away and lets it settle afterwards). setlist: the setlist it must be in (a
+        preset change loads by number, within whichever setlist HX Edit is on): another one stops here,
+        before anything is loaded or changed."""
+        def check(state):
+            now = (state.get('preset') or {}).get('setlist')
+            if setlist is not None and now != setlist:
+                raise LevelError(f'HX Edit is on another setlist now, not the one preset {number:03d} was '
+                                 'measured in; nothing more was changed. Go back to that setlist, or scan again.')
+            return state
+        state = check(self._here())
         if state['preset'].get('preset') == number:
             return state
         self.load_preset(number)
@@ -371,14 +417,17 @@ class LevelFlow:
             if (state.get('preset') or {}).get('preset') == number:
                 if settle:
                     self.sleep(self.LOADED)
-                return self._here()
+                return check(self._here())
         raise LevelError(f'Preset {number:03d} did not load.')
 
     def _home(self, start):
         """Back to the preset and snapshot the player started on."""
         preset, snapshot = (start.get('preset') or {}).get('preset'), start.get('snapshot')
+        setlist = (start.get('preset') or {}).get('setlist')
+        if setlist is not None and (self._here().get('preset') or {}).get('setlist') != setlist:
+            return      # the player chose another setlist: the same number there is another preset
         if preset is not None:
-            self._goto(preset)
+            self._goto(preset, setlist=setlist)
         if snapshot:
             self.command('levelRecall', snapshot=snapshot)
             self.sleep(self.SETTLE)
@@ -432,17 +481,17 @@ class LevelFlow:
         """The final outputs whose Level or Pan is on a controller, with every snapshot's value, read
         before the scan re-routes them (which drops the controller): [{dsp, controllers, values: {n:
         {key: {type, value}}}}]. own: the player's preset, which gets them back afterwards; a controller
-        other than Snapshots (a pedal) could not be put back, so that preset is not scanned."""
+        other than Snapshots (a pedal, MIDI) could not be put back, so that preset is not scanned. In every
+        preset an output Level on such a controller is refused: Apply would replace it with Snapshots."""
         ties = [tie for tie in self.command('levelTies').get('ties') or [] if tie.get('controllers')]
         if not ties:
             return []
-        if own:
-            for tie in ties:
-                for key, controller in tie['controllers'].items():
-                    if controller != SNAPSHOTS_CONTROLLER:
-                        raise LevelError(f'Preset {number:03d}: its output {"Level" if key == "gain" else "Pan"} '
-                                         'is on a pedal or another controller. Level would lose that while '
-                                         'measuring, so it leaves this preset alone.')
+        for tie in ties:
+            for key, controller in tie['controllers'].items():
+                if controller != SNAPSHOTS_CONTROLLER and (own or key == 'gain'):
+                    raise LevelError(f'Preset {number:03d}: its output {"Level" if key == "gain" else "Pan"} '
+                                     'is on a pedal or another controller (not Snapshots). Level would lose '
+                                     'that, so it leaves this preset alone.')
         for tie in ties:
             tie['values'] = {}
         for snapshot in numbers:
@@ -453,11 +502,13 @@ class LevelFlow:
                 tie['values'][snapshot] = read.get(tie['dsp'], {}).get('values') or {}
         return ties
 
-    def _put_back(self, ties):
-        """The output Level / Pan back on Snapshots, with each snapshot's own value (after levelRestore)."""
+    def _put_back(self, ties, preset=None):
+        """The output Level / Pan back on Snapshots, with each snapshot's own value (after levelRestore).
+        preset: the preset they were read in; HX Edit refuses them on any other."""
+        mine = {'preset': identity(preset)} if preset else {}
         for tie in ties:
             for key, controller in tie['controllers'].items():
-                self.command('levelTie', dsp=tie['dsp'], key=key, controller=controller)
+                self.command('levelTie', dsp=tie['dsp'], key=key, controller=controller, **mine)
         snapshots = sorted({int(n) for tie in ties for n in tie['values']})
         for snapshot in snapshots:
             self._update(progress=f'Putting the output level of snapshot {snapshot} back…')
@@ -467,7 +518,45 @@ class LevelFlow:
                 for key in tie['controllers']:
                     value = values.get(key)
                     if isinstance(value, dict) and isinstance(value.get('value'), (int, float)):
-                        self.command('levelPut', dsp=tie['dsp'], key=key, snapshot=snapshot, value=value)
+                        self.command('levelPut', dsp=tie['dsp'], key=key, snapshot=snapshot, value=value, **mine)
+
+    def _keep(self, state, ties=()):
+        """HX Edit's measuring record (a levelBegin / levelPrepare reply's 'saved') on disk, for putting the
+        routing back if this is cut short."""
+        try:
+            nam_level.remember_inputs(state or {}, self.restore_file, ties=ties)
+        except OSError:
+            pass
+
+    def _end(self, own, ties, ident, failure=None):
+        """After measuring a preset: the routing back as it was (the player's own preset), or HX Edit's
+        record dropped (another one: loading the next preset drops its measuring routing, unsaved).
+        HX Edit writes the old routing only into the preset it came from; when another preset is on now,
+        the record stays on disk for that preset (recover). failure: what stopped the measuring; it stays
+        the error when putting back fails as well."""
+        try:
+            if not own:
+                self.command('levelDrop')
+                nam_level.forget_inputs(self.restore_file)
+                return
+            reply = self.command('levelRestore', preset=ident)
+            if reply.get('other'):
+                if not nam_level.interrupted(self.restore_file) and reply.get('kept'):
+                    self._keep({'preset': reply['kept'].get('preset'), 'saved': reply['kept']}, ties)
+                self.recover()        # the same preset after a reconnection: what is still re-routed
+                if nam_level.interrupted(self.restore_file):
+                    raise LevelError(f'HX Edit left {describe(ident)} while it was being measured. Its '
+                                     'routing was not written into the preset now loaded; it is put back '
+                                     'when Level opens on that preset again (if it was saved that way).')
+                return
+            if ties:
+                self._put_back(ties, ident)
+            nam_level.forget_inputs(self.restore_file)
+        except Exception as cleanup:
+            if failure is None:
+                raise
+            raise LevelError(f'{str(failure) or failure.__class__.__name__} (Putting the routing back failed too: '
+                             f'{cleanup}. Check the preset\'s input and output in HX Edit.)') from failure
 
     def _save(self, preset):
         before = self._here().get('savedAt') or 0
@@ -491,6 +580,7 @@ class LevelFlow:
         self.scanned_with = label
         start = self._here()
         here = start['preset']['preset']
+        setlist = start['preset'].get('setlist')    # the presets chosen are this setlist's
         # The current preset last: the others are left by loading the next one (which drops the
         # measuring routing, unsaved), so only the player's own preset needs its routing put back, at
         # the very end. Nothing plays between presets but the moment a preset takes to load.
@@ -504,30 +594,29 @@ class LevelFlow:
             for number in numbers:
                 if self.cancelled.is_set():
                     break
-                state = self._goto(number, settle=False)
+                state = self._goto(number, settle=False, setlist=setlist)
                 own = number == here
                 every = [s['number'] for s in state.get('snapshots') or []]
-                # The guitar is silenced at once (input USB 7/8); the outputs are re-routed only after a
-                # just-loaded preset has settled and an output on a controller (Level per snapshot) has
-                # had every snapshot's value read (right after a load its controllers read as none:
-                # Floor, November 16, 030).
-                prepared = self.command('levelPrepare', outputs=False)
+                ident = identity(state['preset'])
+                # What measuring will change, kept (in HX Edit and on disk) before anything is changed.
+                # HX Edit refuses here, before the test signal is routed, a preset Level cannot measure
+                # silently (a lane B with an output of its own).
+                begun = self.command('levelBegin', preset=ident)
                 ties = []
                 try:
-                    nam_level.remember_inputs(prepared, self.restore_file)
-                except OSError:
-                    pass
-                try:
+                    self._keep(begun)
+                    # The guitar is silenced at once (input USB 7/8); the outputs are re-routed only after
+                    # a just-loaded preset has settled and an output on a controller (Level per snapshot)
+                    # has had every snapshot's value read (right after a load its controllers read as
+                    # none: Floor, November 16, 030).
+                    self.command('levelPrepare', outputs=False, preset=ident)
                     self.sleep(self.LANDED)
                     chosen = scanned_snapshots(state.get('snapshots') or [], count)
                     numbers_chosen = [s['number'] for s in chosen]
                     # the player's own preset gets every snapshot's Level back, so all of them are read
                     ties = self._ties(number, every if own else numbers_chosen, own)
-                    prepared = self.command('levelPrepare')    # now the outputs: USB 1/2 only, silent
-                    try:
-                        nam_level.remember_inputs(prepared, self.restore_file, ties=ties if own else [])
-                    except OSError:
-                        pass
+                    prepared = self.command('levelPrepare', preset=ident)    # now the outputs: USB 1/2 only
+                    self._keep(prepared, ties if own else [])
                     # Re-routed, the output holds one Level for every snapshot now: each measurement is
                     # put right by that snapshot's own Level (the output Level is a plain gain).
                     flat = {tie['dsp']: tie for tie in self.command('levelTies').get('ties') or []}
@@ -568,6 +657,8 @@ class LevelFlow:
                                                 f'{preset.get("name", "")}, {label} ({done} of {total}{left})')
                         # Seconds after the recall now: the output Level read here is this snapshot's.
                         after = self.command('levelState', gain=True)
+                        if not same_preset(after.get('preset'), ident):
+                            raise LevelError(f'HX Edit left {describe(ident)} while it was being measured.')
                         if after.get('snapshot') != first:
                             raise LevelError(f'HX Edit left snapshot {first} while it was being measured.')
                         level = after.get('gain')
@@ -597,14 +688,10 @@ class LevelFlow:
                                      fraction=min(1.0, done / max(1, total)))
                     rows += alike_rows(mine)
                     self._update(rows=sorted(rows, key=lambda r: (r['preset'], r['snapshot'])))
-                finally:
-                    if own:                      # the others are left by loading another preset
-                        self.command('levelRestore')
-                        if ties:
-                            self._put_back(ties)
-                    else:                        # (that load drops their routing; the record goes now)
-                        self.command('levelDrop')
-                    nam_level.forget_inputs(self.restore_file)
+                except BaseException as failure:
+                    self._end(own, ties, ident, failure)
+                    raise
+                self._end(own, ties, ident)
         finally:
             meter.close()
             self._home(start)
@@ -615,22 +702,41 @@ class LevelFlow:
         return (f'Measured {measured} different sound(s) in {presets} preset(s). '
                 'Check the levels, then Apply; nothing has been changed yet.')
 
-    def _apply(self, changes, target=None):
+    def _apply(self, changes, target=None, who=None):
+        """changes: {preset number: {snapshot: dB}}; who: {preset number: identity} of the measured presets
+        (apply()). Each preset is checked to be that one (setlist, number, name) before it is changed or
+        saved. Cancel stops before the next preset; what was done stays done, and Undo has it."""
+        who = who or {}
+        missing = [n for n in sorted(changes) if n not in who]
+        if missing:
+            raise LevelError(f'Preset {missing[0]:03d} has no measurement to apply; scan it again.')
         levels = {}
         for row in self.view()['rows']:
             for number in row.get('snapshots') or [row['snapshot']]:
                 levels.setdefault(row['preset'], {})[number] = row.get('level')
         start = self._here()
+        setlist = who[next(iter(changes))]['setlist']
+        if start['preset'].get('setlist') != setlist:
+            raise LevelError('These measurements were made in another setlist than the one HX Edit is on now; '
+                             'nothing was changed. Go back to that setlist, or scan again.')
         home = start['preset']['preset']
-        several = set(changes) != {home}
+        several = not (len(changes) == 1 and same_preset(start['preset'], who[next(iter(changes))]))
         record = {'saved': several, 'presets': [], 'history': {}}
         history = nam_level.load_history(self.history_file)
+        applied = 0
         try:
             for number in sorted(changes, key=lambda n: (n != home, n)):
-                state = self._goto(number)
+                if self.cancelled.is_set():
+                    break                    # before another preset: the ones done stay done (Undo has them)
+                ident = who[number]
+                state = self._goto(number, setlist=setlist)
+                if not same_preset(state['preset'], ident):
+                    raise LevelError(f'Preset {number:03d} is not the one that was measured '
+                                     f'({describe(identity(state["preset"]))} now); nothing more was changed. '
+                                     'Scan it again.')
                 trims, back = changes[number], state.get('snapshot')
                 self._update(progress=f'Applying to {number:03d} {state["preset"].get("name", "")}…')
-                reply = self.command('levelApplyPlan', trims=trims, home=back)
+                reply = self.command('levelApplyPlan', trims=trims, home=back, preset=ident)
                 entry = {'preset': state['preset'], 'record': None, 'saved': False,
                          'trims': {str(n): dB for n, dB in trims.items()}}
                 record['presets'].append(entry)
@@ -647,10 +753,11 @@ class LevelFlow:
                     entry['record'] = self.command('levelApplyEnd').get('record')
                     nam_level.save_records(record, self.records_file)
                 if several:     # loading the next preset would drop an unsaved change
-                    self._save(state['preset'])
+                    self._save(ident)
                     entry['saved'] = True
                     nam_level.save_records(record, self.records_file)
                 self._shift(number, trims, 1)
+                applied += 1
                 # "Last leveled": when, with which guitar, to what (Undo puts the one before back).
                 key = nam_level.history_key(state['preset'])
                 record['history'][key] = history.get(key)
@@ -661,25 +768,58 @@ class LevelFlow:
         finally:
             if several:
                 self._home(start)
+        if applied < len(changes):           # cancelled
+            if not applied:
+                return 'Cancelled; nothing was changed.'
+            return (f'Cancelled after {applied} of {len(changes)} preset(s): those were applied and saved, the '
+                    'rest left as they were. Undo puts the changed ones back.')
         if several:
             return f'Applied and saved {len(changes)} preset(s). Undo puts the old levels back.'
         return 'Applied to this preset. Not saved: save it in HX Edit to keep it, or Undo.'
 
     def _undo(self):
+        """Each preset of the last Apply back as it was, last first, each checked to be that preset (setlist,
+        number, name). Cancel stops before the next preset; the record keeps the ones not undone yet."""
         records = nam_level.load_records(self.records_file)
         start = self._here()
         undone = 0
+        pending = list(records['presets'])        # what the record still holds
+        before = dict(records.get('history') or {})
+
+        def done(entry, undid):
+            pending.remove(entry)
+            key = nam_level.history_key(entry.get('preset') or {})
+            if undid and key in before:            # its "last leveled" note as it was before that Apply
+                history = nam_level.load_history(self.history_file)
+                if before[key]:
+                    history[key] = before[key]
+                else:
+                    history.pop(key, None)
+                nam_level._write_json(history, self.history_file)
+            if pending:
+                nam_level.save_records(dict(records, presets=pending), self.records_file)
+            else:
+                nam_level.forget_records(self.records_file)
         try:
             for entry in reversed(records['presets']):
-                number = (entry.get('preset') or {}).get('preset')
+                if self.cancelled.is_set():
+                    break
+                ident = identity(entry.get('preset'))
+                number = ident['preset']
                 if not entry.get('record') or number is None:
+                    done(entry, False)
                     continue
                 if not records.get('saved'):
-                    if number != start['preset']['preset']:
+                    if not same_preset(start['preset'], ident):
+                        done(entry, False)
                         continue              # never saved, and gone with the preset change: nothing to undo
                 elif not entry.get('saved'):
+                    done(entry, False)
                     continue                  # its Apply stopped before the save: the Floor never kept it
-                state = self._goto(number)
+                state = self._goto(number, setlist=ident['setlist'])
+                if not same_preset(state['preset'], ident):
+                    raise LevelError(f'Preset {number:03d} is not the one Level changed '
+                                     f'({describe(identity(state["preset"]))} now); it was left alone.')
                 self._update(progress=f'Undoing {number:03d} {state["preset"].get("name", "")}…')
                 self.command('levelUndoLoad', record=entry['record'])
                 reply = self.command('levelUndoPlan')
@@ -690,21 +830,16 @@ class LevelFlow:
                     self.sleep(self.SETTLE)
                 self.command('levelApplyEnd', forget=True)
                 if records.get('saved'):
-                    self._save(state['preset'])
+                    self._save(ident)
                 self._shift(number, {int(n): dB for n, dB in (entry.get('trims') or {}).items()}, -1)
                 undone += 1
+                done(entry, True)
         finally:
             if records.get('saved'):
                 self._home(start)
-        if undone and records.get('history'):
-            history = nam_level.load_history(self.history_file)
-            for key, before in records['history'].items():
-                if before:
-                    history[key] = before
-                else:
-                    history.pop(key, None)
-            nam_level._write_json(history, self.history_file)
-        nam_level.forget_records(self.records_file)
+        if pending:                          # cancelled
+            return (f'Undo cancelled: {undone} preset(s) back as they were; Undo again for the other '
+                    f'{len(pending)}.')
         if not undone:
             return 'Nothing to undo: those changes were never saved and are gone already.'
         return f'Undone: {undone} preset(s) are back as they were' + (' (saved).' if records.get('saved') else '.')

@@ -135,9 +135,21 @@ class FakeHelix:
         self.flat = None         # the one Level every snapshot has once the scan re-routes the output
         self.put = []
         self.prepared = False    # the editor's measuring record (kept across preset loads)
+        self.setlist = 3
+        self.owner = None        # the preset the measuring record belongs to
+        self.own_b = False       # lane B has an output of its own (refused by levelBegin)
+        self.titles = {}         # a preset's name, when not "Sound <n>"
 
     def header(self):
-        return {'setlist': 3, 'preset': self.preset, 'name': f'Sound {self.preset}'}
+        return {'setlist': self.setlist, 'preset': self.preset, 'name': self.titles.get(self.preset, f'Sound {self.preset}')}
+
+    def here(self, preset):
+        # As tone_view.js levelSamePreset: the same setlist and number.
+        return bool(preset) and (preset.get('setlist'), preset.get('preset')) == (self.setlist, self.preset)
+
+    def expect(self, data, required=False):
+        if (required or 'preset' in data) and not self.here(data.get('preset')):
+            raise RuntimeError('A different preset is loaded now; nothing was changed.')
 
     def load(self, number):
         self.loaded.append(number)
@@ -162,11 +174,24 @@ class FakeHelix:
             self.put.append((data['snapshot'], data['value']['value']))
         if action == 'levelApplyPlan' and self.prepared:
             raise RuntimeError('Measuring is still in progress.')
+        if action in ('levelApplyPlan', 'levelSave'):
+            self.expect(data, required=True)
+        if action in ('levelBegin', 'levelPrepare', 'levelTie', 'levelPut'):
+            self.expect(data)
+        record = {'inputs': [[0, 'inputA', 1]], 'outputs': [[0, 1]], 'snapshot': self.snapshot, 'preset': self.owner}
+        if action == 'levelRestore' and self.prepared and self.owner != self.header():
+            self.prepared = False                      # another preset: nothing written, the record handed back
+            return dict(state, other=True, kept=record)
         if action in ('levelRestore', 'levelDrop'):
             self.prepared = False
+        if action == 'levelBegin':
+            if self.own_b:
+                raise RuntimeError(f'Preset {self.preset:03d}: lane B of path 1 has an output of its own.')
+            self.prepared, self.owner = True, self.header()
+            return dict(state, saved=dict(record, preset=self.owner))
         if action == 'levelPrepare' and data.get('outputs') is False:
             self.prepared = True
-            return dict(state, saved={'inputs': [[0, 'inputA', 1]], 'outputs': [[0, 1]], 'snapshot': self.snapshot})
+            return dict(state, saved=record)
         if action == 'levelPrepare':
             self.prepared = True
             self.routing = 'measuring'
@@ -460,7 +485,7 @@ class LevelFlowTests(unittest.TestCase):
         view = self.run_job(flow, 'scan', [], 8)
         self.assertIn('pedal or another controller', view['error'])
         prepares = [d for a, d in helix.sent if a == 'levelPrepare']
-        self.assertEqual(prepares, [{'outputs': False}])            # the guitar only; the output never moved
+        self.assertEqual([d['outputs'] for d in prepares], [False])  # the guitar only; the output never moved
         self.assertIn('levelRestore', [a for a, _ in helix.sent])
 
     def test_apply_after_scanning_another_preset_is_not_blocked(self):
@@ -588,6 +613,216 @@ class LevelFlowTests(unittest.TestCase):
         self.restore.write_text(json.dumps(record), encoding='utf-8')
         flow.open()
         self.assertTrue(self.restore.exists())
+
+    # ---- code review 2026-11-27 (R1-R4, R6, R7) ---------------------------------------------------------
+    def apply_now(self, flow, changes):
+        """apply() run here (not on a worker): its message, or the LevelError it stopped with."""
+        from nam_level_flow import LevelError
+        flow._start = lambda name, target, *args: setattr(self, 'outcome', target(*args))
+        try:
+            flow.apply(changes)
+        except LevelError as failure:
+            return 'error: ' + str(failure)
+        return self.outcome
+
+    def test_apply_refuses_measurements_from_another_setlist(self):
+        # R1: preset 030 scanned in setlist 3, then HX Edit is on setlist 1's 030: another preset.
+        helix = FakeHelix()
+        flow = self.flow(helix, [self.reading(-12.0), self.reading(-12.0)])
+        self.run_job(flow, 'scan', [], 8)
+        helix.setlist = 1
+        view = self.run_job(flow, 'apply', {30: {1: -2.0}})
+        self.assertIn('another setlist', view['error'])
+        self.assertEqual(helix.gain[30], 0.0)
+        self.assertNotIn('levelApplyPlan', [a for a, _ in helix.sent])
+        # The review's reproduction: a measurement of setlist 1 while HX Edit is on setlist 3.
+        helix = FakeHelix()
+        flow = self.flow(helix)
+        flow._view['rows'] = [dict(preset=30, setlist=1, snapshot=1, snapshots=[1], lufs=-20.0, peak=-10.0,
+                                   level=0.0, name='Sound 30', note='')]
+        self.assertIn('another setlist', self.apply_now(flow, {30: {1: -2.0}}))
+        self.assertEqual(helix.gain[30], 0.0)
+        # A row without its setlist is never applied by number alone.
+        flow._view['rows'][0]['setlist'] = None
+        self.assertIn('without its setlist', self.apply_now(flow, {30: {1: -2.0}}))
+
+    def test_a_setlist_change_while_applying_stops_before_the_next_preset(self):
+        helix = FakeHelix()
+        flow = self.flow(helix, [self.reading(-12.0) for _ in range(4)])
+        self.run_job(flow, 'scan', [30, 31], 2)
+        loaded = len(helix.loaded)
+        command = flow.command
+
+        def player_changes_setlist(action, **data):
+            reply = command(action, **data)
+            if action == 'levelSave' and helix.preset == 30:
+                helix.setlist = 1                      # on the Floor, between the two presets
+            return reply
+        flow.command = player_changes_setlist
+        view = self.run_job(flow, 'apply', {30: {1: -1.0}, 31: {1: -3.0}})
+        self.assertIn('another setlist', view['error'])
+        self.assertEqual((helix.gain[30], helix.gain[31]), (-1.0, 0.0))
+        self.assertEqual(helix.loaded[loaded:], [])                # nothing loaded in the other setlist
+        self.assertEqual([d['preset']['setlist'] for a, d in helix.sent if a == 'levelSave'], [3])
+
+    def test_a_preset_replaced_since_its_scan_is_not_changed(self):
+        helix = FakeHelix()
+        flow = self.flow(helix, [self.reading(-12.0), self.reading(-12.0)])
+        self.run_job(flow, 'scan', [], 8)
+        helix.titles[30] = 'Another sound'                   # another preset put in 030
+        view = self.run_job(flow, 'apply', {30: {1: -2.0}})
+        self.assertIn('not the one that was measured', view['error'])
+        self.assertEqual(helix.gain[30], 0.0)
+
+    def test_measurements_of_another_setlist_are_dropped_when_the_page_follows_it(self):
+        helix = FakeHelix()
+        flow = self.flow(helix, [self.reading(-12.0), self.reading(-12.0)])
+        self.run_job(flow, 'scan', [], 8)
+        flow._current(helix.command('levelState'))
+        self.assertEqual(len(flow.view()['rows']), 1)               # the same setlist: kept
+        helix.setlist = 1
+        flow._current(helix.command('levelState'))
+        self.assertEqual(flow.view()['rows'], [])
+
+    def test_a_lane_b_output_of_its_own_is_refused_before_the_test_signal_is_routed(self):
+        # R2: HX Edit refuses it at levelBegin; nothing was re-routed.
+        helix = FakeHelix()
+        helix.own_b = True
+        flow = self.flow(helix, [self.reading(-12.0)])
+        view = self.run_job(flow, 'scan', [], 8)
+        self.assertIn('output of its own', view['error'])
+        self.assertNotIn('levelPrepare', [a for a, _ in helix.sent])
+        self.assertFalse(self.restore.exists())
+
+    def test_a_preset_change_during_a_scan_keeps_the_routing_for_its_own_preset(self):
+        # R3: the player loads 031 while 030 (their own) is measured: 030's routing is not written into 031,
+        # and the record stays on disk for 030.
+        helix = FakeHelix()
+        flow = self.flow(helix, [self.reading(-12.0), self.reading(-12.0)])
+        measure = self.meter.measure
+
+        def player_loads_031(**data):
+            helix.load(31)
+            return measure(**data)
+        self.meter.measure = player_loads_031
+        view = self.run_job(flow, 'scan', [], 8)
+        self.assertIn('left preset 030', view['error'])
+        self.assertEqual(nam_level.interrupted(self.restore)['preset']['preset'], 30)
+        restores = [d for a, d in helix.sent if a == 'levelRestore']
+        self.assertEqual([d['preset']['preset'] for d in restores], [30])
+        self.assertNotIn('levelTie', [a for a, _ in helix.sent])
+
+    def test_an_output_on_a_pedal_is_refused_in_every_scanned_preset(self):
+        # R4: not only the player's own preset: Apply would replace that controller with Snapshots.
+        helix = FakeHelix(preset=31)
+        helix.ties, helix.controller = {1: 0.0, 2: 0.0}, 3
+        flow = self.flow(helix, [self.reading(-12.0), self.reading(-12.0)])
+        view = self.run_job(flow, 'scan', [30], 8)
+        self.assertIn('pedal or another controller', view['error'])
+        self.assertEqual(view['rows'], [])
+        self.assertEqual([d['outputs'] for a, d in helix.sent if a == 'levelPrepare'], [False])
+
+    def test_cancel_stops_apply_before_the_next_preset(self):
+        # R6: Cancel during the first preset's Apply: 030 is finished and saved, 031 is left alone.
+        helix = FakeHelix()
+        flow = self.flow(helix, [self.reading(-12.0) for _ in range(4)])
+        self.run_job(flow, 'scan', [30, 31], 2)
+        command = flow.command
+
+        def cancel_during_030(action, **data):
+            reply = command(action, **data)
+            if action == 'levelApplyPlan' and helix.preset == 30:
+                flow.cancel()
+            return reply
+        flow.command = cancel_during_030
+        view = self.run_job(flow, 'apply', {30: {1: -2.0}, 31: {1: -3.0}})
+        saved = [d['preset']['preset'] for a, d in helix.sent if a == 'levelSave']
+        self.assertEqual(saved, [30])
+        self.assertEqual((helix.gain[30], helix.gain[31]), (-2.0, 0.0))
+        self.assertIn('Cancelled after 1 of 2', view['message'])
+        self.assertEqual(view['undo']['presets'], [30])               # Undo has what was done
+        self.assertEqual((helix.preset, helix.snapshot), (30, 1))     # back where the player was
+        flow.command = command
+        view = self.run_job(flow, 'undo')
+        self.assertEqual(helix.gain[30], 0.0)
+        self.assertIsNone(view['undo'])
+
+    def test_cancel_stops_undo_before_the_next_preset_and_keeps_the_rest(self):
+        helix = FakeHelix()
+        flow = self.flow(helix, [self.reading(-12.0) for _ in range(4)])
+        self.run_job(flow, 'scan', [30, 31], 2)
+        self.run_job(flow, 'apply', {30: {1: -2.0}, 31: {1: -3.0}})
+        command = flow.command
+
+        def cancel_during_031(action, **data):
+            reply = command(action, **data)
+            if action == 'levelUndoPlan' and helix.preset == 31:
+                flow.cancel()
+            return reply
+        flow.command = cancel_during_031
+        view = self.run_job(flow, 'undo')
+        self.assertEqual((helix.gain[30], helix.gain[31]), (-2.0, 0.0))  # 031 undone (last first), 030 not
+        self.assertIn('Undo cancelled: 1', view['message'])
+        self.assertEqual(view['undo']['presets'], [30])
+        flow.command = command
+        view = self.run_job(flow, 'undo')
+        self.assertEqual(helix.gain[30], 0.0)
+        self.assertIsNone(view['undo'])
+
+    def partly_prepared(self, flow, helix, restore_fails=False):
+        """levelPrepare (inputs) that changes inputA, then is refused on inputB: the review's reproduction."""
+        command, seen = flow.command, {}
+
+        def partial(action, **data):
+            if action == 'levelPrepare' and data.get('outputs') is False:
+                seen['recorded'] = self.restore.exists()           # kept before anything changed
+                helix.sent.append((action, data))
+                helix.routing, helix.prepared = 'inputA USB 7/8; inputB unchanged', True
+                raise RuntimeError('Could not set inputB to USB 7/8.')
+            if action == 'levelRestore' and restore_fails:
+                helix.sent.append((action, data))
+                raise RuntimeError('HX Edit refused inputA.')
+            return command(action, **data)
+        flow.command = partial
+        return seen
+
+    def test_a_preparation_refused_halfway_is_put_back(self):
+        # R7: the first levelPrepare is inside the restore scope, recorded on disk before it changes anything.
+        from nam_level_flow import LevelError
+        helix = FakeHelix()
+        flow = self.flow(helix)
+        seen = self.partly_prepared(flow, helix)
+        with self.assertRaises(RuntimeError) as stopped:
+            flow._scan([], 1, flow._signal('mine'))
+        self.assertIn('inputB', str(stopped.exception))
+        self.assertTrue(seen['recorded'])
+        self.assertIn('levelRestore', [a for a, _ in helix.sent])
+        self.assertEqual(helix.routing, 'normal')
+        self.assertFalse(self.restore.exists())
+        # Putting back fails too: the first failure is still the error, and the record stays for next time.
+        helix = FakeHelix()
+        flow = self.flow(helix)
+        self.partly_prepared(flow, helix, restore_fails=True)
+        with self.assertRaises(LevelError) as stopped:
+            flow._scan([], 1, flow._signal('mine'))
+        self.assertTrue(str(stopped.exception).startswith('Could not set inputB to USB 7/8.'))
+        self.assertIn('refused inputA', str(stopped.exception))
+        self.assertEqual(nam_level.interrupted(self.restore)['preset']['preset'], 30)
+
+
+class LevelNativeTests(unittest.TestCase):
+    def test_the_native_level_actions_keep_to_the_measured_preset(self):
+        # tone_view.js's level actions over a pretend edit buffer (tests/level_native_probe.cjs): an output B of
+        # its own refused, routing put back only into its own preset, a pedal-controlled Level never replaced.
+        import shutil
+        import subprocess
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('Node.js is not installed')
+        probe = Path(__file__).resolve().parent / 'level_native_probe.cjs'
+        result = subprocess.run([node, str(probe)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('level native probe passed', result.stdout)
 
 
 class LevelPageTests(unittest.TestCase):

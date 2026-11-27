@@ -3719,7 +3719,9 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   const levelString = new NativeFunction(base.add(0x1a1640), 'pointer', ['pointer', 'pointer', 'int'], 'thiscall');
   const levelStringFree = new NativeFunction(base.add(0x1a0120), 'void', ['pointer'], 'thiscall');
   const levelInputs = [[0, 'inputA'], [0, 'inputB'], [1, 'inputA'], [1, 'inputB']];
-  let levelSaved = null;      // {inputs: [[dsp, group, index]], outputs: [[dsp, output]], snapshot}: what Restore puts back
+  // {inputs: [[dsp, group, index]], outputs: [[dsp, output]], snapshot, preset: {setlist, preset, name}, connection}:
+  // what Restore puts back, and the preset (and device connection) it belongs to: never written into another one.
+  let levelSaved = null;
   // Apply: the preset's final output level ('gain' of each DSP's outputA, dB, a float), per snapshot
   // when needed through HX Edit's Snapshots controller (19; 0 removes it). Path 1's @output 2-4 sends
   // it into path 2 (Path 2A / 2B / 2A+B), so path 2's output is then the final one.
@@ -3755,6 +3757,52 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     let now = null;
     try { now = namView.presetHeader?.() || null; } catch (_) { now = null; }
     return !!(preset && now && preset.setlist === now.setlist && preset.preset === now.preset);
+  }
+  function levelExpect(preset, required = false) {
+    // The preset a request was meant for ({setlist, preset}) is the one loaded: nothing is changed otherwise.
+    if ((required || preset !== undefined) && !levelSamePreset(preset)) {
+      throw new Error('A different preset is loaded now; nothing was changed.');
+    }
+  }
+  function levelOwns(saved) {
+    // A measuring record is this editor's to put back: the same preset, over the same device connection.
+    return !!saved && levelSamePreset(saved.preset) && saved.connection === connectionGeneration;
+  }
+  function levelPlays(editor, dsp) {
+    // Path 2 carries a signal when path 1 feeds it or one of its inputs is set; path 1 always does.
+    return dsp === 0 || INTO_PATH_2.includes(levelGet(editor, 0, 'outputA', '@output')) ||
+      levelInputs.some(([d, group]) => d === 1 && ![null, NO_INPUT].includes(levelGet(editor, d, group, '@input')));
+  }
+  function levelOwnOutputB(editor) {
+    // The paths with a signal whose lane B ends in an output of its own (HX Edit's shape word, global @topology0/1,
+    // with a B and no mixer: "SAB", "AB"). Level re-routes, measures and changes output A only, so such a preset is
+    // refused for now: its output B would play the test signal on the amp and be left out of the measurement.
+    // (A word not read, as right after some loads, is taken as no lane B: the outputs read as before.)
+    return [0, 1].filter(dsp => {
+      const word = levelGet(editor, -1, 'global', '@topology' + dsp);
+      return typeof word === 'string' && word.includes('B') && !word.endsWith('J') && levelPlays(editor, dsp);
+    });
+  }
+  function levelRefuseOutputB(editor, preset) {
+    const own = levelOwnOutputB(editor);
+    if (own.length) {
+      throw new Error(`${preset ? 'Preset ' + String(preset.preset).padStart(3, '0') + ': l' : 'L'}ane B of path ${own[0] + 1} has ` +
+        'an output of its own. Level measures and changes output A only, so it leaves this preset alone for now.');
+    }
+  }
+  function levelRecord(editor) {
+    // What measuring this preset changes, read before anything is written (levelBegin / levelPrepare).
+    const state = levelState(editor);
+    if (!state.preset) throw new Error('HX Edit has not reported the current preset yet.');
+    levelRefuseOutputB(editor, state.preset);
+    const outputs = levelOutputs(editor).map(dsp => [dsp, levelGet(editor, dsp, 'outputA', '@output')])
+      .filter(([, output]) => Number.isInteger(output));
+    const record = { inputs: state.inputs.filter(entry => entry.input !== NO_INPUT).map(entry => [entry.dsp, entry.group, entry.input]),
+                     outputs, rerouted: outputs, snapshot: state.snapshot, connection: connectionGeneration,
+                     preset: { setlist: state.preset.setlist, preset: state.preset.preset, name: state.preset.name || '' } };
+    if (!record.inputs.length) throw new Error('This preset has no input to play the DI into.');
+    if (!record.outputs.length) throw new Error('This preset has no output to measure.');
+    return record;
   }
   function levelHere(editor, snapshot) {
     if (levelGet(editor, -1, 'global', '@current_snapshot') !== snapshot - 1) {
@@ -3846,6 +3894,12 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
   function levelRestoreSaved(editor) {
     const saved = levelSaved;
     if (!saved) return levelState(editor);
+    if (!levelOwns(saved)) {
+      // Another preset (or the same one over a new connection) is in the editor now: the old routing is not
+      // written into it. The record goes back to the app, which keeps it for its own preset (levelRecover).
+      levelSaved = null;
+      return Object.assign(levelState(editor), { other: true, kept: saved });
+    }
     const failed = [];
     for (const [dsp, output] of saved.rerouted || saved.outputs || []) {
       if (levelSet(editor, dsp, 'outputA', '@output', output, 0x80000000) < 0) failed.push(`path ${dsp + 1}'s output`);
@@ -3867,15 +3921,11 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // makes it a different block: its Level and Pan lose any controller (Floor, November 16: Level on
       // Snapshots came back as one plain value). nam_level_flow reads them first (levelTies) and puts
       // them back afterwards (levelTie, levelPut).
-      const state = levelState(editor);
-      if (!levelSaved) {
-        const outputs = levelOutputs(editor).map(dsp => [dsp, levelGet(editor, dsp, 'outputA', '@output')])
-          .filter(([, output]) => Number.isInteger(output));
-        levelSaved = { inputs: state.inputs.filter(entry => entry.input !== NO_INPUT)
-          .map(entry => [entry.dsp, entry.group, entry.input]), outputs, rerouted: outputs, snapshot: state.snapshot };
-      }
-      if (!levelSaved.inputs.length) throw new Error('This preset has no input to play the DI into.');
-      if (!levelSaved.outputs.length) throw new Error('This preset has no output to measure.');
+      // The record is made (levelBegin, or here) before anything is written, so a write refused halfway still
+      // has everything to put back (levelRestore).
+      levelExpect(request.preset);
+      if (levelSaved && !levelOwns(levelSaved)) throw new Error('Level still holds the routing of another preset; open Level on that preset to put it back.');
+      if (!levelSaved) levelSaved = levelRecord(editor);
       // outputs false: only the inputs for now (the guitar is silenced at once, while the scan still
       // reads the outputs' controllers); a second levelPrepare re-routes the outputs.
       for (const [dsp] of request.outputs === false ? [] : levelSaved.rerouted) {
@@ -3884,6 +3934,14 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       for (const [dsp, group] of levelSaved.inputs) {
         if (levelSet(editor, dsp, group, '@input', USB_78, 0x80000000) < 0) throw new Error(`Could not set ${group} to USB 7/8.`);
       }
+      return levelState(editor);
+    }
+    if (request.action === 'levelBegin') {
+      // A scan's first step on a preset: what measuring will change, kept before anything is written (the app
+      // writes it to disk too). Nothing changes; a preset Level cannot measure silently is refused here.
+      levelExpect(request.preset);
+      if (levelSaved && !levelOwns(levelSaved)) throw new Error('Level still holds the routing of another preset; open Level on that preset to put it back.');
+      if (!levelSaved) levelSaved = levelRecord(editor);
       return levelState(editor);
     }
     if (request.action === 'levelTies') {
@@ -3902,6 +3960,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // Put an output's Level or Pan back on its controller (19: Snapshots; every snapshot then holds
       // the current value until levelPut writes each one).
       const { dsp, key, controller } = request;
+      levelExpect(request.preset);
       if (![0, 1].includes(dsp) || !OUTPUT_PARAMETERS.includes(key) || !Number.isInteger(controller) || controller < 1 || controller > 255) {
         throw new Error('Unknown output setting.');
       }
@@ -3914,6 +3973,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // On snapshot n (after levelRecall and a full second): an output's Level or Pan back to what it was,
       // written as HX Edit's own controls do (old value, then the new one twice).
       const { dsp, key, snapshot, value } = request;
+      levelExpect(request.preset);
       if (![0, 1].includes(dsp) || !OUTPUT_PARAMETERS.includes(key) || !value || !Number.isFinite(value.value)) {
         throw new Error('Unknown output setting.');
       }
@@ -3945,35 +4005,56 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // Measuring was cut short (the app closed or crashed) with the inputs on USB 7/8. This editor's
       // own record wins; otherwise the record the app kept on disk ({preset, inputs, snapshot}) puts
       // back every input of that preset that is still on USB 7/8. Another preset: nothing to do here.
-      if (levelSaved) return Object.assign(levelRestoreSaved(editor), { recovered: true });
-      if (!levelSamePreset(request.preset)) return { other: true };
+      // This editor's record is used only in its own preset, over the same connection; any other goes back to the
+      // app (kept), and the preset's own check below (only what is still re-routed) stands in for it.
+      let kept = null;
+      if (levelSaved) {
+        if (levelOwns(levelSaved)) return Object.assign(levelRestoreSaved(editor), { recovered: true });
+        kept = levelSaved;
+        levelSaved = null;
+      }
+      const record = request.preset ? request : kept || {};
+      if (!levelSamePreset(record.preset)) return { other: true, kept };
       const failed = [];
       let fixed = 0;
-      for (const entry of request.outputs || []) {
+      for (const entry of record.outputs || []) {
         const [dsp, output] = Array.isArray(entry) ? entry : [];
         if (![0, 1].includes(dsp) || !Number.isInteger(output) || output === USB_12) continue;
         if (levelGet(editor, dsp, 'outputA', '@output') !== USB_12) continue;
         if (levelSet(editor, dsp, 'outputA', '@output', output, 0x80000000) < 0) failed.push(`path ${dsp + 1}'s output`); else fixed++;
       }
-      for (const entry of request.inputs || []) {
+      for (const entry of record.inputs || []) {
         const [dsp, group, input] = Array.isArray(entry) ? entry : [];
         if (!levelInputs.some(([d, g]) => d === dsp && g === group) || !Number.isInteger(input) || input === USB_78) continue;
         if (levelGet(editor, dsp, group, '@input') !== USB_78) continue;
         if (levelSet(editor, dsp, group, '@input', input, 0x80000000) < 0) failed.push(group); else fixed++;
       }
       if (failed.length) throw new Error(`Could not put back ${failed.join(', ')}. Set it in HX Edit.`);
-      return Object.assign(levelState(editor), { recovered: fixed > 0 });
+      return Object.assign(levelState(editor), { recovered: fixed > 0, kept });
     }
     if (request.action === 'levelApplyPlan') {
       // trims: {snapshot: dB}. One change for the whole preset when every snapshot moves alike and the
       // level is not per snapshot already; otherwise the output level goes on the Snapshots controller
       // (every snapshot keeps today's value) and the editor visits each snapshot (levelApplyHere).
       if (levelSaved) throw new Error('Measuring is still in progress.');
+      // Only into the preset that was measured (preset: {setlist, preset}, never the number alone).
+      levelExpect(request.preset, true);
       const trims = Object.entries(request.trims || {}).map(([n, dB]) => [Number(n), Number(dB)])
         .filter(([n, dB]) => Number.isInteger(n) && n >= 1 && n <= 8 && Number.isFinite(dB) && Math.abs(dB) <= 12);
       if (!trims.length) throw new Error('Nothing to apply.');
       const state = levelState(editor), dsps = levelOutputs(editor);
       if (!dsps.length) throw new Error('This preset has no output to level.');
+      // Checked again here, before anything changes (the preset may have been edited since its scan): an output
+      // B of its own is not levelled, and an output Level on a pedal, MIDI or another controller (not Snapshots)
+      // would be replaced by Snapshots, which Undo could not put back.
+      levelRefuseOutputB(editor, state.preset);
+      for (const dsp of dsps) {
+        const controller = levelGainController(editor, dsp);
+        if (![null, 0, SNAPSHOTS_CONTROLLER].includes(controller)) {
+          throw new Error(`Path ${dsp + 1}'s output Level is on a pedal or another controller (not Snapshots). ` +
+            'Level would replace that, so it leaves this preset alone.');
+        }
+      }
       const everySnapshot = state.snapshots.every(s => trims.some(([n]) => n === s.number));
       const alike = trims.every(([, dB]) => dB === trims[0][1]);
       const home = Number.isInteger(request.home) && request.home >= 1 && request.home <= 8 ? request.home : state.snapshot;
@@ -4006,6 +4087,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
       // On snapshot n (after levelRecall): each per-snapshot output moves by the trim.
       const n = request.snapshot, dB = Number(request.trim);
       if (!levelUndo) throw new Error('Nothing is being applied.');
+      levelExpect(levelUndo.preset, true);
       if (!Number.isFinite(dB) || Math.abs(dB) > 12) throw new Error('That change is too large.');
       levelHere(editor, n);
       const levels = {};
@@ -4048,6 +4130,7 @@ function installToneView(tiles = [{ label: 'TONE3000', block: 'NAM A2 Lite', mod
     if (request.action === 'levelUndoHere') {
       const n = request.snapshot;
       if (!levelUndo) throw new Error('Nothing to undo.');
+      levelExpect(levelUndo.preset, true);
       levelHere(editor, n);
       for (const entry of levelUndo.outputs.filter(entry => !entry.done && n in entry.before)) {
         const now = levelGet(editor, entry.dsp, 'outputA', 'gain');
