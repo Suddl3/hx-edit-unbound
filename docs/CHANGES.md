@@ -1,5 +1,12 @@
 # What's new
 
+## November 27: v0.7.1
+
+- **Adding or swapping a NAM capture** is judged the way HX Edit judges it. A capture that has not been measured is shown at the firmware's own figure, captures that will not fit are marked full, and nothing is sent that HX Edit would refuse.
+- **A plain message when there is no room**: how much the capture needs and how much is free, instead of "HX Edit did not make that change."
+- **Known issue**: HX Edit counts a new NAM block at the firmware's declared 48% of a DSP, though a capture really uses about 36%. This stays until a firmware release lowers it ([details](FLOOR-WORKFLOW.md#status-november-26)).
+- README: opens with the Workbench picking a NAM capture.
+
 ## November 26: the Workbench
 
 - **The Workbench**, a modern editor over HX Edit, and **four layouts** (Workbench, Classic+, Rig on stage, Classic), chosen from the menu at the top left. The editor opens in the one you used last, and a first launch opens the Workbench. No flash of HX Edit's own screen at start-up.
