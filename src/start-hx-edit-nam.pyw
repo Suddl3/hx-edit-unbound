@@ -372,6 +372,13 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # Every permanent slot read back, ignoring what this PC remembers (nam_view checkAllSlots, R8).
                     if not detached.is_set():
                         script.post({'type': 'checkSlots', 'payload': {}})
+                elif name == 'realNames':
+                    # The catalog is renamed when the copy is prepared, so the choice applies from the next launch.
+                    on = not nam_catalog.real_names_on()
+                    nam_catalog.save_setting(nam_catalog.REAL_NAMES_KEY, on)
+                    meter.set_real_names(on)
+                    if workbench is not None:
+                        workbench.show_options(menu_options())
                 elif name == 'irDots':
                     on = not ir_dots[0]
                     ir_dots[0] = on
@@ -456,7 +463,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             def menu_options():
                 # (firmwareNotice: the Floor did not say which firmware it runs this launch; one line on the page until OK)
                 return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept(), 'layout': layout_kept(),
-                        'firmwareNotice': firmware_note, 'scenePin': scene_pin_kept()}
+                        'firmwareNotice': firmware_note, 'realNames': nam_catalog.real_names_on(),
+                        'scenePin': scene_pin_kept()}
             def frame_show():
                 try:
                     frame.apply(focus_on[0] or workbench_on[0], menu_bar_kept())
@@ -875,6 +883,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         focus_mode(True)
                     elif choice == 'checkSlots':         # (not a panel: the Workbench stays)
                         unbound_choice(choice)
+                    elif choice == 'realNames':          # (a setting: the Workbench stays)
+                        unbound_choice(choice)
                     elif choice:
                         workbench_mode(False)
                         unbound_choice(choice)
@@ -936,6 +946,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
             meter = DspMeter(trace=trace, on_choice=unbound_choice, icons=exe.parent / 'res' / 'icons_models')
             meter.set_ir_dots(ir_dots[0])
             meter.set_chain_art(chain_art[0])
+            meter.set_real_names(nam_catalog.real_names_on())
             for name, on in chain_options.items():
                 meter.set_chain_option(name, on)
             meter.set_chain_option('focusMode', False)

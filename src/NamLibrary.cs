@@ -1418,13 +1418,15 @@ class UnboundButton : Form
     bool placed;
     // The options: a tick is part of the label (the menus have no image margin). An option that only matters while
     // another is on sits indented under it and is dimmed while that one is off; it keeps its own tick meanwhile.
-    ToolStripMenuItem irDots, chainLarge, chainNames, chainGlow, chainIcons, chainGear;
+    ToolStripMenuItem irDots, chainLarge, chainNames, chainGlow, chainIcons, chainGear, realNames;
     bool dots = true, art, large = true, names = true, glow;   // as a first launch has them (Reveal B12: HX Edit's icons)
+    bool real;          // "Real gear names" (off unless turned on)
     public void SetIrDots(bool on){ dots=on; Ticks(); }
     public void SetChainArt(bool on){ art=on; Ticks(); }
     public void SetChainLarge(bool on){ large=on; Ticks(); }
     public void SetChainNames(bool on){ names=on; Ticks(); }
     public void SetChainGlow(bool on){ glow=on; Ticks(); }
+    public void SetRealNames(bool on){ real=on; Ticks(); }
     public static string Tick(int level,bool on,string text){ return new string('\u2003',level*2)+(on?"\u2713":"\u2003")+"  "+text; }
     void Ticks(){
         if(chainGear==null)return;
@@ -1433,6 +1435,7 @@ class UnboundButton : Form
         chainNames.Text=Tick(2,names,"Block names under them"); chainNames.Enabled=art&&large;
         chainGlow.Text=Tick(2,glow,"Glow behind them"); chainGlow.Enabled=art&&large;
         irDots.Text=Tick(0,dots,"Mark NAM slots");
+        realNames.Text=Tick(0,real,"Real gear names (next start)");
     }
     static ContextMenuStrip NewMenu(){
         var menu=new ContextMenuStrip();
@@ -1470,6 +1473,10 @@ class UnboundButton : Form
         tools.Items.Add(new ToolStripSeparator());
         Heading(tools,"IR LIST");
         irDots=Item(tools,"","irDots");
+        tools.Items.Add(new ToolStripSeparator());
+        Heading(tools,"MODEL NAMES");
+        realNames=Item(tools,"","realNames");
+        realNames.ToolTipText="Amps and effects by the gear they model. Applies the next time you start the editor.";
         tools.Items.Add(new ToolStripSeparator());
         Heading(tools,"TOOLS");
         foreach(var choice in Choices)Item(tools,choice.Item1,choice.Item2);
@@ -1851,6 +1858,7 @@ class DspMeter : Form
         if(unboundButton!=null&&state.TryGetValue("chainLarge",out value)&&value is bool)unboundButton.SetChainLarge((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainNames",out value)&&value is bool)unboundButton.SetChainNames((bool)value);
         if(unboundButton!=null&&state.TryGetValue("chainGlow",out value)&&value is bool)unboundButton.SetChainGlow((bool)value);
+        if(unboundButton!=null&&state.TryGetValue("realNames",out value)&&value is bool)unboundButton.SetRealNames((bool)value);
         // Focus Mode covers HX Edit's toolbar and has meters of its own: the meter and the menu button are hidden meanwhile.
         focusMode=state.TryGetValue("focusMode",out value)&&value is bool&&(bool)value;
         if(state.ContainsKey("ghost"))ApplyGhost(state["ghost"] as Dictionary<string,object>);
