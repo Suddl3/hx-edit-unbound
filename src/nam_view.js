@@ -2355,7 +2355,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     modelSlot: () => hasActiveModel() ? getValue(activeModel) + 1 : null,
     // The loaded preset as the editor holds it ({global, dsp0, dsp1, snapshot0..7, controller, …}), or
     // {reason}. Read-only, try-locks only (Level presets compares snapshots with it).
-    presetTree: () => readCurrentPreset(true, true),
+    // (readCurrentPreset's raw read wraps the tree as {tree}: unwrapped here, as documented above. tone_view's
+    // boundModel reads [`dsp${n}`][block]['@model'] from it, so the wrapped object made every library Use/Put
+    // on the Floor fail with "Could not read the model of the selected block".)
+    presetTree: () => { const read = readCurrentPreset(true, true); return read && read.tree ? read.tree : read; },
     // Right after an edit the header can read as a shape unpackPresetHeader refuses for a moment (Floor,
     // November 16: a save after Level's Apply found no header for 2 s): the last good one stands in until
     // the preset changes (a load clears it).
