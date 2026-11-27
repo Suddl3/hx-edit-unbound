@@ -1235,11 +1235,20 @@ class SnapshotWriteTests(unittest.TestCase):
         self.assertIsNone(ask(snapshot=1, key='@enabled', value=False))                     # not the selected block
 
     def test_the_snapshot_is_recalled_written_and_recalled_back(self):
+        # (R5, bughunt 2026-11-27: the write waits for the recall to land, on later readings, and is followed by the
+        # recall back; snapshot_grid_probe.cjs runs it against a recall that lands late)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
-        body = script[script.index("command.action === 'snapValue'"):script.index("command.action === 'route'")]
-        self.assertLess(body.index('targetBinding.recallSnapshot(editor, command.snapshot)'), body.index('targetBinding.setValue('))
-        self.assertLess(body.index('targetBinding.setValue('), body.index('finally {'))
-        self.assertIn('if (away) targetBinding.recallSnapshot(editor, now);', body[body.index('finally {'):])
+        body = script[script.index("command.action === 'snapValue'"):script.index("command.action === 'endpoint'")]
+        self.assertIn('if (command.snapshot === now) {', body)                         # the snapshot that is on: at once
+        self.assertLess(body.index('targetBinding.recallSnapshot(editor, command.snapshot)'), body.index("gridJob = {stage: 'landing'"))
+        away = body[body.index('} else {'):]
+        self.assertNotIn('targetBinding.setValue(', away)                              # nothing written with the recall
+        step = script[script.index('  function gridStep() {'):script.index('  function change(command) {')]
+        self.assertLess(step.index("if (step.do === 'write')"), step.index("} else if (step.do === 'restore')"))
+        self.assertIn('targetBinding.recallSnapshot(editor, job.from)', step)
+        # (refresh takes nothing else from the pane while one is under way)
+        refresh = script[script.index('  function refresh(window) {'):]
+        self.assertLess(refresh.index('if (gridJob) {'), refresh.index('while (writes.length && !gridJob) {'))
         self.assertIn("'snapValue': view.checked_snap_value", (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8'))
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("ask('snapValue', {dsp: block.dsp, id: block.id, snapshot: s, key, value});", page)
@@ -1247,6 +1256,49 @@ class SnapshotWriteTests(unittest.TestCase):
         binding = (ROOT / 'target_binding.js').read_text(encoding='utf-8')
         self.assertIn("if (![1, 4, 5, 6, 7].includes(current.type)) fail('unexpected snapshot value');", binding)
         self.assertIn("if (s !== state.snapshot) { h.title = 'Switch to ' + (names[s] || 'snapshot ' + (s + 1)); h.onclick = () => ask('snapshot', s); }", page)   # a header switches
+
+@unittest.skipUnless(NODE, 'node is not installed')
+class SnapshotGridRecallTests(unittest.TestCase):
+    """Review R5 (bughunt 2026-11-27): a grid value for a snapshot that is not on lands in that snapshot even when HX
+    Edit's recall lands late; one change at a time; given up with nothing written on another preset or editor."""
+
+    def test_a_late_recall_never_takes_the_value_into_the_snapshot_that_was_on(self):
+        import subprocess
+        result = subprocess.run([NODE, str(Path(__file__).resolve().parent / 'snapshot_grid_probe.cjs')],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(json.loads(result.stdout)), 8)
+
+    def test_the_step_waits_for_the_snapshot_and_its_values_then_confirms_the_write(self):
+        step = lambda job, seen, now: run_js(['focus_view.js'], f'focusGridStep({json.dumps(job)}, {json.dumps(seen)}, {now})')
+        job = {'stage': 'landing', 'from': 0, 'to': 1, 'value': 0.5, 'preset': '1:30', 'at': 0}
+        seen = {'snapshot': 1, 'preset': '1:30', 'editor': True}
+        self.assertEqual(step(job, seen, 999)['do'], 'wait')                           # on it, values not yet settled
+        self.assertEqual(step(job, {**seen, 'snapshot': 0}, 1500)['do'], 'wait')      # not there yet
+        self.assertEqual(step(job, seen, 1000)['do'], 'write')
+        self.assertEqual(step(job, {**seen, 'snapshot': 0}, 5001)['why'], 'not-landed')
+        self.assertEqual(step(job, {**seen, 'preset': '1:31'}, 1000)['do'], 'abort')
+        self.assertEqual(step(job, {**seen, 'preset': None}, 1000)['do'], 'abort')
+        self.assertEqual(step(job, {**seen, 'editor': False}, 1000)['why'], 'editor')
+        written = {**job, 'stage': 'written'}
+        self.assertEqual(step(written, {**seen, 'value': 0.25}, 100)['do'], 'wait')    # not read back yet
+        self.assertEqual(step(written, {**seen, 'value': 0.5000001}, 100)['do'], 'restore')
+        self.assertEqual(step(written, {**seen, 'value': 0.25}, 5001)['why'], 'not-confirmed')
+        self.assertEqual(step(written, {**seen, 'snapshot': 2}, 100)['why'], 'snapshot-moved')
+        self.assertTrue(step(written, {**seen, 'preset': '1:31'}, 100)['written'])
+        back = {**job, 'stage': 'returning'}
+        self.assertEqual(step(back, seen, 100)['do'], 'wait')
+        self.assertEqual(step(back, {**seen, 'snapshot': 0}, 100), {'job': None, 'do': 'done', 'why': None})
+        on = {**job, 'value': True, 'stage': 'written'}
+        self.assertEqual(step(on, {**seen, 'value': True}, 100)['do'], 'restore')
+
+    def test_the_page_keeps_the_snapshot_that_comes_back_and_a_preset_load_gives_the_change_up(self):
+        script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
+        self.assertIn('if (gridJob) state.snapshot = gridJob.from;', script)
+        self.assertIn('if (gridJob) gridJob.moved = name;', script)
+        turned = script[script.index('  function set(value) {'):script.index('    if (on && value !== true && drag) {')]
+        self.assertIn('targetBinding.recallSnapshot(editor, job.from)', turned)
+
 
 class CursorTests(unittest.TestCase):
     """The selected block follows the preset's own cursor (it moves on either of HX Edit's tabs), else the edit panel."""
@@ -1473,7 +1525,7 @@ class ScriptTests(unittest.TestCase):
         self.assertIn("value.pane === 'workbench' ? 'workbench' : 'focus'", script)   # Focus Mode's own messages carry no pane
         self.assertIn("targetBinding.peekGlobal(editor, 'global', '@tempo')", script)
         # Still only values, a model, a capture, a snapshot and a click on the chain are ever written.
-        self.assertEqual(script.count('targetBinding.setValue('), 6)   # (and a value in another snapshot)
+        self.assertEqual(script.count('targetBinding.setValue('), 7)   # (and a value in another snapshot: on, or once recalled, R5)
         self.assertEqual((script.count('targetBinding.setModel('), script.count('targetBinding.setIndex(')), (2, 3))   # (a swap, the split's type; a capture added, an IR)
 
 
