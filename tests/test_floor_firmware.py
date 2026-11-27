@@ -163,6 +163,7 @@ class DetectTests(unittest.TestCase):
         self.assertEqual((asked, got.pedal, got.source), ([], False, 'assumed'))
 
 
+@unittest.skipUnless(BASELINE.is_dir(), 'requires the prepared HX Edit 3.82 baseline (src/build/HX Edit, not in the repo)')
 class FloorCatalogTests(unittest.TestCase):
     def setUp(self):
         for name in ('nam_catalog.load_settings', 'nam_catalog.read_custom_names'):

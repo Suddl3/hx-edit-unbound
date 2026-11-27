@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import os
+import time
 import sys
 import tempfile
 import unittest
@@ -216,6 +218,10 @@ class UploadedPictureTests(unittest.TestCase):
 
     def test_upload_reaches_the_running_editor_and_the_page(self):
         earlier = self.library.add_picture(tiny_png(red=10))
+        # (uploaded pictures are ordered by file time: on a fast machine both land in the same tick, so the earlier one
+        # is dated a minute back, as an upload made before this editor start would be)
+        older = time.time() - 60
+        os.utime(Path(self.library.pictures) / f'{earlier}.png', (older, older))
         models = Path(self.folder.name) / 'icons_models'
         models.mkdir()
         self.library.publish_pictures(models)          # editor start: earlier uploads
