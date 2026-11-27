@@ -82,6 +82,8 @@ A preview borrows **User IR slot 128**: do not keep an IR of your own there.
 
 **Levels** brings presets and snapshots to one output level. It plays two seconds of your own recorded playing through each snapshot over USB (nothing comes out of your amp), measures them and suggests a change to the output level only. Nothing changes until you Apply, and Undo takes it back.
 
+Levels leaves alone any preset it cannot measure silently or change safely: one whose lane B has an output of its own, or whose output Level is on an expression pedal, MIDI or another controller (Snapshots is fine). Measurements belong to the setlist they were made in, and Cancel stops Apply or Undo before the next preset.
+
 ![Level presets](docs/screenshots/levels.png)
 <p align="center"><em>Level presets after a scan: each snapshot measured, with the change it suggests.</em></p>
 

@@ -212,6 +212,16 @@ from the **HX Unbound** menu button beside TONE3000: **Level presets…**.
   a Snapshots controller keep their per-snapshot values. Apply to the loaded preset is left unsaved;
   Apply to several presets saves each one. Undo puts the old levels back (also after a restart), and
   each preset card notes when it was last leveled, with which guitar and to what.
+- **Left alone, with a message** (code review, November 27): a preset whose lane B has an output of
+  its own (Level re-routes, measures and changes output A only; refused at Scan before the test
+  signal is routed, and again at Apply), and a preset whose output Level is on an expression pedal,
+  MIDI or any controller but Snapshots (refused in every scanned preset and again at Apply, so that
+  assignment is never replaced). Measurements belong to their setlist and preset: Apply and Undo
+  check the setlist, number and name before each change and save, and the scan's rows go when HX
+  Edit moves to another setlist. The measuring routing is put back only into the preset it came
+  from; if another preset is loaded meanwhile, the record waits on disk for that preset. Cancel
+  stops Apply and Undo before the next preset: what was done stays done, Undo has it, and the
+  message says how many presets changed.
 - **Captures are not re-levelled.** The converter already applies NAM's own "Normalized" output.
 - **Not built:** an always-on automatic leveler (it fights playing dynamics and solo boosts), and
   applying without loading each preset.
