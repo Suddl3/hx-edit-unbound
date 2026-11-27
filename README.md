@@ -55,6 +55,10 @@ Everything changes the real preset as HX Edit's own controls do, and Undo works 
 ![The block picker](docs/screenshots/picker.png)
 <p align="center"><em>The block picker with your NAM captures as their own category, sorted by kind.</em></p>
 
+### Real gear names
+
+Off by default. In the HX Unbound menu, **Real gear names** shows amps and effects by the gear they model ("A30 Fawn Brt" becomes "Vox AC30 Fawn B"), with the same list HX Unbound Floor firmware can use on the unit (`src/real_names.csv`). It applies the next time you start the editor and changes only the names the editor shows: presets are not touched. Your own `custom-names.csv` (columns `internal`, `real_name`) still wins for the models it lists.
+
 ### Your NAM captures, with pictures
 
 The **Library** holds every capture you have, on the Floor or only on this PC: a gear picture for each, sorted into amps, amp + cab, pedals and more, marked guitar or bass. Put one on the Floor, preview it on the selected NAM block, import `.nam` files, or see what is in each of the Floor's 128 slots.

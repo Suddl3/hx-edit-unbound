@@ -414,8 +414,9 @@ class WorkbenchView(focus_view.FocusView):
     @staticmethod
     def checked_menu(value):
         """A choice from the page's Unbound menu, or None: "classic" (HX Edit's own screen), "focus" (Focus Mode), or a
-        tool of the launcher's own menu, or "checkSlots" (Check Floor slots: every slot read back, R8)."""
-        return value if value in ('classic', 'focus', 'checkSlots', *TOOLS) else None
+        tool of the launcher's own menu, "checkSlots" (Check Floor slots: every slot read back, R8) or "realNames" (the
+        Real gear names choice)."""
+        return value if value in ('classic', 'focus', 'checkSlots', 'realNames', *TOOLS) else None
 
     def show_pins(self, pins):
         """The pinned presets ("setlist:number") for the page."""

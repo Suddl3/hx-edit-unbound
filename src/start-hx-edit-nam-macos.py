@@ -49,9 +49,9 @@ def single_instance():
 
 
 def working_editor(source, workspace, hx_nam=None):
-    from nam_catalog import patch_hx_catalog, read_custom_names, rename_stock_models
+    from nam_catalog import model_names, patch_hx_catalog, rename_stock_models
 
-    names = read_custom_names(APP_SUPPORT / 'custom-names.csv')
+    names = model_names(APP_SUPPORT / 'custom-names.csv')
     bundled = ROOT / 'HX Edit.app'
     destination = workspace / 'HX Edit.app'
     if source is None:

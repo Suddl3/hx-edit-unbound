@@ -41,8 +41,27 @@ def nul(value):
     return value + '\0'
 
 
+# The "Real gear names" choice (HX Unbound menu, settings.json "realNames"; off unless turned on): the names the HX
+# Unbound Floor firmware can show on the unit (hx-unbound-floor helix-floor/names/real_names.csv).
+REAL_NAMES = ROOT / 'real_names.csv'
+REAL_NAMES_KEY = 'realNames'
+
+
+def real_names_on():
+    return load_settings().get(REAL_NAMES_KEY) is True
+
+
+def model_names(custom_path):
+    """The names to show instead of HX Edit's own: the real gear names when chosen, and on top of them the player's own
+    file (read_custom_names), which wins for the models it lists."""
+    return {**(read_names(REAL_NAMES) if real_names_on() else {}), **read_custom_names(custom_path)}
+
+
 def read_custom_names(default_path):
-    path = Path(os.environ.get('HX_EDIT_NAM_NAMES') or default_path).expanduser()
+    return read_names(Path(os.environ.get('HX_EDIT_NAM_NAMES') or default_path).expanduser())
+
+
+def read_names(path):
     if not path.is_file():
         return {}
     names = {}
@@ -648,7 +667,7 @@ def prepare_copy(working_directory, scan_error=False, *, hx_nam=None, floor=None
         patch_catalog(resources, nam_layers(), nam_pedal())
     if hx_nam:
         patch_hx_catalog(resources, hx_nam)
-    if names := read_custom_names(ROOT / 'custom-names.csv'):
+    if names := model_names(ROOT / 'custom-names.csv'):
         rename_stock_models(resources, names)
     patch_library(resources, scan_error)
     patch_sidebar(resources, sidebar_width())

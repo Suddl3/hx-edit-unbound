@@ -3020,6 +3020,7 @@ function openMenu() {
     // working without it: options.menuRow. It stays by default, drawn dark; window_frame.py keeps the window's height
     // right from one launch to the next when it is away.)
     ...(options.menuRow ? [el('hr'), item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar))] : []),
+    el('hr'), item('Real gear names', 'Amps and effects by the gear they model. Applies the next time you start the editor.', '<i class="sw' + (options.realNames ? ' on' : '') + '"></i>', () => ask('menu', 'realNames')),
     // (R8: slots this PC remembers are shown at once but read back before Use on Floor; this reads every one now)
     el('hr'), item('Check Floor slots', 'Read every slot back from the Floor, ignoring what this PC remembers', '', () => ask('menu', 'checkSlots')));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');

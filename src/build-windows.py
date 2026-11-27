@@ -21,7 +21,7 @@ PYTHON_VERSION = '3.13.17'
 PYTHON_SHA256 = '9e35319bffedab8b36ad44d8f377cb4f1733bcec257a0b6d04d94f01486ddb38'
 FIRMWARE_REV = 'de8ea773d05ef2dd85bd61a9ad4cba3417e3da0f'
 APP_FILES = (
-    'start-hx-edit-nam.pyw', 'nam_catalog.py', 'nam_convert.py', 'nam_import.js', 'nam_inventory.py',
+    'start-hx-edit-nam.pyw', 'nam_catalog.py', 'real_names.csv', 'nam_convert.py', 'nam_import.js', 'nam_inventory.py',
     'nam_view.js', 'nam_library.py', 'library_card.html', 'tone3000.py', 'tone_browser.py', 'tone_card.html', 'tone_side.html',
     'tone_preview.py', 'tone_view.js', 'nam_light.py', 'nam_modes.py', 'nam_optimize.py', 'nam_level.py', 'nam_level_flow.py',
     'nam_level_measure.py', 'nam_ab.py', 'nam_ab_render.py',
