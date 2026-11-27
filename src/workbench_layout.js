@@ -643,6 +643,22 @@ function workbenchSlotUsers(usage, slot, loaded) {
     !(loaded && u.setlist === loaded.setlist && u.preset === loaded.number)).map(u => ({setlist: u.setlist, preset: u.preset, name: u.name}));
 }
 
+// What the NAM library page and the Captures drawer say besides their captures (v0.7.2): trouble, the library's own
+// problem this launch (workbench.library_problem: it could not be read, or found), said above the list and never
+// replaced by "No captures yet"; empty, the line where no capture is listed (words: the list's own {empty, none}).
+// total: the captures the list has, shown: those its search and filters leave.
+function workbenchLibraryWords(lib, total, shown, words) {
+  const problem = lib && typeof lib === 'object' && lib.problem && typeof lib.problem === 'object' ? lib.problem : null;
+  const trouble = problem && typeof problem.text === 'string' ? problem.text : '';
+  return {trouble, empty: shown ? '' : total ? words.none : trouble ? '' : words.empty};
+}
+// The firmware notice (workbench.firmware_notice: the Floor did not say which firmware it runs this launch), until its
+// OK: '' when there is none, or it was dismissed (the same words).
+function workbenchFirmwareNote(options, dismissed) {
+  const text = options && typeof options === 'object' && typeof options.firmwareNotice === 'string' ? options.firmwareNotice : '';
+  return text && text !== dismissed ? text : '';
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { workbenchSceneSettled, WORKBENCH_SCENE_SETTLE_MS, workbenchSwitchSide, workbenchSecondClick, WORKBENCH_DOUBLE_MS, workbenchName, workbenchShape, workbenchPaths, workbenchPending, workbenchRedo, workbenchOwnSteps, workbenchUndoRedo, workbenchSwapRepeat, WORKBENCH_SWAP_REPEAT_MS, workbenchPicked, workbenchPick, WORKBENCH_PICK_HOLD_MS, workbenchSplitNote, workbenchMixNote, workbenchNodeGaps,
                      WORKBENCH_NOTE_GAP, WORKBENCH_NOTE_LEAST, workbenchNoteRoom, WORKBENCH_SIZES,
@@ -651,5 +667,5 @@ if (typeof module !== 'undefined' && module.exports) {
                      workbenchPendingNamed, workbenchPendingHere, WORKBENCH_LOAD_SETTLE_MS, workbenchSettledMark, WORKBENCH_PREVIEW_END_MS, workbenchPreviewMark, workbenchPreviewOn, WORKBENCH_PREVIEW_END_WAIT_MS, WORKBENCH_PREVIEW_STEP_MS, workbenchSaveHold, WORKBENCH_BACK_MS,
 
  WORKBENCH_BACK_TRIES, workbenchBackAsk, workbenchSetlistName, workbenchSetlistCount, workbenchSlotRows, workbenchFreeRanges, workbenchSlotUsers, workbenchStatusOwner, workbenchStatusFor,
-                     workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges };
+                     workbenchLevelKey, workbenchLevelTarget, workbenchLevelPlan, workbenchLevelChanges, workbenchLibraryWords, workbenchFirmwareNote };
 }

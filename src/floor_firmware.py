@@ -171,6 +171,22 @@ def remember(firmware):
     save_setting(SEEN, data)
 
 
+def asking(settings):
+    """Whether a launch asks the Floor (settings "floorFirmwareAsk": false or HX_EDIT_FLOOR_ASK=0 turn it off)."""
+    return settings.get('floorFirmwareAsk') is not False and os.environ.get('HX_EDIT_FLOOR_ASK') != '0'
+
+
+# Where a launch's profile came from, in the four words trace.log and the Workbench use (the profile's source):
+# the Floor's own answer, its last answer, a profile set by hand, or the basic firmware.
+ORIGINS = {'floor': 'floor', 'remembered': 'remembered', 'environment': 'configured', 'settings': 'configured',
+           'assumed': 'assumed', 'default': 'assumed'}
+
+
+def origin(firmware):
+    """'floor', 'remembered', 'configured' or 'assumed' (ORIGINS); None without a profile, or for a copy's record."""
+    return ORIGINS.get(getattr(firmware, 'source', None)) if firmware is not None else None
+
+
 def detect(firmware_tools, *, ask=None, settings=None):
     """The firmware the Floor runs, for this launch: its own answer (kept for next time); without one (no Floor, the
     first minute after power-on, a build without command 0x4f), a profile set by hand (HX_EDIT_FLOOR_FIRMWARE or
@@ -181,7 +197,7 @@ def detect(firmware_tools, *, ask=None, settings=None):
         from nam_catalog import load_settings
         settings = load_settings()
     asked = None
-    if settings.get('floorFirmwareAsk') is not False and os.environ.get('HX_EDIT_FLOOR_ASK') != '0':
+    if asking(settings):
         asked = (ask or ask_floor)(firmware_tools)
     if asked is not None:
         try:
