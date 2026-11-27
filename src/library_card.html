@@ -458,10 +458,10 @@
 <section id="light" hidden aria-label="Lighter version">
   <span id="lightTitle"></span>
   <label>Layers <select id="layers">
-    <option value="23">23 · ~36% DSP · refine</option>
-    <option value="20">20 · ~33% DSP</option>
-    <option value="16" selected>16 · ~29% DSP</option>
-    <option value="14">14 · ~28% DSP</option>
+    <option value="23">23 · ~48% DSP · refine</option>
+    <option value="20">20 · ~44% DSP</option>
+    <option value="16" selected>16 · ~39% DSP</option>
+    <option value="14">14 · ~37% DSP</option>
   </select></label>
   <label>Training <select id="quality">
     <option value="quick">Quick · ~1.5 min</option>
@@ -558,15 +558,17 @@
     original: {name: 'Original', detail: 'The capture as it is. Plays in a NAM A2 Lite block.'},
     pedal: {name: 'Pedal', detail: 'A small model of the capture. Plays in a NAM Pedal block (pedal firmware).'},
     light16: {name: 'Light', detail: 'The same NAM model with 16 of its 23 layers, in a NAM A2 Lite block. It saves DSP ' +
-              'once the Floor firmware skips the unused layers (measured on a Helix LT: 29% where the full one is 36%).'},
+              'once the Floor firmware skips the unused layers (measured on a Helix LT: about a fifth less than the full one).'},
   };
-  // DSP shares from the Floor's firmware profile (a PAIR build runs the NAM block at 32.5%, not 36%). A Light
-  // version's is an estimate: the LT's 29-of-36 ratio applied to this firmware's NAM block.
+  // DSP shares from the Floor's firmware profile: its declared costs in units of a DSP's 75 (nam_load, pedal_load;
+  // 3250 -> 32.5), shown as the picker and the Floor show them: units / 75 * 100 (43%; 3600 -> 48%, the pedal's 7.5 ->
+  // 10%; floor_firmware.share). A Light version's is an estimate: the LT's 29-of-36 ratio applied to this NAM block.
   let namLoad = 36, pedalLoad = 7.5;
-  const share = value => (Math.round(value * 10) / 10).toString() + '% DSP';
+  const unitShare = units => Math.round(units / 75 * 100);
+  const share = units => unitShare(units) + '% DSP';
   function versionMeta(key) {
     return key === 'original' ? share(namLoad) : key === 'pedal' ? share(pedalLoad) :
-      '~' + Math.round(namLoad * 29 / 36) + '% DSP after a firmware update';
+      '~' + unitShare(namLoad * 29 / 36) + '% DSP after a firmware update';
   }
   function notYet(key) {      // why the Floor cannot use this version ('' when it can)
     return key === 'pedal' && !pedalBlock ? 'Needs the pedal firmware' :
@@ -721,7 +723,7 @@
       full + '. Very close for boosts and overdrives, not for fuzz. ' +
       (pedalBlock ? 'Plays in the NAM Pedal block on your Floor.' : 'Plays once the Floor has the pedal firmware.');
     q('#chooseLightText').textContent = 'About 10 minutes. Works for any capture, fuzz and amps too. Saves nothing on the ' +
-      'Floor until a firmware update; then about ' + Math.round(namLoad * 29 / 36) + '% of a DSP instead of ' + full + '.';
+      'Floor until a firmware update; then about ' + unitShare(namLoad * 29 / 36) + '% of a DSP instead of ' + full + '.';
     q('#chooseTitle').textContent = 'Make a lighter version of “' + capture.name + '”. The original is kept.';
     q('#choosePedal').disabled = !pedalSuits;
     const span = (className, text) => { const s = document.createElement('span'); s.className = className; s.textContent = text; return s; };

@@ -18,8 +18,9 @@ import sys
 from threading import Thread
 
 
-# Layers -> a Helix LT DSP's share for one block (measured on the unit, NAM4_LAYERS firmware, 2026-11-12).
-LAYERS = {23: '~36%', 20: '~33%', 16: '~29%', 14: '~28%'}
+# Layers -> a Helix LT DSP's share for one block (measured on the unit, NAM4_LAYERS firmware, 2026-11-12: 36, 33,
+# 29.5 and 27.7 of a DSP's 75 units, shown as the share they are: units / 75 * 100).
+LAYERS = {23: '~48%', 20: '~44%', 16: '~39%', 14: '~37%'}
 STEPS = {'quick': 800, 'standard': 3000, 'deep': 10000}
 MISSING = ('Training a lighter capture needs Python with torch and neural-amp-modeler. Create '
            'helix-lt-nam\\.venv as its README describes (NAM Studio), or set HX_EDIT_NAM_TRAIN_PYTHON '

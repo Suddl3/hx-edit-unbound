@@ -25,22 +25,25 @@ import re
 import subprocess
 
 import nam_light
+from floor_firmware import share
 
 CACHE = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'Converted'
 
-# (key, layers, quality, title, detail); quality None: the capture as it is
+# (key, layers, quality, title, detail); quality None: the capture as it is. DSP shares as the picker shows them
+# (floor_firmware.share): the blocks' loads in units of a DSP's 75 (A2 Lite 36, Pedal 7.5, Lite 16 29.5, Lite 14 27.7;
+# nam_catalog) as a share of a DSP, not the units themselves.
 MODES = (
     ('original', 23, None, 'As it is · NAM A2 Lite',
-     'Instant. Any capture, full quality. NAM A2 Lite block, about 36% of a DSP.'),
+     f'Instant. Any capture, full quality. NAM A2 Lite block, about {share(36.0)}% of a DSP.'),
     ('pedal', 0, 'pedal', 'Pedal · ~25 s · NAM Pedal',
      'About 25 seconds. For pedals: overdrive, distortion, fuzz (on 13 TONE3000 pedals 0.4-6% error, a fuzz 6%). '
-     'NAM Pedal block, about 7.5% of a DSP. Not for captures with an amp and a cabinet.'),
+     f'NAM Pedal block, about {share(7.5)}% of a DSP. Not for captures with an amp and a cabinet.'),
     ('16-quick', 16, 'quick', '16 layers · fast · NAM Lite 16',
-     'About 2 minutes. Close to the original (Benson Preamp: 0.54% error). NAM Lite 16 block, about 29%.'),
+     f'About 2 minutes. Close to the original (Benson Preamp: 0.54% error). NAM Lite 16 block, about {share(29.5)}%.'),
     ('16-standard', 16, 'standard', '16 layers · best · NAM Lite 16',
-     'About 6 minutes. As good as the original (0.36% error). NAM Lite 16 block, about 29%.'),
+     f'About 6 minutes. As good as the original (0.36% error). NAM Lite 16 block, about {share(29.5)}%.'),
     ('14-standard', 14, 'standard', '14 layers · best · NAM Lite 14',
-     'About 5 minutes. Slightly below the original (0.60% error). NAM Lite 14 block, about 28%.'),
+     f'About 5 minutes. Slightly below the original (0.60% error). NAM Lite 14 block, about {share(27.7)}%.'),
 )
 BUTTON_BASE = 1000
 IR_NAME_LIMIT = 31

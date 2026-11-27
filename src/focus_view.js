@@ -184,23 +184,26 @@ function focusQueue(queue, command, limit = 32) {
 // Whether a DSP has room for model `next` in place of model `now`, as HX Edit itself decides it: what the Floor's
 // meter shows on the DSP (dsp_meter.js: what its blocks use of what they may), less what the block replaced uses
 // there, plus the new model's own figure in HX Edit's catalog (costs.admit: HelixModelDefs; a NAM block: the Floor
-// firmware's declared NAM cost, 36 of 75, whatever the capture then uses on the meter). Seen live 2026-11-26 12:53
+// firmware's declared NAM cost: 36 of 75 on 3600 firmware, 32.5 on 3250). Seen live 2026-11-26 12:53
 // (owner-trials 20261126-121349, preset 006): a NAM capture added at 42.2 used and a capture swapped in for a 23 block
 // at 65.2 were refused by HX Edit (-8611: 42.2 + 36 and 65.2 - 23 + 36 are over 75) though the capture used 27 on the
 // meter once in; the same add went through at 25.2, and a Litigator (17) after it at 52.2. For stock models the meter
-// and the catalog agree (Litigator 17 / 17, Archetype Clean 23.0 / 23.05).
-// costs: {admit: HX Edit's figures by model, real: what the meter measured by cost key}; a plain map is taken as both.
+// and the catalog agree (Litigator 17 / 17, Archetype Clean 23.0 / 23.05); so do NAM blocks on the Floor's current
+// firmware, whose meter counts declared costs (2026-11-27, 807b4dbb: Deluxe Reverb 32.4 at 3250), so a NAM block is
+// never measured (focusMeasured) and what it frees is its declared figure too.
+// costs: {admit: HX Edit's figures by model, real: what the meter measured by model}; a plain map is taken as both.
 // now / next: cost keys (focusCostKey). null when it fits or cannot be known; else the words for the user.
 function focusRoom(view, costs, now, next, dsp) {
   if (!view || typeof view.used !== 'number' || typeof view.budget !== 'number') return null;
   const admit = (costs && costs.admit) || costs || {}, real = (costs && costs.real) || costs || {};
   const base = key => String(key).split('#')[0];
   const number = value => { const n = Number(value); return Number.isFinite(n) ? n : NaN; };
-  // (what the block replaced uses on the meter: its own figure, else its model's measured, else HX Edit's)
+  // (what the block replaced uses on the meter: its model's measured figure, else HX Edit's. A capture's key, a NAM
+  // block's, is never measured: it uses its model's declared figure, admit, as every NAM block does)
   const uses = key => {
     if (key == null) return 0;
-    const own = number(real[key]), model = String(key).includes('#') ? NaN : number(real[base(key)]);
-    return Number.isFinite(own) ? own : Number.isFinite(model) ? model : number(admit[base(key)]) || 0;
+    const own = String(key).includes('#') ? NaN : number(real[key]);
+    return Number.isFinite(own) ? own : number(admit[base(key)]) || 0;
   };
   const declared = number(admit[base(next)]);
   const cost = Number.isFinite(declared) ? declared : number(real[next]);
@@ -254,13 +257,14 @@ function focusAssign(tree, block, keys) {
 }
 
 // The models' costs measured on the Floor's own meter (the Workbench's dsp_costs.py), each in place of HX Edit's
-// estimate: {key: used units}, only plausible figures kept. A key is a model symbol, or "<model>#<capture id>" for a
-// NAM block playing that capture of the library (each capture costs its own: sweep 2026-11-24, 36.0 and 27.0).
-function focusMeasured(found) {
-  const kept = {};
+// estimate: {model: used units}, only plausible figures kept. Never a NAM block's (nam: the NAM engines' models) nor a
+// capture's ("<model>#<capture id>", kept before v0.7.3): every NAM block counts the firmware's declared cost, HX
+// Edit's own catalog figure (costs.admit), whatever capture it plays; the Floor's meter counts declared costs.
+function focusMeasured(found, nam) {
+  const kept = {}, engines = Array.isArray(nam) ? nam : ['HD2_AmpNAMLite', 'HD2_AmpNAMPedal'];
   if (!found || typeof found !== 'object') return kept;
   for (const [key, cost] of Object.entries(found).slice(0, 4000)) {
-    if (/^[A-Za-z0-9_]{3,64}(#[0-9a-f]{64})?$/.test(key) && typeof cost === 'number' && Number.isFinite(cost) && cost > 0 && cost <= 75) kept[key] = cost;
+    if (/^[A-Za-z0-9_]{3,64}$/.test(key) && !engines.includes(key) && typeof cost === 'number' && Number.isFinite(cost) && cost > 0 && cost <= 75) kept[key] = cost;
   }
   return kept;
 }
@@ -1223,7 +1227,7 @@ function installFocusView(options, parts) {
   function commands() {
     recv('focusCommand', message => {
       const value = message.payload || {};
-      if (value.action === 'costs') measured = focusMeasured(value.costs);
+      if (value.action === 'costs') measured = focusMeasured(value.costs, namEngines);
       else if (on && value.action === 'select' && [0, 1].includes(value.dsp) && typeof value.id === 'string' && value.id.length < 16) {
         wanted = {dsp: value.dsp, id: value.id};
         selectAsked = {dsp: value.dsp, id: value.id, at: Date.now()};

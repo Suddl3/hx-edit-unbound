@@ -1,21 +1,20 @@
 """What one block really costs on the Floor, measured from its own DSP meter.
 
 The Floor reports DSP per path only (dsp_meter.js: "used" of a 75 budget). HX Edit's per-model figure
-(HelixModelDefs.bin) is an estimate that does not match it (a NAM A2 Lite: 36 of 75 there, much less on the meter).
+(HelixModelDefs.bin) is HX Edit's own estimate; the meter's figure is what the Floor counts.
 So the Workbench watches the path: when a path has exactly one block more or fewer than its last steady reading,
 the meter's next move is that block's cost. A model swapped for another counts too, once the old model's cost is
 known. Nothing is asked of the device: these are the figures the meter reads anyway.
 
 Saved in %LOCALAPPDATA%\\HX Edit NAM\\dsp-costs.json: {"costs": {key: used units}, "firmware": {...}}.
 
-A NAM block's cost depends on the capture it plays, not only on its model: every capture is the one symbol
-HD2_AmpNAMLite, and the live sweep of 2026-11-24 measured Jcm800 at 36.0 and Deluxe Reverb at 27.0 on the same Floor.
-So a NAM block whose slot holds a capture of the library is keyed "<model>#<the capture's library id>" (the sha256 the
-library keeps it by: the same capture in another slot is the same key, another capture in the same slot is not). Its
-model's own figure follows the newest capture measured: it is the fallback for a capture not measured yet (cost_of),
-and HX Edit's declared cost after it. A file from before this (model symbols only) loads as it was.
-A block whose capture is not known for a moment (the slot check re-reads the slots after a chain change) is the same
-block when only that changed: nothing is measured from it.
+A NAM block (NAM A2 Lite, NAM Pedal) is never measured: the Floor's meter counts the cost its firmware DECLARES for
+each block, not what the block really loads (hx-unbound-floor floor/dsp_meter.py), so every NAM A2 Lite block counts the
+firmware's NAM cost / 100 (3250 -> 32.5 of 75, 43%) and every NAM Pedal block its pedal cost / 100, whatever capture it
+plays (Nick's Floor on 807b4dbb, 2026-11-27: preset 032, DSP 1 at 50% = Kinky Boost 5.1 + Deluxe Reverb 32.4). Those
+figures are the declared ones (DspCosts declared, floor_firmware.FloorFirmware.declared). Per-capture figures
+("<model>#<capture id>") were kept before v0.7.3: under older firmware the sweep of 2026-11-24 read Jcm800 at 36.0 and
+Deluxe Reverb at 27.0; a file with them (or a NAM model's figure) loads without them.
 The costs are dropped when the Floor answers with another firmware than the one they were measured on (firmware_of:
 its declared NAM and NAM Pedal costs, all its 0x4f answer says; review of PR #7).
 
@@ -54,20 +53,29 @@ def confirm_gap(kept):
 DEVICE_ERRORS = ('-8212',)
 _CODE = re.compile(r'\((-\d+)\)')
 _CHAIN = re.compile(r'block\d{1,2}')
-_CAPTURE = re.compile(r'[0-9a-f]{64}')
-_KEY = re.compile(r'[A-Za-z0-9_]{3,64}(#[0-9a-f]{64})?')
+_KEY = re.compile(r'[A-Za-z0-9_]{3,64}')
+# The NAM engines' models (focus_view.NAM_ENGINES): their cost is the firmware's declared one, never measured
+NAM_ENGINES = ('HD2_AmpNAMLite', 'HD2_AmpNAMPedal')
 
 
-def key_of(block, captures):
-    """A block's key: its model, or "<model>#<capture id>" when its slot holds a capture of the library (captures:
-    focus_view.js state.captures [{slot, id, ...}]). Only a NAM block's slot is in that list: an IR block's is an IR."""
-    model = str(block.get('model'))
-    slot = block.get('slot')
-    if type(slot) is int and slot >= 1:
-        for capture in captures:
-            if isinstance(capture, dict) and capture.get('slot') == slot and _CAPTURE.fullmatch(str(capture.get('id') or '')):
-                return model + '#' + capture['id']
-    return model
+def key_of(block, captures=()):
+    """A block's key: its model. (Before v0.7.3 a NAM block playing a capture of the library was keyed
+    "<model>#<capture id>"; every capture costs the same declared figure, so its model is its key. captures: kept for
+    the callers, focus_view.js state.captures.)"""
+    return str(block.get('model'))
+
+
+def is_nam(key):
+    """Whether a key is a NAM engine's (its cost is the firmware's declared one)."""
+    return base(key) in NAM_ENGINES
+
+
+def declared_of(firmware):
+    """{NAM model: load} a floor_firmware.FloorFirmware declares (its declared), or {} without one."""
+    try:
+        return dict(firmware.declared) if firmware is not None else {}
+    except AttributeError:
+        return {}
 
 
 def base(key):
@@ -145,10 +153,12 @@ def difference(before, after):
 
 
 class DspCosts:
-    def __init__(self, path=FILE, firmware=None):
-        """firmware: what the Floor answered this launch (firmware_of), or None when it did not."""
+    def __init__(self, path=FILE, firmware=None, declared=None):
+        """firmware: what the Floor answered this launch (firmware_of), or None when it did not. declared: {NAM model:
+        load} the firmware the editor is set up for declares (declared_of), what every NAM block costs."""
         self.path = Path(path) if path else None
         self.costs = {}
+        self.declared = {k: float(v) for k, v in (declared or {}).items() if k in NAM_ENGINES}
         self.firmware = firmware
         self.dropped = False              # the file's costs were measured on another firmware: dropped at this start
         self._now = [None, None]          # per path: what it shows now {preset, models, used, since}
@@ -157,13 +167,14 @@ class DspCosts:
         self._quiet_until = None          # lost: no measuring until then
         self._held = {}                   # model: a figure far from the kept one, waiting for a second that agrees
         self.held = []                    # what the last observe held back [(model, cost)] (for the trace)
-        was = None
+        was, stale = None, False
         try:
             data = json.loads(self.path.read_text(encoding='utf-8')) if self.path else {}
             found, was = data.get('costs'), data.get('firmware')
             if isinstance(found, dict):
                 self.costs = {str(k): round(float(v), 1) for k, v in found.items()
-                              if _KEY.fullmatch(str(k)) and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 75}
+                              if _KEY.fullmatch(str(k)) and not is_nam(k) and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 75}
+                stale = len(self.costs) < len(found)        # (a NAM block's, a capture's or a bad entry: left out)
         except (OSError, ValueError, AttributeError):
             self.costs = {}
         if firmware is None:
@@ -172,10 +183,15 @@ class DspCosts:
             # measured on another firmware (a file from before this has none: its costs are taken as this one's)
             self.costs, self.dropped = {}, True
             self._save()
+        if stale and not self.dropped:
+            self._save()                                    # (the file without them from now on)
 
     def cost_of(self, key):
-        """A key's measured cost: its own, else its model's (a capture not measured yet); None when neither is known."""
-        return self.costs.get(key, self.costs.get(base(key)))
+        """A key's cost: a NAM block's the firmware's declared one (None when not known), else its measured one (None
+        when not measured yet)."""
+        if is_nam(key):
+            return self.declared.get(base(key))
+        return self.costs.get(base(key))
 
     def observe(self, state, dsp, now):
         """The chain (focus_view.js state) and the meter (dspLoad views) at time now. Returns what was measured
@@ -220,11 +236,11 @@ class DspCosts:
                 self._settled[index] = reading
         kept = []
         for model, cost in found:
+            if is_nam(model):
+                continue                                  # (a NAM block costs the firmware's declared figure)
             known, held = self.costs.get(model), self._held.pop(model, None)
             if known is None or abs(cost - known) <= confirm_gap(known) or (held is not None and abs(cost - held) <= AGREE):
                 self.costs[model] = cost
-                if base(model) != model:
-                    self.costs[base(model)] = cost        # (the fallback for a capture not measured yet: the newest)
                 kept.append((model, cost))
             else:
                 self._held[model] = cost              # far from the kept figure: waits for a second measurement
@@ -260,8 +276,9 @@ class DspCosts:
             return bounded(next(iter(removed)), -change, before['used'], after['chain'] > 0)
         if sum(added.values()) == 1 and sum(removed.values()) == 1:
             new, old = next(iter(added)), next(iter(removed))
-            if old in self.costs:
-                return bounded(new, round(self.costs[old] + change, 1), after['used'], after['chain'] > 1)
+            if self.cost_of(old) is not None:
+                # (what the old block cost: measured, or a NAM block's declared figure)
+                return bounded(new, round(self.cost_of(old) + change, 1), after['used'], after['chain'] > 1)
         return None
 
     def _save(self):

@@ -1120,17 +1120,21 @@ const host = window.chrome && window.chrome.webview;
 let catalog = null, state = null, dsp = null, options = {}, visible = !host;
 let costs = {};          // each model's DSP as the Floor's meter measured it ({type: "dspCosts"}, workbench.py)
 // A model's DSP: as measured on the Floor where it has been, else HX Edit's estimate (catalog.loads). NaN: unknown.
-// A key may be a capture's ("<model>#<capture id>", dsp_costs.key_of: each capture costs its own): one not measured
-// yet costs the Floor firmware's declared NAM cost (catalog.loads: 36 of 75, 48%), never another capture's figure
-// (live 2026-11-26 13:2x: the model's figure followed the newest capture measured, 36 or 27, so unmeasured tiles
-// read 48% on one day and 36% on another). The same for a NAM model with no capture of the library.
+// A NAM block (NAM A2 Lite, NAM Pedal) always costs the Floor firmware's declared figure (catalog.loads: this copy's
+// catalog, built for the detected firmware: 3250 -> 32.5 of 75, 43%; 3600 -> 36, 48%), whatever capture it plays:
+// the Floor's meter counts declared costs, not measured load (dsp_costs.py). A key may still name a capture
+// ("<model>#<capture id>"): only its model counts. Per-capture figures from older firmware (36 or 27) are not used.
 const costOf = key => {
-  const own = Number(costs[key]), symbol = String(key).split('#')[0], found = Number(costs[symbol]);
-  const declared = Number((catalog && catalog.loads || {})[symbol]);
-  if (Number.isFinite(own) && own > 0 && (String(key).includes('#') || !(catalog && catalog.nam.includes(symbol)))) return own;
-  if (String(key).includes('#') || (catalog && catalog.nam.includes(symbol))) return declared;
-  return Number.isFinite(found) && found > 0 ? found : declared;
+  const symbol = String(key).split('#')[0], declared = Number((catalog && catalog.loads || {})[symbol]);
+  if (catalog && catalog.nam.includes(symbol)) return declared;
+  const own = Number(costs[symbol]);
+  return Number.isFinite(own) && own > 0 ? own : declared;
 };
+// Whether a block's DSP figure is the firmware's declared one (a NAM block), not measured on the Floor's meter
+const declaredCost = block => !!(catalog && catalog.nam.includes(block.model));
+// Units of a DSP's 75 (the meter's, the firmware's cost / 100) as the share the picker and the Floor show:
+// 32.5 -> 43, 36 -> 48, 7.5 -> 10 (floor_firmware.share; not the units themselves as a %)
+const unitShare = units => Math.round(units / 75 * 100);
 // What HX Edit needs free to add a model or change a block to it: its own catalog figure (catalog.loads; a NAM block:
 // the firmware's declared cost, whatever the capture then uses), as focus_view.js focusRoom checks it. A model with no
 // figure there: what it costs (costOf).
@@ -1835,13 +1839,15 @@ function capturePanel(block) {
   const who = el('div', 'who'), words = el('div');
   words.append(el('b', '', taken.name), el('small', '', 'gear' in taken ? namKind(taken) : 'Not in the NAM library'));
   who.append(image(captureUrls(taken).concat(model(block).pictures), 'pic', true), words); box.append(who);
-  // This block's DSP as the Floor's meter measured it (dsp_costs.py: the path's change when this model came or went;
-  // HX Edit's own estimate from its model list is not what the Floor uses), then the whole path's figure.
-  const facts = el('dl', 'kv'), view = dsp && dsp[block.dsp], cost = Number(costs[costKey(block)]);
+  // This block's DSP: a NAM block's is the Floor firmware's declared figure, the same for every capture (costOf; the
+  // Floor's meter counts declared costs); another's as the Floor's meter measured it (dsp_costs.py: the path's change
+  // when this model came or went). Then the whole path's figure.
+  const nam = declaredCost(block), facts = el('dl', 'kv'), view = dsp && dsp[block.dsp];
+  const cost = nam ? costOf(costKey(block)) : Number(costs[costKey(block)]);
   facts.append(el('dt', '', 'Engine'), el('dd', '', model(block).name));
   const budget = view && view.budget ? view.budget : 75;
   facts.append(el('dt', '', 'This block'), Number.isFinite(cost) && cost > 0
-    ? el('dd', 'num', Math.round(100 * cost / budget) + '% of DSP ' + (block.dsp + 1) + ' (measured)')
+    ? el('dd', 'num', Math.round(100 * cost / budget) + '% of DSP ' + (block.dsp + 1) + (nam ? ' (the same for every capture)' : ' (measured)'))
     : el('dd', '', 'Not measured yet (remove it, then Undo)'));
   if (!(Number.isFinite(cost) && cost > 0)) facts.lastChild.title = "The Floor only reports DSP for a whole path: the Workbench measures a block from the change when it comes or goes.";
   if (view && typeof view.used === 'number' && view.budget) facts.append(el('dt', '', 'DSP ' + (block.dsp + 1) + ' in all'), el('dd', 'num', Math.round(100 * view.used / view.budget) + '% in use'));
@@ -1884,7 +1890,7 @@ function drawPanel() {
   }
   if (picking) { drawPicker(block); return; }
   const list = controlsOf(block), nam = !!capture(block);
-  const key = JSON.stringify(['block', block.dsp, block.id, block.model, block.enabled, block.slot ?? 0, title(block), nam && (state.captures || []).length, irOn(block) && irOn(block).name, dsp && dsp[block.dsp], costs[costKey(block)] ?? null,
+  const key = JSON.stringify(['block', block.dsp, block.id, block.model, block.enabled, block.slot ?? 0, title(block), nam && (state.captures || []).length, irOn(block) && irOn(block).name, dsp && dsp[block.dsp], costOf(costKey(block)) || null,
                               panelTab, panelTab === 'controls' ? null : [state.assign, state.snapshots, state.snapshot, state.values]]);
   panel.style.setProperty('--c', tint(block).join(' '));
   panel.classList.toggle('off', !block.enabled);
@@ -2508,7 +2514,7 @@ function drawEdit(block) {
   const key = JSON.stringify(['edit', target.dsp, target.id, target.lane ?? '', target.place ?? '', target.model, target.enabled, target.slot ?? 0, title(target),
                               tab, tab === 'controls' ? assignKey : [state.assign, state.snapshots, state.snapshot, state.values],
                               chain ? [pickedCategory, pickedTab, pickedKind, pickQuery, s.space, s.captures.map(c => [c.slot, c.name, c.icon, c.gear]), lined, replaced] : null,
-                              irOn(target) && irOn(target).name, dsp && dsp[target.dsp], target.isPlace ? null : costs[costKey(target)] ?? null, (state.irs || []).length]);
+                              irOn(target) && irOn(target).name, dsp && dsp[target.dsp], target.isPlace ? null : costOf(costKey(target)) || null, (state.irs || []).length]);
   panel.style.setProperty('--c', tint(target).join(' '));
   panel.classList.toggle('off', !target.isPlace && !target.enabled);
   if (key !== shownPanel) {
@@ -2603,7 +2609,7 @@ function editParams(block, list) {
   let line = el('div');
   if (taken) {
     line = el('div', 'capline');
-    const cost = Number(costs[costKey(block)]), view = dsp && dsp[block.dsp], budget = view && view.budget ? view.budget : 75;
+    const cost = costOf(costKey(block)), view = dsp && dsp[block.dsp], budget = view && view.budget ? view.budget : 75;
     line.title = taken.name;
     line.append('Capture', el('b', '', taken.name), ('gear' in taken ? namKind(taken) : 'Not in the NAM library') + ' · IR slot ' + block.slot +
       (Number.isFinite(cost) && cost > 0 ? ' · this block ' + Math.round(100 * cost / budget) + '% of DSP ' + (block.dsp + 1) : ''), el('span', 'sp'));
@@ -4515,15 +4521,15 @@ const VERSION_INFO = {
   pedal: {name: 'Pedal', detail: 'A small model of the capture. Plays in a NAM Pedal block (pedal firmware).'},
   light16: {name: 'Light', detail: 'The same NAM model with 16 of its 23 layers, in a NAM A2 Lite block. It saves DSP once the Floor firmware skips the unused layers.'},
 };
-const share1 = v => (Math.round(v * 10) / 10).toString() + '% of a DSP';
+const share1 = units => unitShare(units) + '% of a DSP';     // (units of 75: 32.5 -> "43% of a DSP")
 function libVersions(row) {
   const fs = floorStatus || {}, connected = !!fs.navigation && levelSession === 'open', busy = !!fs.busy;
   const namLoad = Number.isFinite(fs.nam_load) ? fs.nam_load : 36, pedalLoad = Number.isFinite(fs.pedal_load) ? fs.pedal_load : 7.5, pedalBlock = fs.pedal_block === true;
   const notYet = key => key === 'pedal' && !pedalBlock ? 'Needs the pedal firmware' : key === 'light16' ? 'Needs a firmware that skips layers' : '';
   const chosen = row.defaultVersion || 'original', plays = chosen !== 'original' && notYet(chosen) ? 'original' : chosen;
-  // (the original's DSP: what the Floor's meter measured for this capture where it has played, else the firmware's)
-  const measured = catalog && catalog.nam ? Number(costs[catalog.nam[0] + '#' + row.id]) : NaN;
-  const meta = key => key === 'original' ? (Number.isFinite(measured) && measured > 0 ? share1(measured) + ' (measured)' : share1(namLoad)) : key === 'pedal' ? share1(pedalLoad) : '~' + Math.round(namLoad * 29 / 36) + '% after a firmware update';
+  // (the original's DSP: the Floor firmware's declared NAM cost, the same for every capture; a Light version's is an
+  // estimate, the LT's 29-of-36 ratio applied to it)
+  const meta = key => key === 'original' ? share1(namLoad) : key === 'pedal' ? share1(pedalLoad) : '~' + unitShare(namLoad * 29 / 36) + '% after a firmware update';
   const ask2 = (doing, key) => ask('levels', {do: doing, arg: row.id, key});
   const listening = fs.listen && fs.listen.id === row.id ? fs.listen : null, source = typeof fs.listen_source === 'string' ? fs.listen_source : null;
   const box = el('div'); box.style.cssText = 'display:grid;gap:7px';
@@ -4607,7 +4613,7 @@ function libVersions(row) {
 // "Make a lighter version": Pedal (about 30 s, pedals only) or Light (about 10 min, any capture)
 function chooseLighter(row, {namLoad, pedalLoad, pedalBlock}) {
   const shade = el('div', 'modal'), box = el('div'), close = () => shade.remove();
-  const pedalSuits = row.gear === 'pedal', full = Math.round(namLoad) + '%';
+  const pedalSuits = row.gear === 'pedal', full = unitShare(namLoad) + '%';
   const option = (key, title, words, enabled) => {
     const b = el('button', 'btn'); b.style.cssText = 'height:auto;display:grid;justify-items:start;gap:3px;padding:10px 12px;text-align:left;white-space:normal';
     const made = (row.versions || []).find(v => v.key === key);
@@ -4618,8 +4624,8 @@ function chooseLighter(row, {namLoad, pedalLoad, pedalBlock}) {
   const cancel = el('button', 'btn', 'Cancel'); cancel.onclick = close;
   const row2 = el('div', 'btnrow'); row2.style.justifyContent = 'flex-end'; row2.append(cancel);
   box.append(el('p', '', 'Make a lighter version of \u201c' + row.name + '\u201d. The original is kept.'),
-    option('pedal', 'Pedal version', (pedalSuits ? '' : 'Pedal captures only. ') + 'About 30 seconds. ' + pedalLoad + '% of a DSP instead of ' + full + '. Very close for boosts and overdrives, not for fuzz. ' + (pedalBlock ? 'Plays in the NAM Pedal block on your Floor.' : 'Plays once the Floor has the pedal firmware.'), pedalSuits),
-    option('light16', 'Light version', 'About 10 minutes. Works for any capture. Saves nothing on the Floor until a firmware update; then about ' + Math.round(namLoad * 29 / 36) + '% of a DSP instead of ' + full + '.', true),
+    option('pedal', 'Pedal version', (pedalSuits ? '' : 'Pedal captures only. ') + 'About 30 seconds. ' + share1(pedalLoad) + ' instead of ' + full + '. Very close for boosts and overdrives, not for fuzz. ' + (pedalBlock ? 'Plays in the NAM Pedal block on your Floor.' : 'Plays once the Floor has the pedal firmware.'), pedalSuits),
+    option('light16', 'Light version', 'About 10 minutes. Works for any capture. Saves nothing on the Floor until a firmware update; then about ' + share1(namLoad * 29 / 36) + ' instead of ' + full + '.', true),
     row2);
   shade.append(box); shade.onclick = e => { if (e.target === shade) close(); };
   document.body.append(shade);
@@ -4628,7 +4634,7 @@ function chooseLighter(row, {namLoad, pedalLoad, pedalBlock}) {
 function chooseLayers(row) {
   const shade = el('div', 'modal'), box = el('div'), close = () => shade.remove();
   const layers = el('select', 'lvpick'), quality = el('select', 'lvpick');
-  for (const [v, w] of [['23', '23 \u00b7 ~36% DSP \u00b7 refine'], ['20', '20 \u00b7 ~33% DSP'], ['16', '16 \u00b7 ~29% DSP'], ['14', '14 \u00b7 ~28% DSP']]) layers.append(new Option(w, v, false, v === '16'));
+  for (const [v, w] of [['23', '23 \u00b7 ~48% DSP \u00b7 refine'], ['20', '20 \u00b7 ~44% DSP'], ['16', '16 \u00b7 ~39% DSP'], ['14', '14 \u00b7 ~37% DSP']]) layers.append(new Option(w, v, false, v === '16'));
   for (const [v, w] of [['quick', 'Quick \u00b7 ~1.5 min'], ['standard', 'Standard \u00b7 ~10 min'], ['deep', 'Deep \u00b7 ~30 min']]) quality.append(new Option(w, v, false, v === 'standard'));
   const go = el('button', 'btn pri', 'Train'), fast = el('button', 'btn', 'Pedal \u00b7 fast'), cancel = el('button', 'btn', 'Cancel');
   go.style.setProperty('--c', '176 112 224');
@@ -4639,7 +4645,7 @@ function chooseLayers(row) {
   const picks = el('div', 'btnrow'); picks.append(el('span', 'note2', 'Layers'), layers, el('span', 'note2', 'Training'), quality);
   const buttons = el('div', 'btnrow'); buttons.style.justifyContent = 'flex-end'; buttons.append(cancel, fast, go);
   box.append(el('p', '', 'Train a lighter copy of \u201c' + row.name + '\u201d that keeps only the first layers, against the capture\u2019s own bigger model (the .nam file must hold one).'), picks,
-    el('span', 'note2', 'DSP shares are measured for one NAM block on a Helix LT; the saving needs a firmware that skips the unused layers.'), buttons);
+    el('span', 'note2', 'The Light share is an estimate from a Helix LT; the saving needs a firmware that skips the unused layers.'), buttons);
   shade.append(box); shade.onclick = e => { if (e.target === shade) close(); };
   document.body.append(shade);
 }

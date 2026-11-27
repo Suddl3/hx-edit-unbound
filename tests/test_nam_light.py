@@ -81,7 +81,7 @@ class LibraryWiringTests(unittest.TestCase):
     def test_page_renders_the_light_panel(self):
         page = render_library({})
         self.assertIn('id="lighter"', page)
-        self.assertIn('~29% DSP', page)
+        self.assertIn('~39% DSP', page)            # (29.5 of a DSP's 75 units on the LT: 39%)
         self.assertIn('id="lightPedal"', page)
         self.assertIn("':16:quick'", page)        # the pedal button's own job: 16 layers, Quick
 

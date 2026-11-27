@@ -43,7 +43,8 @@ class PageCostTests(unittest.TestCase):
     def test_p1_an_unmeasured_capture_costs_the_firmwares_declared_nam_figure(self):
         out = self.page_costs(f'[costOf("{NAM}#{DELUXE}"), costOf("{NAM}#{JCM}"), costOf("{NAM}#{NEW}"), costOf("{NAM}"),'
                               f' costOf("HD2_Chorus"), costOf("HD2_Lead"), admitOf("{NAM}"), admitOf("HD2_Chorus")]')
-        self.assertEqual(out, [27, 36, 36, 36, 4.1, 25.5, 36, 4.5])
+        # (since v0.7.3 every capture costs the declared figure, its own old one too: test_dsp_costs_nam_declared.py)
+        self.assertEqual(out, [36, 36, 36, 36, 4.1, 25.5, 36, 4.5])
         # never another capture's figure: the model's measured one (27 now, the newest) is not used for a new capture
         out = self.page_costs(f'(costs["{NAM}"] = 27, [costOf("{NAM}#{NEW}"), costOf("{NAM}")])')
         self.assertEqual(out, [36, 36])

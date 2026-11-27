@@ -225,8 +225,8 @@ def firmware_notice(firmware, asked=True):
     if not asked or what is None:
         return None
     # As the picker shows it: share of a DSP's 75 meter units (3600 -> 36 units -> 48%), not the firmware's raw figure
-    blocks = (f'NAM blocks at {firmware.nam_load / 0.75:.0f}% of a DSP, '
-              + (f'NAM Pedal at {firmware.pedal_load / 0.75:.0f}%' if firmware.pedal else 'no NAM Pedal'))
+    blocks = (f'NAM blocks at {floor_firmware.share(firmware.nam_load)}% of a DSP, '
+              + (f'NAM Pedal at {floor_firmware.share(firmware.pedal_load)}%' if firmware.pedal else 'no NAM Pedal'))
     return (f'The Floor did not answer when the editor started, so it is using {what} ({blocks}). '
             'If the Floor was just switched on, close the editor and start it again in a minute.')
 
@@ -369,6 +369,16 @@ def setting_on(settings):
     return not (isinstance(settings, dict) and settings.get(SETTING) is False)
 
 
+def declared(resources):
+    """{NAM model: load} the firmware a prepared copy was built for declares (floor_firmware.recorded: what every NAM
+    A2 Lite and NAM Pedal block counts on the Floor's meter); {} when its record cannot be read."""
+    import floor_firmware
+    try:
+        return dsp_costs.declared_of(floor_firmware.recorded(resources))
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
 class WorkbenchView(focus_view.FocusView):
     """The Workbench's pane: Focus Mode's driver with workbench.html. on: shown (the launcher hides it while Focus Mode
     is shown, so the two panes never fight over the top place)."""
@@ -383,7 +393,9 @@ class WorkbenchView(focus_view.FocusView):
         self.previews = []             # previews_view: the previews of ours in User IR 128
         self.prefs = prefs({})
         self.library = None
-        self.costs = dsp_costs.DspCosts(costs_file, firmware)
+        # (what every NAM block costs: the firmware this copy's catalog was built for, res/floor-firmware.json, which
+        # the launcher prepares for the detected one: floor_firmware.detect)
+        self.costs = dsp_costs.DspCosts(costs_file, firmware, declared(resources))
         self.clock = clock
         self._seen = None
         super().__init__(resources, **options)
