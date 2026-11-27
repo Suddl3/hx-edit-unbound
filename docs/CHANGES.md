@@ -1,5 +1,9 @@
 # What's new
 
+## Unreleased
+
+- **Remembered Floor slots are no longer taken on trust.** Slot numbers still show as soon as the Floor connects, but a slot this PC only remembers is read back before Use on Floor picks it, so a capture replaced by another tool under the same name can no longer play in place of the one the library names. **Check Floor slots** in the menu reads every slot again ([details](FLOOR-WORKFLOW.md#owner-decisions-november-13-supersede-the-points-they-touch-below)).
+
 ## November 27: v0.7.1
 
 - **Adding or swapping a NAM capture** is judged the way HX Edit judges it. A capture that has not been measured is shown at the firmware's own figure, captures that will not fit are marked full, and nothing is sent that HX Edit would refuse.

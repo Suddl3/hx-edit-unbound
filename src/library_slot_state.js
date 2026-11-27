@@ -1,31 +1,39 @@
 'use strict';
 
 // In-memory evidence only. Never loads a saved mapping or accesses a device.
+// recalled: slots whose entry came from this PC's memory of an earlier read (recall), not from a read on this
+// connection. They are shown and named like any other, but are not proof of what the slot holds (R8, review
+// 2026-11-27): another tool may have replaced the content under the same name. confirmedEntries() leaves them
+// out; a read on this connection (accept) or any forget turns them back.
 function createLibrarySlotLedger() {
   let epoch=0;
-  const verified=new Map(), imports=new Map();
+  const verified=new Map(), imports=new Map(), recalled=new Set();
   let displayed=new Map(),refreshing=false;
   const validSlot=slot=>Number.isInteger(slot) && slot>=1 && slot<128;
   return {
     epoch:()=>epoch,
-    invalidate(preserveDisplay=true){epoch++;verified.clear();imports.clear();refreshing=true;if(!preserveDisplay)displayed.clear();},
+    invalidate(preserveDisplay=true){epoch++;verified.clear();imports.clear();recalled.clear();refreshing=true;if(!preserveDisplay)displayed.clear();},
     invalidateSlots(slots){
       const changed=new Set(slots.filter(validSlot));
       if(!changed.size)return;
       epoch++;
-      for(const slot of changed){verified.delete(slot);displayed.delete(slot);imports.delete(slot);}
+      for(const slot of changed){verified.delete(slot);displayed.delete(slot);imports.delete(slot);recalled.delete(slot);}
       for(const slot of imports.keys())imports.set(slot,epoch);
     },
     commitDisplay(){displayed=new Map(verified);refreshing=false;},
     displaySlotsFor:contentId=>[...displayed].filter(([slot,id])=>id===contentId).map(([slot])=>slot).sort((a,b)=>a-b),
     displayEntries:()=>[...displayed].sort((a,b)=>a[0]-b[0]),
-    imported(slot){if(validSlot(slot)){verified.delete(slot);displayed.delete(slot);imports.set(slot,epoch);}},
+    imported(slot){if(validSlot(slot)){verified.delete(slot);displayed.delete(slot);recalled.delete(slot);imports.set(slot,epoch);}},
     importCurrent:slot=>imports.get(slot)===epoch,
     contentFor:slot=>verified.get(slot) || null,
     entries:()=>[...verified].sort((a,b)=>a[0]-b[0]),
+    // Read back on this connection: what an action that depends on the content may trust.
+    confirmedEntries:()=>[...verified].filter(([slot])=>!recalled.has(slot)).sort((a,b)=>a[0]-b[0]),
+    isRecalled:slot=>recalled.has(slot),
+    recalledSlots:()=>[...recalled].sort((a,b)=>a-b),
     trackedSlots:()=>[...new Set([...verified.keys(),...displayed.keys(),...imports.keys()])],
     forget(slot,rechecking=false){
-      const had=verified.delete(slot);
+      const had=verified.delete(slot);recalled.delete(slot);
       // Readback invalidates authorization immediately, but a background scan
       // retains its previous display until commit. Real replacement/deletion
       // calls omit rechecking and must still clear the old display immediately.
@@ -35,7 +43,16 @@ function createLibrarySlotLedger() {
     accept(ticket,slot,contentId){
       if(ticket!==epoch || !validSlot(slot) || typeof contentId!=='string' ||
           !/^[0-9a-f]{64}$/.test(contentId))return false;
-      imports.delete(slot);verified.set(slot,contentId);if(!refreshing)displayed.set(slot,contentId);return true;
+      imports.delete(slot);recalled.delete(slot);verified.set(slot,contentId);if(!refreshing)displayed.set(slot,contentId);return true;
+    },
+    // What this PC remembers the slot held, for display only (see recalled above). A slot already read on this
+    // connection keeps its read.
+    recall(ticket,slot,contentId){
+      if(ticket!==epoch || !validSlot(slot) || typeof contentId!=='string' ||
+          !/^[0-9a-f]{64}$/.test(contentId))return false;
+      if(verified.has(slot) && !recalled.has(slot))return true;
+      if(imports.has(slot))return false; // (just written by Load on Floor: read back, not remembered)
+      recalled.add(slot);verified.set(slot,contentId);if(!refreshing)displayed.set(slot,contentId);return true;
     },
     slotsFor:contentId=>[...verified].filter(([slot,id])=>id===contentId)
       .map(([slot])=>slot).sort((a,b)=>a-b)

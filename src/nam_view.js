@@ -289,6 +289,10 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
   // slot -> {name, contentId}: what each permanent slot held when this PC last read it back
   // (contentId null: something that is not a library capture). Seeded from the supervisor's
   // file, kept current here, and used only while the device still shows the same slot name.
+  // It names and pictures a slot at once; it is never proof of the content (R8, review
+  // 2026-11-27): another tool may have replaced a capture under the same name while this
+  // editor was closed or the Floor disconnected. verifiedCaptureSlot reads such a slot back
+  // before Use on Floor trusts it, and checkAllSlots (the explicit Check) ignores this memory.
   const rememberedSlots = new Map();
   for (const entry of Array.isArray(profile.rememberedSlots) ? profile.rememberedSlots : []) {
     if (Array.isArray(entry) && Number.isInteger(entry[0]) && entry[0] >= 1 && entry[0] <= 127 &&
@@ -327,7 +331,7 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
 
   function emitInventory() {
     if (slotLedger) send({ type: 'floorInventory', epoch: slotLedger.epoch(), state: inventoryState,
-      entries: slotLedger.displayEntries(), verified: slotLedger.entries() });
+      entries: slotLedger.displayEntries(), verified: slotLedger.confirmedEntries(), remembered: slotLedger.recalledSlots() });
   }
 
   function slotCheckTrace(why, resumed) {
@@ -2214,22 +2218,30 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     },
     noteCapture,
     requestSlotCheck() { requestLibraryVerification(); },
+    // The explicit Check (HX Unbound menu > Check Floor slots): every permanent slot is read back, whatever this PC
+    // remembers about it. Slower than the automatic check (about half a second of HX Edit per slot), so only on request.
+    checkAllSlots() { return discoveryControls?.requestVerification({allowWhileBrowsing:true, fresh:true}) === true; },
     // The slot check has completed (all slots, or all it could read) since proof was last discarded.
     slotCheckDone: () => inventoryState === 'verified' || inventoryState === 'partial',
     acceptRememberedSlot(slot) {
       // From the slot check's UI-thread tick, right after its snapshot. True: this slot needs
-      // no read-back.
+      // no read-back for display. The remembered capture is shown (slot number, name, picture)
+      // but recalled, not verified: whatever depends on the content reads the slot first.
       const memory = rememberedSlots.get(slot), name = slotNames.get(slot);
       if (!memory || !slotLedger) return false;
       if (typeof name !== 'string' || !name || memory.name !== name) { forgetRememberedSlot(slot); return false; }
       if (memory.contentId === null) return true;
-      if (!slotLedger.accept(slotLedger.epoch(), slot, memory.contentId)) return false;
+      if (!slotLedger.recall(slotLedger.epoch(), slot, memory.contentId)) return false;
       inventoryDirty = true;
       return true;
     },
     rememberSlot(slot, status, _signature, contentId) {
       // What a read-back found. No native access: this can run on Frida's message thread, so
       // the name is the one the last snapshot read.
+      // A read that did not confirm the remembered capture (an IR, another capture, nothing
+      // identified) leaves no trace of it: a matching read has already replaced the recalled
+      // entry (recordVerifiedSlot runs first).
+      if (slotLedger?.isRecalled(slot) && slotLedger.forget(slot)) { inventoryDirty = true; emitInventory(); }
       const name = slotNames.get(slot);
       if (!Number.isInteger(slot) || slot < 1 || slot > 127 || typeof name !== 'string' || !name ||
           name.length > 64) return;
@@ -2314,22 +2326,30 @@ function installNamView(profiles, savedSidebarWidth = 0, irParameters = {}, prof
     payloadRevision: () => payloadRevision,
     inventorySnapshot() {
       return { epoch: slotLedger?.epoch() || 0, state: inventoryState,
-        entries: slotLedger?.displayEntries() || [], verified: slotLedger?.entries() || [] };
+        entries: slotLedger?.displayEntries() || [], verified: slotLedger?.confirmedEntries() || [],
+        remembered: slotLedger?.recalledSlots() || [] };
     },
     verifiedCaptureSlot(identity, requestedSlot, version) {
       // version: a kept version of the capture ('pedal'); none = the original. A slot holding a version is never
       // the original's (the Pedal model in a NAM A2 Lite block is silent), and the other way round.
+      // Only a slot read back on this connection counts (R8): a slot this PC merely remembers
+      // holding the capture is read back first (that slot alone) and null returned meanwhile, so
+      // Use on Floor says to wait and try again rather than select what may be another sound.
       if (!slotLedger || typeof identity !== 'string' || !/^[0-9a-f]{64}$/.test(identity)) return null;
       const list = irList();
       if (list.isNull()) return null;
+      const recalled = [];
       for (const [slot, contentId] of slotLedger.entries()) {
         if (requestedSlot !== undefined && slot !== requestedSlot) continue;
         if (payloadMetadata[contentId]?.id !== identity || slot === AUDITION_SLOT) continue;
         if ((payloadMetadata[contentId].version || undefined) !== (version || undefined)) continue;
         // Current accepted epoch + the native occupied row, never display history.
         const row = getIrRow(list, slot - 1);
-        if (!row.isNull() && row.add(0x10c).readU32()) return slot;
+        if (row.isNull() || !row.add(0x10c).readU32()) continue;
+        if (slotLedger.isRecalled(slot)) { recalled.push(slot); continue; }
+        return slot;
       }
+      if (recalled.length) discoveryControls?.requestVerification({allowWhileBrowsing:true, slots:recalled});
       return null;
     },
     modelSlot: () => hasActiveModel() ? getValue(activeModel) + 1 : null,

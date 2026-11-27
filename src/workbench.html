@@ -3002,7 +3002,9 @@ function openMenu() {
     // (HX Edit's own menu row can be taken away while the Workbench is shown, where this build can keep its commands
     // working without it: options.menuRow. It stays by default, drawn dark; window_frame.py keeps the window's height
     // right from one launch to the next when it is away.)
-    ...(options.menuRow ? [el('hr'), item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar))] : []));
+    ...(options.menuRow ? [el('hr'), item("Show HX Edit's menu bar", 'File, Edit, Snapshots, Window, Help, Devices', '<i class="sw' + (options.menuBar ? ' on' : '') + '"></i>', () => ask('menuBar', !options.menuBar))] : []),
+    // (R8: slots this PC remembers are shown at once but read back before Use on Floor; this reads every one now)
+    el('hr'), item('Check Floor slots', 'Read every slot back from the Floor, ignoring what this PC remembers', '', () => ask('menu', 'checkSlots')));
   menu.hidden = false; $('menuButton').setAttribute('aria-expanded', 'true');
   syncTool();
 }
@@ -4642,7 +4644,8 @@ function libSide(row) {
   if (kind === 'tone3000') { from.append('TONE3000 · '); const link = el('button', 'linkish', 'open its page'); link.onclick = () => libAsk('openSource', row); from.append(link); }
   else from.append(kind === 'file' ? 'A file on this PC' : kind ? row.source : '—');
   const slots = row.irSlots || [], floor = el('dd');
-  if (slots.length) { const b = el('b', '', (slots.length > 1 ? 'Slots ' : 'Slot ') + slots.join(', ')); b.style.fontWeight = '600'; floor.append(b); if (row.slotState && row.slotState !== 'verified') floor.append(el('span', 'note2', '(being checked)')); }
+  if (slots.length) { const b = el('b', '', (slots.length > 1 ? 'Slots ' : 'Slot ') + slots.join(', ')); b.style.fontWeight = '600'; floor.append(b); if (row.slotState && row.slotState !== 'verified') floor.append(el('span', 'note2', '(being checked)'));
+    else if ((row.rememberedSlots || []).length) floor.append(el('span', 'note2', '(remembered; read again before use)')); }
   else floor.append(el('span', 'note2', (row.pendingSlots || []).length ? 'Going to slot ' + row.pendingSlots.join(', ') + '…' : 'Not on the Floor yet'));
   const gearDd = el('dd'); gearDd.append(gear, inst);
   kv.append(el('dt', '', 'Kind'), gearDd, el('dt', '', 'From'), from, el('dt', '', 'On the Floor'), floor);
