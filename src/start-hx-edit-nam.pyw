@@ -1090,6 +1090,25 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         preview.close_diagnostics()
 
 
+def prepared_workspace():
+    """Where this launch's HX Edit copy is prepared: a new temporary folder under build/, or with HX_EDIT_COPY_DIR set
+    (test launches) that one fixed folder, emptied first. A fixed folder keeps HX Edit's path the same from launch to
+    launch, so a screen-control grant (computer use) given for one test launch still holds for the next."""
+    fixed = os.environ.get('HX_EDIT_COPY_DIR')
+    if not fixed:
+        return tempfile.TemporaryDirectory(prefix='nam-', dir=ROOT / 'build', ignore_cleanup_errors=True)
+    import contextlib
+    import shutil
+
+    @contextlib.contextmanager
+    def fixed_folder(path):
+        shutil.rmtree(path, ignore_errors=True)
+        path.mkdir(parents=True, exist_ok=True)
+        yield str(path)
+
+    return fixed_folder(Path(fixed).resolve())
+
+
 def main():
     global FLOOR_SEEN
     import frida
@@ -1143,7 +1162,7 @@ def main():
 
     firmware = 'plain' if args.hx_nam or args.floor_reference else ask_firmware()
     (ROOT / 'build').mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='nam-', dir=ROOT / 'build', ignore_cleanup_errors=True) as workspace:
+    with prepared_workspace() as workspace:
         floor = None
         if args.floor_reference:
             import floor_firmware
