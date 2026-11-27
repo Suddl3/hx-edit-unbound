@@ -1402,6 +1402,8 @@ class UnboundButton : Form
         Tuple.Create("Level presets…", "level"),
         Tuple.Create("Floor look…", "look"),
         Tuple.Create("NAM library…", "library"),
+        // (R8: reads every Floor slot back, whatever this PC remembers about it)
+        Tuple.Create("Check Floor slots", "checkSlots"),
     };
     static readonly string[] Tips = { "Focus Mode: the selected block, large, with its own controls", "HX Edit Unbound: the layout, the chain pictures, the IR list and the tools" };
     static readonly Color Back = Color.FromArgb(29, 29, 29), Face = Color.FromArgb(48, 48, 48), Hover = Color.FromArgb(66, 66, 66),
@@ -2011,7 +2013,7 @@ class DspMeter : Form
         if(!ButtonPlacement(310,1388,9,24,1920,850).IsEmpty)throw new Exception("Unbound button hides without room");
         if(ButtonPlacement(310,1388,9,24,1920,1100)!=new Rectangle(310,9,UnboundButton.CompactWidth,24))throw new Exception("Unbound buttons as marks in a narrow span");
         if(UnboundButton.Layouts.Length!=4||UnboundButton.Layouts[0].Item2!="layout:workbench"||UnboundButton.Layouts[3].Item2!=""||
-           UnboundButton.Choices.Length!=3||UnboundButton.Choices[0].Item2!="level")throw new Exception("Unbound menu");
+           UnboundButton.Choices.Length!=4||UnboundButton.Choices[0].Item2!="level"||UnboundButton.Choices[3].Item2!="checkSlots")throw new Exception("Unbound menu");
         // Three buttons, left to right, inside the window they are drawn in, named or as marks.
         var named=UnboundButton.Parts(UnboundButton.Width,24); var marks=UnboundButton.Parts(UnboundButton.CompactWidth,24);
         if(named.Length!=2||named[0].X!=0||named[1].X!=named[0].Right+UnboundButton.Gap||named[1].Right!=UnboundButton.Width||

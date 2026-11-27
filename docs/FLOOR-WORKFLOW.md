@@ -191,7 +191,8 @@ showed it at once.
 
 ### Known gaps
 
-- Remembered slots are trusted by slot name, and one Floor is assumed.
+- Remembered slots are shown by slot name, and one Floor is assumed. Since November 27 (R8) they are
+  display only: see "Remembered slots are shown, not trusted" below.
 - The NAM categories are an opt-in experiment (above). No storage or DSP counters yet.
 
 This is one owner's testing on one unit, not a release.
@@ -208,15 +209,32 @@ Made by the owner (Suddl3) after the Candidate59–61 test sessions. Built into 
   back and releases 128. A block on 128 with no record can still take Use on
   Floor / Load on Floor.
 - **No slot scan on every launch.** Each slot read is remembered with the slot's
-  name (`floor-memory.json`); only new, renamed or changed slots are read again.
-  This supersedes "invalidate session proof … never load disk mappings" in item
-  6 for slots whose name is unchanged. Slots the Floor reports as changed are
-  still read back.
+  name (`floor-memory.json`); only new, renamed or changed slots are read again
+  by the automatic check. This supersedes "invalidate session proof … never load
+  disk mappings" in item 6 for what is *shown* for slots whose name is unchanged.
+  Slots the Floor reports as changed are still read back.
 - **Remembered slots show as soon as the Floor connects.** Each connect (and each
-  full refresh from the Floor) accepts the slots this PC remembers by itself, with
+  full refresh from the Floor) shows the slots this PC remembers by itself, with
   no tab opened; a launch with the Floor off showed all 22 slot numbers 8 s after
   it connected. This pass never reads a slot back: a new or renamed slot still
   waits for the NAM tab or the library to ask, as before.
+- **Remembered slots are shown, not trusted (November 27, review finding R8).**
+  A name match says nothing about content: stock HX Edit or another tool can put
+  a different capture in a slot under the same name while this editor is closed
+  or the Floor is disconnected. So a remembered slot gets its number, name and
+  picture at once, but is marked *remembered* (the library row says "Remembered
+  from an earlier connection; read back again before Use on Floor", the Workbench
+  "(remembered; read again before use)") until it is read on this connection.
+  Use on Floor, and dragging a capture onto the chain, only take a slot read on
+  this connection: for a remembered one they read that one slot back first and
+  say "Wait for verification, then try again"; the next try uses the slot if it
+  still holds the capture, and the library shows what it really holds if not.
+  Memory never makes a slot count as verified across a launch or a disconnect.
+- **Check Floor slots** (HX Unbound menu, and the Workbench's layout menu) reads
+  every permanent slot back, ignoring what this PC remembers, including slots
+  remembered as "not a library capture". It takes about half a second of HX
+  Edit per used slot, so it only runs when asked; what it reads is remembered
+  for the next launch.
 - **Card wording:** Save to PC / Save to PC + Floor, always the lowest free slot,
   no slot picker. The NAM tab keeps Load on Floor / Use on Floor.
 - Adding or removing a block, or loading another preset, does not discard slot

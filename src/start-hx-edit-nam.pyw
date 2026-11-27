@@ -368,6 +368,10 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     sidebar_action('look', '')
                 elif name == 'library':
                     sidebar_action('expand', '')
+                elif name == 'checkSlots':
+                    # Every permanent slot read back, ignoring what this PC remembers (nam_view checkAllSlots, R8).
+                    if not detached.is_set():
+                        script.post({'type': 'checkSlots', 'payload': {}})
                 elif name == 'irDots':
                     on = not ir_dots[0]
                     ir_dots[0] = on
@@ -869,6 +873,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                         workbench_mode(False)
                     elif choice == 'focus':
                         focus_mode(True)
+                    elif choice == 'checkSlots':         # (not a panel: the Workbench stays)
+                        unbound_choice(choice)
                     elif choice:
                         workbench_mode(False)
                         unbound_choice(choice)

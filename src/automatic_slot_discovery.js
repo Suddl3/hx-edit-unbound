@@ -10,10 +10,16 @@ function createAutomaticSlotDiscovery(api) {
   // again after each full refresh from it) and only accepts slots this PC remembers. It never
   // reads a slot back: if any slot needs reading it stops and waits for a request as before.
   let recall=false;
+  // fresh: an explicit Check, which reads every slot back and consults no memory until it completes. force: slots
+  // whose content an action is about to depend on (Use on Floor of a capture this PC only remembers there), read back
+  // in the next requested pass whatever memory says (R8, review 2026-11-27).
+  let fresh=false;
+  const force=new Set();
   const recallArmed=()=>api.recallOnConnect===true && present;
   const done=new Set(),unidentified=new Set();
   function status(state){api.status({state,checked:done.size,pending:pending?.slot||null});}
-  function reset(){epoch++;pending=null;signature=null;identity=null;slotSignatures.clear();done.clear();unidentified.clear();stableAt=api.now();}
+  function reset(){epoch++;pending=null;signature=null;identity=null;slotSignatures.clear();done.clear();unidentified.clear();
+    fresh=false;force.clear();stableAt=api.now();}
   function cancelPreparation(){
     if(pending?.phase==='exporting')return false;
     if(pending){epoch++;pending=null;status('preparation-cancelled');}
@@ -37,7 +43,7 @@ function createAutomaticSlotDiscovery(api) {
         if(!changed.length)return; // Preview128 never changes permanent-slot content.
         cancelPreparation();
         epoch++;pending=null;stableAt=api.now();allowWhileBrowsing=false;
-        for(const slot of changed){done.delete(slot);unidentified.delete(slot);}
+        for(const slot of changed){done.delete(slot);unidentified.delete(slot);force.delete(slot);}
         requested=requested||verifiedOnce;
         status(sessionActive?'verification-paused':requested?'waiting-for-editor':'verification-needed');
         return;
@@ -52,6 +58,11 @@ function createAutomaticSlotDiscovery(api) {
     },
     requestVerification(options={}){
       if(closed || !present)return false;
+      // {fresh:true}: the explicit Check. {slots:[n…]}: read these back even if remembered (before Use on Floor).
+      if(options.fresh===true){fresh=true;force.clear();done.clear();unidentified.clear();}
+      if(Array.isArray(options.slots))for(const slot of options.slots){
+        if(Number.isInteger(slot)&&slot>=1&&slot<128){force.add(slot);done.delete(slot);unidentified.delete(slot);}
+      }
       blocked=false;requested=true;allowWhileBrowsing=options.allowWhileBrowsing===true;
       stableAt=api.now();status(sessionActive&&!allowWhileBrowsing?'verification-paused':'verification-requested');
       return true;
@@ -120,15 +131,18 @@ function createAutomaticSlotDiscovery(api) {
         return;
       }
       // A slot this PC has already read back, whose name has not changed since, is not read
-      // again: each read locks HX Edit for about half a second. api.remembered accepts the
-      // remembered content itself (or knows the slot holds something that is not a library
-      // capture) and returns true; the slot then counts as checked.
-      if(api.remembered)for(const s of snapshot.slots){
-        if(!done.has(s) && api.remembered(s,currentSlots.get(s))===true)done.add(s);
+      // again: each read locks HX Edit for about half a second. api.remembered shows the
+      // remembered content (as remembered, not as read on this connection: R8) or knows the
+      // slot holds something that is not a library capture, and returns true; the slot then
+      // counts as checked. An explicit Check (fresh) and a slot an action needs read (force)
+      // skip memory.
+      if(api.remembered && !fresh)for(const s of snapshot.slots){
+        if(!done.has(s) && !force.has(s) && api.remembered(s,currentSlots.get(s))===true)done.add(s);
       }
       const slot=snapshot.slots.find(s=>!done.has(s));
       // Only a requested pass makes later changed slots rechecked by themselves (verifiedOnce).
       if(slot===undefined){verifiedOnce=verifiedOnce||requested;requested=false;recall=false;allowWhileBrowsing=false;
+        fresh=false;force.clear();
         status(unidentified.size || snapshot.excluded>0 ? 'complete-partial' : 'complete');return;}
       // A recall pass never reads back: what it accepted stays checked for the next request.
       if(!requested){recall=false;return;}
@@ -149,14 +163,14 @@ function createAutomaticSlotDiscovery(api) {
       if(value.status==='unidentified')unidentified.add(pending.slot);
       // What this read found, with the slot's name as it was when the read was planned.
       api.learned?.(pending.slot,value.status,slotSignatures.get(pending.slot),value.contentId);
-      done.add(pending.slot);pending=null;status('verifying');
+      force.delete(pending.slot);done.add(pending.slot);pending=null;status('verifying');
     },
     fault(reason){if(!closed)fail(reason);},
     close(){closed=true;reset();status('closed');},
     needsSnapshot(){return !closed && present && !blocked && (requested||recall) &&
       (!sessionActive||allowWhileBrowsing) && pending?.phase!=='exporting';},
     needsWake(){return !closed && (!!pending || this.needsSnapshot());},
-    inspect(){return {generation,present,epoch,blocked,requested,recall,sessionActive,verifiedOnce,
+    inspect(){return {generation,present,epoch,blocked,requested,recall,sessionActive,verifiedOnce,fresh,force:[...force],
       done:[...done],pending:pending&&{...pending}};}
   };
 }

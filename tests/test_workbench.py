@@ -1604,7 +1604,10 @@ class WiringTests(unittest.TestCase):
             self.assertIn(words, menu)
         # the switch for HX Edit's menu row: only where the row is taken off at all (menu_row.js in place)
         self.assertIn("...(options.menuRow ? [el('hr'), item(\"Show HX Edit's menu bar\",", menu)
-        self.assertIn("() => ask('menuBar', !options.menuBar))] : []));", menu)
+        self.assertIn("() => ask('menuBar', !options.menuBar))] : []),", menu)
+        # (R8, 2026-11-27: Check Floor slots, the one action in the menu; the Workbench stays shown for it)
+        self.assertIn("item('Check Floor slots',", menu)
+        self.assertIn("() => ask('menu', 'checkSlots')));", menu)
         for gone in ("'focus'", "'level'", "'look'", "'library'", "setView("):
             self.assertNotIn(gone, menu[:menu.index('// ---- the layouts (Batch 4)')])
         self.assertIn("$('toFocus').onclick = () => ask('menu', 'focus');", page)      # Focus Mode: the Editor | Focus switch

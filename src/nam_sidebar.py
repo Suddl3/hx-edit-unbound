@@ -60,7 +60,9 @@ def sidebar_rows(library, *, can_load=False):
         gear = entry.get('gear', '')
         device_state = 'checking' if state == 'refreshing' else 'verified' if verified else 'local-only' if state == 'verified' else 'unverified'
         pending = entry.get('pendingSlots', [])
-        detail = ('Capture content verified on this connection' if verified else
+        remembered = verified and set(slots) <= set(entry.get('rememberedSlots', []))
+        detail = ('Remembered from an earlier connection; read back again before Use on Floor' if remembered else
+                  'Capture content verified on this connection' if verified else
                   'Previous slot numbers; verification is refreshing' if state == 'refreshing' else
                   'Not found in the verified permanent slots' if state == 'verified' else
                   'Installation has not been verified on this connection')

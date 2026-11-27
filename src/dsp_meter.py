@@ -88,7 +88,9 @@ class DspMeter:
 
     CHOICES = ('level', 'look', 'library', 'irDots', 'chainArt', 'chainLarge', 'chainNames', 'chainGlow', 'focusMode', 'workbench',
                # (Classic's chooser, Reveal B12: a layout, and the chain pictures as a pair)
-               'layout:workbench', 'layout:classicplus', 'layout:stage', 'chainIcons', 'chainGear')
+               'layout:workbench', 'layout:classicplus', 'layout:stage', 'chainIcons', 'chainGear',
+               # (Check Floor slots: every slot read back, ignoring what this PC remembers; R8)
+               'checkSlots')
 
     def _clicks(self, output):
         # The helper writes one line per choice from the HX Unbound menu.

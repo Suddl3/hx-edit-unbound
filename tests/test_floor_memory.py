@@ -153,8 +153,11 @@ const assert=require('node:assert/strict'),sent=[];
 const send=message=>sent.push(message);
 const rememberedSlots=new Map(),slotNames=new Map();let inventoryDirty=false;
 function forgetRememberedSlot(slot){if(rememberedSlots.delete(slot))send({type:'slotMemory',slot,forget:true});}
-const accepted=[];
-const slotLedger={epoch:()=>7,accept:(epoch,slot,contentId)=>{accepted.push([epoch,slot,contentId]);return true;}};
+const accepted=[],recalled=[];
+// (R8: a remembered capture is recalled, shown but not verified; only a read on this connection is accepted)
+const slotLedger={epoch:()=>7,accept:(epoch,slot,contentId)=>{accepted.push([epoch,slot,contentId]);return true;},
+  recall:(epoch,slot,contentId)=>{recalled.push([epoch,slot,contentId]);return true;},isRecalled:()=>false,forget:()=>false};
+const emitInventory=()=>{};
 // Rows as the native list presents them: the name, then unrelated bytes.
 let junk='\x01��';
 const names={9:'Deluxe Reverb 1a2b3c',40:'Room IR'};
@@ -178,8 +181,9 @@ assert.deepEqual(sent,[{type:'slotMemory',slot:9,name:'Deluxe Reverb 1a2b3c',con
   {type:'slotMemory',slot:40,name:'Room IR',contentId:null}]);
 // The next launch: the bytes after the name differ, the name does not.
 junk='\x7f�Q';discoverySnapshot(0);
-assert.equal(api.acceptRememberedSlot(9),true);assert.deepEqual(accepted,[[7,9,'a'.repeat(64)]]);
-assert.equal(api.acceptRememberedSlot(40),true);assert.equal(accepted.length,1,'a plain IR is known, not a capture');
+assert.equal(api.acceptRememberedSlot(9),true);assert.deepEqual(recalled,[[7,9,'a'.repeat(64)]]);
+assert.deepEqual(accepted,[],'remembered content is shown, not taken as read back (R8)');
+assert.equal(api.acceptRememberedSlot(40),true);assert.equal(recalled.length,1,'a plain IR is known, not a capture');
 assert.equal(api.acceptRememberedSlot(41),false);
 // A slot whose name changed is forgotten and read back again.
 names[9]='Something else';discoverySnapshot(0);

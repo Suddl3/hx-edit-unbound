@@ -1,5 +1,9 @@
 # What's new
 
+## Unreleased
+
+- **Remembered Floor slots are no longer taken on trust.** Slot numbers still show as soon as the Floor connects, but a slot this PC only remembers is read back before Use on Floor picks it, so a capture replaced by another tool under the same name can no longer play in place of the one the library names. **Check Floor slots** in the menu reads every slot again ([details](FLOOR-WORKFLOW.md#owner-decisions-november-13-supersede-the-points-they-touch-below)).
+
 ## November 27: v0.7.2
 
 - **Problems at start-up are explained, not hidden.** If the editor cannot read your NAM library, the library page and the Captures drawer say why and that your captures are not lost, instead of "No captures yet". The library page shows the folder it reads.

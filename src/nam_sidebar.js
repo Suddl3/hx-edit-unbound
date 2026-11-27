@@ -112,6 +112,15 @@ function installNamSidebar(namView) {
     }
     retry();
   }
+  function checkSlots() {
+    // HX Unbound menu (or the Workbench's): Check Floor slots. Every permanent slot is read back, ignoring what this
+    // PC remembers (R8); its progress shows as the usual "Checking Floor slots… n of m".
+    recv('checkSlots', () => {
+      const started = namView.checkAllSlots?.() === true;
+      send({type:'toneTrace',reason:'slot-check',stage:started?'check-all':'check-all-unavailable'});
+      checkSlots();
+    });
+  }
   function irDots() {
     // HX Unbound menu: "Mark NAM slots in the IR list" turned on or off.
     recv('irDots', message => {
@@ -136,5 +145,5 @@ function installNamSidebar(namView) {
       chainOption();
     });
   }
-  ready();actions();irDots();chainArt();chainOption();
+  ready();actions();checkSlots();irDots();chainArt();chainOption();
 }

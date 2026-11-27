@@ -104,7 +104,7 @@ class Library:
         self.editor_pictures = None   # the running HX Edit copy's res/icons_models (publish_pictures)
         self.backup = self.folder / 'catalog.json.bak'
         self.lock = Lock()
-        self._slot_inventory = {'entries': [], 'state': 'unverified', 'generation': -1}
+        self._slot_inventory = {'entries': [], 'state': 'unverified', 'generation': -1, 'remembered': set()}
         self._payload_index = {}
         self._pending_slots = {}
         self._listeners = set()
@@ -253,6 +253,8 @@ class Library:
             entry['versionSlots'] = {key: sorted({slot for slot, content in slot_inventory['entries'] if content == wanted})
                                      for wanted, (owner, key) in versions_by_content.items() if owner == identity}
             entry['slotState'] = slot_inventory['state']
+            # Slots shown from this PC's memory, not read back on this connection (R8): read again before Use on Floor.
+            entry['rememberedSlots'] = [slot for slot in entry['irSlots'] if slot in slot_inventory['remembered']]
             entry['pendingSlots'] = sorted(slot for slot, capture in pending_slots.items() if capture == identity)
         return entries
 
@@ -403,10 +405,15 @@ class Library:
                     or any(slot == row[0] for slot, _ in clean)):
                 return False
             clean.append(list(row))
+        # The slots of entries shown from memory only (nam_view: recalled, not read on this connection). Optional.
+        remembered = value.get('remembered', [])
+        if not isinstance(remembered, list) or any(type(slot) is not int for slot in remembered):
+            return False
         with self.lock:
             if value['epoch'] < self._slot_inventory['generation']:
                 return False
-            self._slot_inventory = {'generation': value['epoch'], 'state': value['state'], 'entries': clean}
+            self._slot_inventory = {'generation': value['epoch'], 'state': value['state'], 'entries': clean,
+                                    'remembered': set(remembered)}
             if value['state'] in ('verified', 'partial', 'unverified'):
                 self._pending_slots.clear()
         self._changed()
@@ -732,6 +739,7 @@ def library_row(key, value, pictures=None):
                 gearLabel=GEARS.get(value.get('gear', ''), 'Unsorted'), aliases=[value.get('irName', '')],
                 added=value.get('added', ''), source=value.get('source', ''),
                 irSlots=value.get('irSlots', []), slotState=value.get('slotState', 'unverified'),
+                rememberedSlots=value.get('rememberedSlots', []),
                 canTrain=value.get('canTrain', True), pendingSlots=value.get('pendingSlots', []),
                 icon=icon, iconChosen=icon == value.get('icon'),
                 iconAuto=pick_icon(value.get('name', ''), value.get('gear') or None),
