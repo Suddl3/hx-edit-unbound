@@ -25,6 +25,15 @@ NAM_COSTS = (2000, 5000)       # sane bounds for a declared NAM block cost (the 
 PEDAL_COSTS = (300, 3000)
 
 
+BUDGET = 75                    # a DSP's block units on the Floor's meter (dsp_meter.js), as HX Edit counts them
+
+
+def share(load):
+    """A load in the meter's units (the firmware's cost / 100) as the share of a DSP the picker and the Floor show:
+    load / 75 * 100, rounded (NAM 3250 -> 32.5 -> 43%, 3600 -> 36 -> 48%, NAM Pedal 750 -> 7.5 -> 10%)."""
+    return round(load / BUDGET * 100)
+
+
 @dataclass(frozen=True)
 class FloorFirmware:
     nam_cost: int = 3600       # HD2_AmpNAMLite, id 380
@@ -39,6 +48,13 @@ class FloorFirmware:
     @property
     def pedal_load(self):
         return self.pedal_cost / 100
+
+    @property
+    def declared(self):
+        """{model symbol: load} the firmware declares for its NAM blocks: what every NAM block counts on the Floor's
+        meter, whatever capture it plays (the meter shows declared costs, not measured load: hx-unbound-floor
+        floor/dsp_meter.py)."""
+        return {NAM_SYMBOL: self.nam_load, **({PEDAL_SYMBOL: self.pedal_load} if self.pedal else {})}
 
     def describe(self):
         text = f'NAM A2 Lite {self.nam_load:g}%'
@@ -81,6 +97,7 @@ def profile(settings=None):
 
 
 NAM_ID, PEDAL_ID = 380, 768
+NAM_SYMBOL, PEDAL_SYMBOL = 'HD2_AmpNAMLite', 'HD2_AmpNAMPedal'     # their models (focus_view.NAM_ENGINES)
 
 
 def from_identity(reply):

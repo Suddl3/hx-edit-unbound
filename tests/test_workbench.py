@@ -1318,15 +1318,15 @@ class DspCostTests(unittest.TestCase):
     def test_the_page_shows_the_measured_figure_or_says_it_is_not_measured_yet(self):
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')
         self.assertIn("message.type === 'dspCosts'", page)
-        self.assertIn("'% of DSP ' + (block.dsp + 1) + ' (measured)'", page)
+        self.assertIn("'% of DSP ' + (block.dsp + 1) + (nam ? ' (the same for every capture)' : ' (measured)')", page)
         self.assertIn('Not measured yet', page)
 
     def test_measured_costs_replace_the_estimates_in_the_room_checks(self):
-        kept = run_js(['focus_view.js'], 'focusMeasured({HD2_AmpNAMLite: 27, "bad name": 3, HD2_Zero: 0, HD2_Huge: 90, HD2_Text: "5"})')
-        self.assertEqual(kept, {'HD2_AmpNAMLite': 27})
+        kept = run_js(['focus_view.js'], 'focusMeasured({HD2_AmpLine6Litigator: 17, HD2_AmpNAMLite: 27, "bad name": 3, HD2_Zero: 0, HD2_Huge: 90, HD2_Text: "5"})')
+        self.assertEqual(kept, {'HD2_AmpLine6Litigator': 17})          # (a NAM block's is never taken: its declared cost)
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertEqual(script.count('], costsNow(), '), 3)                                # swap, add, move across
-        self.assertIn("if (value.action === 'costs') measured = focusMeasured(value.costs);", script)
+        self.assertIn("if (value.action === 'costs') measured = focusMeasured(value.costs, namEngines);", script)
         launcher = (ROOT / 'start-hx-edit-nam.pyw').read_text(encoding='utf-8')
         self.assertIn("'payload': {'action': 'costs', 'costs': dict(workbench.costs.costs)}", launcher)
         page = (ROOT / 'workbench.html').read_text(encoding='utf-8')

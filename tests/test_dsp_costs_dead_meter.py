@@ -16,7 +16,9 @@ import dsp_costs  # noqa: E402
 import workbench  # noqa: E402
 from test_focus_view import FakePane, resources  # noqa: E402
 
-NAM = 'HD2_AmpNAMLite'
+# (the block of those traces was a NAM A2 Lite; since v0.7.3 a NAM block is never measured, its cost is the firmware's
+# declared one: dsp_costs.py. The rules are the same for any block, so a stock amp stands in for it here.)
+NAM = 'HD2_AmpLine6Litigator'
 ENDS = ('HD2_AppDSPFlow1Input', 'HD2_AppDSPFlow2Input', 'HD2_AppDSPFlowOutput', 'HD2_AppDSPFlowOutput', 'HD2_AppDSPFlowSplitY', 'HD2_AppDSPFlowJoin')
 ENDS_ID = ('inputA', 'inputB', 'outputA', 'outputB', 'split', 'join')
 UNDO_REFUSED = {'type': 'toneTrace', 'reason': 'focus-view', 'stage': 'swap-failed', 'key': 'undo',
