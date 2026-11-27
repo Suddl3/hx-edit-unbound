@@ -1,10 +1,16 @@
 # What's new
 
-## Unreleased
+## November 27: v0.7.4
+
+- **Loading a capture from the library works again.** "Put on the Floor" and "Use on the selected block" on the library page failed with "Could not read the model of the selected block" whatever block was selected; they now load the capture onto the selected NAM block (unsaved until you save the preset).
+- **Remembered Floor slots are no longer taken on trust.** Slot numbers still show as soon as the Floor connects, but a slot this PC only remembers is read back before Use on Floor picks it, so a capture replaced by another tool under the same name can no longer play in place of the one the library names. **Check Floor slots** in the menu reads every slot again ([details](FLOOR-WORKFLOW.md#owner-decisions-november-13-supersede-the-points-they-touch-below)).
+- **Snapshot values grid**: a value edited in another snapshot's column is written only once HX Edit is on that snapshot, then the snapshot you were on comes back, so a slow snapshot switch can no longer put the value into the wrong snapshot.
+- **Levels is safer**: measurements stay with the setlist and preset they were made in (switching setlist clears them), a preset whose lane B has its own output or whose output Level is on a pedal or other controller is left alone, routing is put back only into the preset it came from, Cancel works during Apply and Undo, and a half-finished preparation is put back.
+
+## November 27: v0.7.3
 
 - **Every NAM block shows the firmware's cost.** The Floor counts each NAM block at the cost its firmware declares (43% of a DSP on builder firmware), whatever the capture, so the editor now does too: tiles, the capture panel ("43% of DSP 1 (the same for every capture)") and the room checks. Older per-capture figures saved under earlier firmware (for example "36% (measured)") are dropped.
 - **Shares read as % of a DSP**: the library panel, the lighter-version choices and the import options showed the firmware's units as a percentage ("32.5% of a DSP" for a 43% block). They now show the same figure as the picker.
-- **Remembered Floor slots are no longer taken on trust.** Slot numbers still show as soon as the Floor connects, but a slot this PC only remembers is read back before Use on Floor picks it, so a capture replaced by another tool under the same name can no longer play in place of the one the library names. **Check Floor slots** in the menu reads every slot again ([details](FLOOR-WORKFLOW.md#owner-decisions-november-13-supersede-the-points-they-touch-below)).
 
 ## November 27: v0.7.2
 
