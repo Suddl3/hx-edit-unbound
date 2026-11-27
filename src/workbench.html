@@ -618,6 +618,16 @@
             display: flex; gap: 14px; align-items: flex-start; padding: 12px 14px; border-radius: 10px; background: #1d1517; border: 1px solid rgb(240 96 96 / .5);
             box-shadow: 0 20px 50px rgb(0 0 0 / .7); color: var(--ink); font-size: 13px; line-height: 1.5; }
   .sticky span { flex: 1; white-space: pre-line; }
+  /* the NAM library could not be used this launch (workbench.library_problem): said above the captures, v0.7.2 */
+  .libtrouble { grid-column: 1 / -1; margin: 0 0 10px; padding: 12px 14px; border-radius: 10px; border: 1px solid rgb(240 180 60 / .45);
+                background: rgb(240 180 60 / .08); color: var(--ink); font-size: 13px; line-height: 1.5; user-select: text; -webkit-user-select: text; }
+  .libtrouble small { display: block; margin-top: 6px; color: var(--dim); font-size: 11.5px; word-break: break-all; }
+  .drawer .none.libtrouble { margin: 10px; padding: 10px 12px; color: var(--ink); font-size: 12.5px; }
+  /* the Floor did not say which firmware it runs (workbench.firmware_notice): one line until OK, v0.7.2 */
+  .fwnote { position: fixed; left: 80px; bottom: 14px; z-index: 30; max-width: calc(100% - 100px); display: flex; gap: 12px; align-items: center;
+            padding: 8px 10px 8px 14px; border-radius: 9px; border: 1px solid rgb(240 180 60 / .5); background: #1f1a10;
+            box-shadow: 0 12px 30px rgb(0 0 0 / .6); color: var(--ink); font-size: 12.5px; line-height: 1.4; }
+  .fwnote span { flex: 1; }
   .btn.danger.fill { background: #c2413f; border-color: #c2413f; color: #fff; }
   .btn.danger svg { width: 14px; height: 14px; }
   .libtabs { display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: #0e1014; border: 1px solid var(--line); flex: none; }
@@ -1098,6 +1108,7 @@
     <header class="vhead" id="vhead"></header>
     <div class="vbody" id="vbody"></div>
   </section>
+  <div class="fwnote" id="fwnote" role="status" hidden><span></span><button class="btn sm" id="fwnoteOk">OK</button></div>
 </div>
 
 <script src="pane_controls.js"></script>
@@ -3164,6 +3175,13 @@ function stickyNote(words) {
   note.querySelector('span').textContent = text;
 }
 let seenClearNote = 0;
+// The Floor did not say which firmware it runs this launch (options.firmwareNotice, workbench.firmware_notice): one line
+// until its OK. Not a ".sticky": a docked tool's window need not step aside for it (topMenuOpen).
+let fwDismissed = '';
+function drawFirmwareNote() {
+  const text = workbenchFirmwareNote(options, fwDismissed), note = $('fwnote');
+  note.querySelector('span').textContent = text; note.hidden = !text;
+}
 function toast(words) {
   const line = $('toast');
   line.textContent = String(words || ''); line.hidden = !line.textContent;
@@ -3507,7 +3525,7 @@ function drawDrawer() {
   box.setAttribute('aria-label', kind.title + ' on the Floor');
   const all = kind.items().filter(c => c && Number.isInteger(c.slot)).slice().sort((a, b) => a.slot - b.slot);
   const now = current(), inUse = now && kind.fits(now) ? now.slot : null;
-  const key = JSON.stringify([drawer, all.map(c => [c.slot, c.name, c.icon, c.gear]), capKind, capQuery, inUse]);
+  const key = JSON.stringify([drawer, all.map(c => [c.slot, c.name, c.icon, c.gear]), capKind, capQuery, inUse, drawer === 'captures' && lib && lib.problem]);
   if (key === shownDrawer) return;
   shownDrawer = key;
   const groupOf = c => kind.kinds ? namKind(c) : '';
@@ -3540,7 +3558,10 @@ function drawDrawer() {
     if (group) list.append(el('div', 'grp', group));
     for (const c of rows) list.append(libraryRow(kind, c, c.slot === inUse));
   }
-  if (!shown.length) list.append(el('div', 'none', all.length ? kind.none : kind.empty));
+  // (the library's trouble, not "No captures on the Floor yet", while it cannot be used: v0.7.2)
+  const said = workbenchLibraryWords(drawer === 'captures' ? lib : null, all.length, shown.length, kind);
+  if (said.trouble) list.prepend(el('div', 'none libtrouble', said.trouble));
+  if (said.empty) list.append(el('div', 'none', said.empty));
   const scroll = box.querySelector('.caplist').scrollTop;
   reusable = gather(box);
   try {
@@ -4852,6 +4873,13 @@ function drawFloorSlots() {
   body.querySelector('.fs .side').replaceWith(side);
   $('vhead').querySelector('.sub').textContent = 'What is in each of the Floor’s 128 slots';
 }
+// What the library page says where it lists no capture (workbenchLibraryWords; the Captures drawer has its own, DRAWERS)
+const LIBRARY_WORDS = {empty: 'No captures yet. Import .nam files, or find some on TONE3000.', none: 'No capture matches.'};
+function troubleNote(words, folder) {
+  const note = el('div', 'libtrouble', words);
+  if (folder) note.append(el('small', '', 'Library folder: ' + folder));
+  return note;
+}
 function drawLibrary() {
   if (view.full !== 'library' || !catalog || !state) return;
   const body = $('vbody');
@@ -4936,7 +4964,10 @@ function drawLibrary() {
       list.append(line);
     }
   }
-  if (!rows.length) list.append(el('p', 'note2', all.length ? 'No capture matches.' : 'No captures yet. Import .nam files, or find some on TONE3000.'));
+  // (the library's own trouble this launch first, and never "No captures yet" in its place: v0.7.2)
+  const said = workbenchLibraryWords(lib, all.length, rows.length, LIBRARY_WORDS);
+  if (said.trouble) list.prepend(troubleNote(said.trouble, lib.problem.folder));
+  if (said.empty) list.append(el('p', 'note2', said.empty));
   const old = body.querySelector('.cg5, .lrows'), scroll = old ? old.scrollTop : 0;
   reusable = gather(body);
   try {
@@ -4944,7 +4975,7 @@ function drawLibrary() {
     body.querySelector('.cd').replaceWith(libSide(all.find(r => r.id === libSelected)));
   } finally { reusable = null; }
   list.scrollTop = scroll;
-  $('vhead').querySelector('.sub').textContent = THINGS.library.sub + ' · ' + all.length + ' capture' + (all.length === 1 ? '' : 's');
+  $('vhead').querySelector('.sub').textContent = THINGS.library.sub + ' · ' + (said.trouble ? 'not available right now' : all.length + ' capture' + (all.length === 1 ? '' : 's'));
 }
 // ---- TONE3000's tray: what you chose on the site and where it is now (stage 6) -------------------------------------
 // The TONE3000 window's own session tells it ({type: "session", kind: "tone"}: tone_preview browse's tray) while the
@@ -5227,7 +5258,7 @@ function receive(message) {
     options = message.options || {};
     // (the kept layout; an answer to an earlier pick that crosses a newer one is not followed)
     if (!(layoutAsked && Date.now() - layoutAsked.at < 2000 && options.layout !== layoutAsked.name)) setLayout(options.layout, false);
-    drawRail(); return;
+    drawFirmwareNote(); drawRail(); return;
   }
   else if (message.type === 'notice') {                         // (a change refused: shown as it is)
     addFollow = null; swapAsked = null; replaced = null; toast(message.text);
@@ -5240,7 +5271,7 @@ function receive(message) {
     return;
   }
   else if (message.type === 'toolClosed') { toolClosed(); return; }
-  else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; drawLibrary(); return; }
+  else if (message.type === 'library') { lib = message.library && typeof message.library === 'object' ? message.library : null; shownLib = ''; shownDrawer = ''; drawLibrary(); drawDrawer(); return; }
   else if (message.type === 'session' && message.kind === 'toneEnded') { toneGone(); shownChain = ''; if (state && catalog) drawChain(); return; }
   else if (message.type === 'session' && message.kind === 'tone') { toolArrived(); toneTray = message.data || null; shownTray = ''; drawTray(); drawMini(); drawChain(); return; }
   else if (message.type === 'session' && message.kind === 'toolOpen') { toolArrived(); return; }
@@ -5267,6 +5298,7 @@ window.workbenchReceive = receive;                              // (tests and th
 document.body.insertAdjacentHTML('beforeend', '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><radialGradient id="kg" cx="35%" cy="28%" r="80%"><stop offset="0" stop-color="#4a4f5b"/><stop offset=".55" stop-color="#23262e"/><stop offset="1" stop-color="#15171c"/></radialGradient></defs></svg>');
 
 $('undo').onclick = () => askUndo('undo');
+$('fwnoteOk').onclick = () => { fwDismissed = String(options.firmwareNotice || ''); drawFirmwareNote(); };
 $('redo').onclick = () => askUndo('redo');
 $('save').onclick = savePreset;
 $('toFocus').onclick = () => ask('menu', 'focus');

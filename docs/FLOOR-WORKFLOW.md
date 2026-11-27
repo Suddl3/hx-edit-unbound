@@ -28,7 +28,7 @@ Not tested: stock Floor firmware, the NAM Pedal firmware (NAM Pedal blocks are c
 
 Known limits: start-up takes about 8 seconds, as HX Edit's own does once the Floor is connected. Loading a full library capture onto a NAM Pedal block switches it to the full NAM block without checking DSP room first.
 
-Known issue (v0.7.1): a new or swapped NAM A2 Lite block is judged at the firmware's declared cost, 36 of 75 units (48% of a DSP), as HX Edit judges it, even though a capture really uses about 36%. So a NAM block can be refused on a DSP that looks like it has room. The editor now marks those captures as full and says how much room is needed and how much is free. The figure comes from the firmware and stays until a firmware release lowers it.
+Known issue (v0.7.1): a new or swapped NAM A2 Lite block is judged at the firmware's declared cost, 36 of 75 units (48% of a DSP), as HX Edit judges it, even though a capture really uses about 36%. So a NAM block can be refused on a DSP that looks like it has room. The editor now marks those captures as full and says how much room is needed and how much is free. The figure comes from the firmware: firmware from the [HX Unbound Floor builder](https://suddl3.github.io/hx-unbound-floor/) declares 3250 (43% of a DSP), and the editor follows what the Floor declares, so on that firmware a capture that fits is accepted.
 
 ## How Classic differs from stock HX Edit
 
