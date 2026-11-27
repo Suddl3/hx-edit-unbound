@@ -1096,6 +1096,7 @@ def prepared_workspace():
     launch, so a screen-control grant (computer use) given for one test launch still holds for the next."""
     fixed = os.environ.get('HX_EDIT_COPY_DIR')
     if not fixed:
+        (ROOT / 'build').mkdir(exist_ok=True)
         return tempfile.TemporaryDirectory(prefix='nam-', dir=ROOT / 'build', ignore_cleanup_errors=True)
     import contextlib
     import shutil

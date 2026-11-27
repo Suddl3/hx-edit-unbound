@@ -1,0 +1,25 @@
+name: tests
+
+# The editor's own test suite on every PR and on main. Windows, like the editor: some tests compile the C# helpers
+# with the .NET Framework compiler or run PowerShell; many run page and HX Edit-side JavaScript through Node.
+# Tests that need HX Edit's own files (src/build/HX Edit, not in the repo) or a Helix skip themselves.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q -rs
