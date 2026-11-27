@@ -161,19 +161,72 @@ CHOOSE = ('nam', 'namFolder', 'picture', 'export')
 TONE3000_HOSTS = ('www.tone3000.com', 'tone3000.com')
 
 
-def library_view(library):
+def library_view(library, problem=None):
     """What the Workbench's NAM library draws: each capture (nam_library.library_row), the pictures uploaded by the
-    player (as data: URIs: the pane cannot reach the library's folder), the picture picker's groups and the choices."""
+    player (as data: URIs: the pane cannot reach the library's folder), the picture picker's groups and the choices.
+    problem: library_problem's, said in place of "No captures yet" (None: the library can be used)."""
     import capture_icons
     import nam_library
     pictures = getattr(library, 'pictures', None)
     rows = [nam_library.library_row(key, value, pictures) for key, value in library.entries().items()]
     uploaded = nam_library.uploaded_pictures(pictures) if pictures else []
-    return {'rows': rows,
+    return {'rows': rows, 'problem': problem if isinstance(problem, dict) else None,
             'pictures': {ident: nam_library.uploaded_data_uri(Path(pictures) / f'{ident}.png') for ident in uploaded},
             'groups': ([{'label': 'Your pictures', 'ids': uploaded[::-1], 'uploaded': True}] if uploaded else [])
                       + capture_icons.picker_groups(),
             'gears': dict(nam_library.GEARS), 'instruments': dict(nam_library.INSTRUMENTS)}
+
+
+# What the Workbench says when the library on this PC cannot be used (2026-11-27: Nick saw "0 captures" and "Not in the
+# NAM library" and thought his captures were lost; the library was in another folder, and an editor started from inside
+# another app refused every file). Plain words: the player is not told about catalogs or paths, only what happened and
+# what to do. The details go to trace.log (the launcher's "startup" line).
+LIBRARY_AFTER = 'Close the editor and start it again from its usual shortcut. If this message stays, the details are in trace.log.'
+LIBRARY_KEPT = 'their files are still in the library folder, and the ones on the Floor still play there.'
+
+
+def library_problem(library, primed=None, remembered=0):
+    """Why the NAM library on this PC cannot be used, as {kind, text, folder}; None when it can (an empty library is
+    fine when nothing says it had captures). kind: 'unreadable' (its catalog), 'unopened' (the index this launch opened
+    none of its captures: floor_inventory.prime_library's result, primed), 'empty' (nothing in it while floor-memory.json
+    names captures from it on the Floor's slots: remembered, how many). No capture names."""
+    folder = str(getattr(library, 'folder', ''))
+    reason = library.catalog_problem()
+    if isinstance(reason, str):
+        return {'kind': 'unreadable', 'folder': folder,
+                'text': f'Your NAM library could not be read ({reason}). Your captures are not lost: {LIBRARY_KEPT} {LIBRARY_AFTER}'}
+    entries = library.entries()
+    if not isinstance(entries, dict):
+        return None
+    failed = primed.get('unsupported') if isinstance(primed, dict) else None
+    failed = [item for item in failed or () if isinstance(item, dict)]
+    if entries and failed and primed.get('indexed') == 0 and set(entries) <= {item.get('id') for item in failed}:
+        # (every capture the library has now was refused: one added since that works clears it)
+        first = str(failed[0].get('reason') or 'unknown reason')[:120]
+        count = len(entries)
+        opened = 'its one capture could not be opened' if count == 1 else f'none of its {count} captures could be opened'
+        text = f'Your NAM library could not be read ({opened}: {first}). Your captures are not lost: {LIBRARY_KEPT} {LIBRARY_AFTER}'
+        return {'kind': 'unopened', 'folder': folder, 'text': text}
+    if not entries and isinstance(remembered, int) and remembered > 0:
+        return {'kind': 'empty', 'folder': folder,
+                'text': (f"Your NAM library could not be found (the library folder is empty, but this PC remembers {remembered} "
+                         f"capture{'' if remembered == 1 else 's'} from it on the Floor). Your captures are not lost: the ones "
+                         f'on the Floor still play there. {LIBRARY_AFTER}')}
+    return None
+
+
+def firmware_notice(firmware, asked=True):
+    """One line for the Workbench when the Floor did not say which firmware it runs this launch (no answer to command
+    0x4f: typical in the first minute after it is switched on), so the editor uses its last answer, a profile set by
+    hand or the basic firmware (floor_firmware.detect); None when it answered, or when asking is turned off (asked)."""
+    import floor_firmware
+    what = {'remembered': "the Floor's last known firmware settings", 'configured': 'the firmware settings set by hand',
+            'assumed': 'basic firmware settings'}.get(floor_firmware.origin(firmware))
+    if not asked or what is None:
+        return None
+    blocks = f'NAM {firmware.nam_load:g}%, ' + (f'NAM Pedal {firmware.pedal_load:g}%' if firmware.pedal else 'no NAM Pedal')
+    return (f'The Floor did not answer when the editor started, so it is using {what} ({blocks}). '
+            'If the Floor was just switched on, close the editor and start it again in a minute.')
 
 
 def checked_library(value, entries):

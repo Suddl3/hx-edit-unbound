@@ -77,6 +77,41 @@ def trace(payload):
         pass
 
 
+def startup_line(firmware, library, primed, problem=None):
+    """The one "startup" line of trace.log, so a launch that went wrong can be told apart afterwards: the Floor firmware
+    for this launch (floor_firmware.detect) and where it came from (floor, remembered, configured or assumed), the
+    library folder and how many captures it lists, the library index's result (floor_inventory.prime_library: indexed,
+    how many refused, the first reason, timed out) and the library's trouble, if any (workbench.library_problem's kind).
+    No capture names."""
+    import floor_firmware
+    line = {'type': 'startup', 'firmware': None, 'firmwareSource': None, 'library': None, 'entries': None,
+            'primed': None, 'libraryProblem': None}
+    if firmware is not None:
+        line['firmware'] = firmware.describe()
+        line['firmwareSource'] = floor_firmware.origin(firmware)
+    try:
+        line['library'] = str(library.folder)
+        line['entries'] = len(library.entries())
+    except Exception as error:                  # (said, not raised: this line never stops a launch)
+        line['libraryError'] = str(error)[:200]
+    if isinstance(primed, dict):
+        refused = [item for item in primed.get('unsupported') or () if isinstance(item, dict)]
+        line['primed'] = {'indexed': primed.get('indexed'), 'unsupported': len(refused),
+                          'firstReason': str(refused[0].get('reason'))[:200] if refused else None,
+                          'timedOut': bool(primed.get('timedOut'))}
+    if isinstance(problem, dict):
+        line['libraryProblem'] = problem.get('kind')
+    return line
+
+
+def remembered_captures(memory):
+    """How many of the Floor's slots floor-memory.json last saw holding a capture (its content known), or 0."""
+    try:
+        return sum(1 for _, _, content in memory.slots() if content)
+    except Exception:
+        return 0
+
+
 def ask_firmware():
     """Ask which NAM firmware the unit runs (Enter: the last answer) and keep it in settings.json: it sets
     the NAM blocks of HX Edit's catalog and the import modes. Cancel keeps the last answer."""
@@ -149,6 +184,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
     library = library if library is not None else Library()
     if (exe.parent / 'res' / 'icons_models' / 'NAMCAP_green_screamer.png').is_file():
         library.publish_pictures(exe.parent / 'res' / 'icons_models')   # uploads reach the NAM model lists
+    primed = None               # the library index's result (prime_library), for the startup line and the Workbench
     if navigation:
         from floor_inventory import prime_library
         from navigation_host import NavigationHost
@@ -158,12 +194,36 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
         # cannot be built. Packaged builds include the matching compiled helper.
         prepare_sidebar()
         # Offline conversion precedes spawning HX Edit, never its native event callback.
-        prime_library(library, CONVERTER, Path(workspace) / 'library-index', timeout=120)
+        primed = prime_library(library, CONVERTER, Path(workspace) / 'library-index', timeout=120)
+    # What this launch found, said rather than swallowed (v0.7.2): one "startup" line in trace.log; the Workbench says
+    # when the library cannot be used (workbench.library_problem: not "No captures yet") and when the Floor did not say
+    # which firmware it runs (workbench.firmware_notice). None of it ever stops a launch.
+    firmware_note = None
+    remembered = 0
+    def library_trouble():
+        try:
+            from workbench import library_problem
+            return library_problem(library, primed, remembered_captures(memory) if memory is not None else remembered)
+        except Exception as error:
+            trace({'type': 'startup', 'event': 'library-check-failed', 'error': str(error)[:200]})
+            return None
+    memory = None
+    if floor_reference:
+        try:
+            from floor_memory import FloorMemory
+            from workbench import firmware_notice
+            remembered = remembered_captures(FloorMemory(library.folder))
+            firmware_note = firmware_notice(FLOOR_SEEN, floor_firmware.asking(nam_catalog.load_settings()))
+        except Exception as error:
+            trace({'type': 'startup', 'event': 'firmware-check-failed', 'error': str(error)[:200]})
+        try:
+            trace(startup_line(FLOOR_SEEN, library, primed, library_trouble()))
+        except Exception as error:
+            print(f'Could not write the startup line: {error}')
     host = None
     preview = None
     sidebar = None
     meter = None
-    memory = None
     focus = None
     workbench = None
     frame = None
@@ -390,8 +450,9 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                 except Exception:
                     return True
             def menu_options():
+                # (firmwareNotice: the Floor did not say which firmware it runs this launch; one line on the page until OK)
                 return {'level': bool(preview.level), 'menuRow': frame.menu_ok, 'menuBar': menu_bar_kept(), 'layout': layout_kept(),
-                        'scenePin': scene_pin_kept()}
+                        'firmwareNotice': firmware_note, 'scenePin': scene_pin_kept()}
             def frame_show():
                 try:
                     frame.apply(focus_on[0] or workbench_on[0], menu_bar_kept())
@@ -636,7 +697,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     if library is None or not workbench_on[0] or focus_on[0]:
                         return
                     if value.get('do') == 'view':
-                        workbench.show_library(library_view(library))
+                        workbench.show_library(library_view(library, library_trouble()))
                         return
                     edit = checked_library(value, library.entries())
                     if edit is None:
@@ -841,7 +902,8 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
                     # the NAM library for the Workbench's own view: now, and again whenever it changes
                     def library_changed():
                         try:
-                            workbench.show_library(library_view(library))
+                            # (with what keeps it from being used, said in place of "No captures yet")
+                            workbench.show_library(library_view(library, library_trouble()))
                         except (OSError, ValueError) as error:
                             trace({'type': 'workbench', 'event': 'library-view-failed', 'error': str(error)})
                     library.subscribe(library_changed)
@@ -1012,6 +1074,7 @@ def run_editor(exe, workspace, device, profiles, firmware='plain', *, floor_refe
 
 
 def main():
+    global FLOOR_SEEN
     import frida
     from nam_catalog import prepare_copy
     from nam_inventory import HX_NAM_DEVICES, scan_profiles
@@ -1070,7 +1133,9 @@ def main():
             floor = floor_firmware.profile()
             # Ask the Floor itself (editor command 0x4f); without an answer, a profile set by hand, its last answer,
             # else the basic NAM firmware (floor_firmware.detect). "floorFirmwareAsk": false skips asking.
-            floor = floor_firmware.detect(CONVERTER.parent)
+            # (kept for run_editor: what the Floor runs, where it came from for trace.log, and the Workbench's notice when
+            # it did not answer; it was never set before v0.7.2, so run_editor always fell back to the copy's record)
+            FLOOR_SEEN = floor = floor_firmware.detect(CONVERTER.parent)
             print(f'Floor firmware: {floor.describe()} ({floor.source})')
         exe = prepare_copy(workspace, scan_error, hx_nam=args.hx_nam, floor=floor)
         if args.navigation:

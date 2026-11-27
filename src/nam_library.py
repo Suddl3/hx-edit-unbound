@@ -217,6 +217,21 @@ class Library:
             return {}
         return entries
 
+    def catalog_problem(self):
+        """Why the catalog cannot be read right now, in plain words, or None (it reads, or there is none yet).
+        _read gives a view {} for both, so the Workbench says this instead of "No captures yet"."""
+        try:
+            text = self.catalog.read_text(encoding='utf-8-sig')
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as error:
+            return f"its list of captures could not be opened: {getattr(error, 'strerror', None) or error}"
+        try:
+            entries = json.loads(text)
+        except ValueError:
+            entries = None
+        return None if isinstance(entries, dict) else 'its list of captures is damaged'
+
     def entries(self):
         """Local captures, decorated with this running editor's evidence only."""
         entries = self._read()
