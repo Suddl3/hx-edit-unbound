@@ -1,5 +1,15 @@
 # What's new
 
+## November 27: v0.7.2
+
+- **Problems at start-up are explained, not hidden.** If the editor cannot read your NAM library, the library page and the Captures drawer say why and that your captures are not lost, instead of "No captures yet". The library page shows the folder it reads.
+- **Library missing, captures on the Floor**: if the library folder is empty but this PC remembers captures on your Floor, the editor says so.
+- **Firmware notice**: if the Floor did not answer when the editor started (usual in the first minute after switching it on), one line says the editor is using the last known or basic firmware settings and to restart it in a minute. Before, it fell back to NAM at 48% and no NAM Pedal without a word.
+- **Start-up line in trace.log**: the firmware found and where from, the library folder, how many captures it found and could open. No capture names.
+- Fixes: the Floor's firmware answer now reaches the stored DSP costs; test runs no longer write into your own trace.log.
+- **The 48% issue is fixed on the firmware side**: firmware from the [HX Unbound Floor builder](https://suddl3.github.io/hx-unbound-floor/) declares the NAM block at 43% of a DSP, and the editor follows it.
+- Known: a few screens show NAM costs in the firmware's units ("32.5% of a DSP" for a block that uses 43%); while the library cannot be matched to the Floor, captures already there still offer "Put on the Floor".
+
 ## November 27: v0.7.1
 
 - **Adding or swapping a NAM capture** is judged the way HX Edit judges it. A capture that has not been measured is shown at the firmware's own figure, captures that will not fit are marked full, and nothing is sent that HX Edit would refuse.
