@@ -831,7 +831,7 @@ class ScriptTests(unittest.TestCase):
         self.assertFalse(focus_view.write_notify({'focusWriteNotify': False}))
         script = (ROOT / 'focus_view.js').read_text(encoding='utf-8')
         self.assertIn("targetBinding.setValue(target, dsp, id, key, value, 'refresh')", script)
-        self.assertEqual(script.count('finish('), 10)   # (R7: and an input's or an output's place)   # (and a value in another snapshot, a capture added in one step, an IR)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
+        self.assertEqual(script.count('finish('), 11)   # (R5: a value in another snapshot once recalled)   # (R7: and an input's or an output's place)   # (and a value in another snapshot, a capture added in one step, an IR)                       # defined once; after a single change, each way a drag ends, a capture, an added capture
 
     def test_the_pane_never_outlives_hx_edit(self):
         pane = (ROOT / 'focus_view.cs').read_text(encoding='utf-8')
@@ -900,7 +900,7 @@ class WiringTests(unittest.TestCase):
         self.assertIn('!chainBlock.test(block.id)', swap)
         # Every write is a value of a block the pane shows, one of its model's controls or its bypass.
         self.assertIn("command.key === '@enabled' || (parameters[block.model] || []).includes(command.key)", script)
-        self.assertEqual(script.count('targetBinding.setValue('), 6)   # (R7: and an input's or an output's place)   # (and a value in another snapshot)      # the write, a drag closed for the pane (twice), the refresh
+        self.assertEqual(script.count('targetBinding.setValue('), 7)   # (R5: a value in another snapshot once recalled)   # (R7: and an input's or an output's place)   # (and a value in another snapshot)      # the write, a drag closed for the pane (twice), the refresh
         self.assertIn('namView.clickChainPoint(spot.x, spot.y)', script)
         self.assertIn('onFloor = captures(onFloor); header = presetHeader(); plainIrs = readIrs(plainIrs);', script)   # the captures are listed whatever the preset holds
         view = (ROOT / 'nam_view.js').read_text(encoding='utf-8')

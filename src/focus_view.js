@@ -181,6 +181,47 @@ function focusQueue(queue, command, limit = 32) {
   return queue;
 }
 
+// A value read back from HX Edit is the value written (a float as HX Edit keeps it; an on/off as a flag or a number).
+function focusSameValue(read, wanted) {
+  if (typeof wanted === 'boolean') return read === wanted || (typeof read === 'number' && (read !== 0) === wanted);
+  return typeof read === 'number' && typeof wanted === 'number' && Math.abs(read - wanted) <= Math.max(1e-4, Math.abs(wanted) * 1e-5);
+}
+
+// One step of a Snapshot values grid change to a snapshot that is not on (focus_view.js gridStep, review R5). A recall
+// only asks HX Edit for the snapshot: it reports the new number some 150 ms later and the snapshot's values arrive later
+// still, so a value written in the same breath landed in the snapshot that was on (Levels waits the same way:
+// nam_level_flow _land, LANDED on the snapshot before a write). Stages, one reading apart at least:
+//   landing   - recalled; written once HX Edit is on the snapshot `landed` ms after the recall
+//   written   - written; the snapshot that was on is recalled once the value reads back on that snapshot
+//   returning - recalled back; over once HX Edit is on that snapshot again
+// job: {stage, from, to, value, preset, at (when the stage began)}; seen: what HX Edit has now {snapshot, preset (its
+// setlist:number, null when unknown or another preset was loaded), editor (still the job's editor), value (the
+// control, read only once written)}. Another preset or editor ends the job at once: nothing written before the write,
+// nothing recalled into another preset after it. Returns {job (null when over), do: 'wait' | 'write' | 'restore' |
+// 'done' | 'abort', why}. Pure: tests run it.
+function focusGridStep(job, seen, now, landed = 1000, latest = 5000) {
+  const elapsed = now - job.at;
+  if (!seen.editor || seen.preset === null || seen.preset !== job.preset) {
+    return {job: null, do: 'abort', why: !seen.editor ? 'editor' : 'preset', written: job.stage !== 'landing'};
+  }
+  const back = why => ({job: {...job, stage: 'returning', at: now}, do: 'restore', why});
+  if (job.stage === 'landing') {
+    if (seen.snapshot === job.to && elapsed >= landed) return {job: {...job, stage: 'written', at: now}, do: 'write'};
+    // (not there in time: nothing written; the snapshot that was on is asked for again, after a late arrival too)
+    if (elapsed > latest) return back('not-landed');
+    return {job, do: 'wait'};
+  }
+  if (job.stage === 'written') {
+    if (seen.snapshot !== job.to) return {job: null, do: 'done', why: 'snapshot-moved'};   // someone else recalled one
+    if (focusSameValue(seen.value, job.value)) return back(null);
+    if (elapsed > latest) return back('not-confirmed');
+    return {job, do: 'wait'};
+  }
+  if (seen.snapshot === job.from) return {job: null, do: 'done', why: null};
+  if (elapsed > latest) return {job: null, do: 'done', why: 'not-returned'};
+  return {job, do: 'wait'};
+}
+
 // Whether a DSP has room for model `next` in place of model `now`, as HX Edit itself decides it: what the Floor's
 // meter shows on the DSP (dsp_meter.js: what its blocks use of what they may), less what the block replaced uses
 // there, plus the new model's own figure in HX Edit's catalog (costs.admit: HelixModelDefs; a NAM block: the Floor
@@ -640,6 +681,48 @@ function installFocusView(options, parts) {
   let lastCanWord = '';       // HX Edit's own can-undo / can-redo, as last traced
   const ADD_FOLLOW_MS = 3000;
   const occupied = (dsp, lane, place) => (known || []).some(block => block.dsp === dsp && chainBlock.test(block.id) && block.position === place && block.path === lane);
+  // A Snapshot values grid change to a snapshot that is not on, under way (focusGridStep): while it is, refresh takes
+  // nothing else from the pane, so no other write lands in the snapshot recalled for it. Given up when HX Edit loads a
+  // preset or changes device (the event hook marks it), when the loaded preset or the editor is another, or when the
+  // panes are turned off (set).
+  let gridJob = null;
+  const GRID_LANDED_MS = 1000, GRID_LATEST_MS = 5000;     // as Levels: nam_level_flow LANDED, and its 5 s for a recall
+  function gridPreset() {
+    try { const read = namView.presetHeader?.(); return read && Number.isInteger(read.setlist) && Number.isInteger(read.preset) ? read.setlist + ':' + read.preset : null; }
+    catch (_) { return null; }
+  }
+  function gridStep() {
+    const job = gridJob;
+    let snapshot, value;
+    try { snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot'); } catch (_) { snapshot = undefined; }
+    if (job.stage === 'written') { try { value = targetBinding.peekValue(editor, job.dsp, job.id, job.key); } catch (_) { value = undefined; } }
+    const same = !editor.isNull() && (editor === job.editor || (typeof editor.equals === 'function' && editor.equals(job.editor)));
+    const step = focusGridStep(job, {snapshot, preset: job.moved ? null : gridPreset(), editor: same, value}, Date.now(), GRID_LANDED_MS, GRID_LATEST_MS);
+    gridJob = step.job;
+    if (step.do === 'wait') return;
+    changed = true;
+    const where = 'snapshot ' + (job.to + 1);
+    send({type: 'toneTrace', reason: 'focus-view', stage: 'grid-' + step.do, why: step.why || null, from: job.from, to: job.to, key: job.key, ms: Date.now() - job.at});
+    if (step.do === 'write') {
+      try {
+        targetBinding.setValue(editor, job.dsp, job.id, job.key, job.value, 'single');
+        finish(editor, job.dsp, job.id, job.key, job.value);
+      } catch (error) {
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'grid-write-failed', error: String(error.message)});
+        send({type: 'dspNotice', text: `HX Edit did not set that value in ${where}.`});
+        gridJob = {...step.job, stage: 'returning', at: Date.now()};
+        try { targetBinding.recallSnapshot(editor, job.from); } catch (_) { gridJob = null; }
+      }
+    } else if (step.do === 'restore') {
+      if (step.why === 'not-landed') send({type: 'dspNotice', text: `HX Edit did not reach ${where}; nothing was changed there.`});
+      if (step.why === 'not-confirmed') send({type: 'dspNotice', text: `HX Edit did not show that value in ${where}.`});
+      try { targetBinding.recallSnapshot(editor, job.from); }
+      catch (error) { gridJob = null; send({type: 'dspNotice', text: `HX Edit did not go back to snapshot ${job.from + 1}.`}); }
+    } else if (step.do === 'abort') {
+      send({type: 'dspNotice', text: step.written ? `Another preset or device came up while that value was set in ${where}.` :
+                                                    `Another preset or device came up; nothing was changed in ${where}.`});
+    } else if (step.why === 'not-returned') send({type: 'dspNotice', text: `HX Edit did not go back to snapshot ${job.from + 1}.`});
+  }
   function change(command) {
     if (editor.isNull()) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
     endDrag('a chain change');
@@ -717,16 +800,22 @@ function installFocusView(options, parts) {
       // The Snapshot values grid: a value (or the block's on/off) in another snapshot, the way HX Edit changes one:
       // that snapshot is recalled, the value written as a knob writes it, and the snapshot that was on comes back
       // (HX Edit has no write of its own into a snapshot that is not on; seen with the chain probe 2026-11-22).
+      // The snapshot that is on: written at once. Another: recalled here, then written and recalled back on later
+      // readings (gridStep, focusGridStep), never in the same breath as the recall (R5).
+      if (gridJob) { writes.unshift(command); return; }      // (one at a time; refresh takes nothing while one is on)
       const block = (known || []).find(item => item.dsp === command.dsp && item.id === command.id);
       const now = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
       if (!block || !Number.isInteger(now)) { send({type: 'toneTrace', reason: 'focus-view', stage: 'chain-skipped', action: command.action}); return; }
-      const away = command.snapshot !== now;
-      if (away) targetBinding.recallSnapshot(editor, command.snapshot);
-      try {
+      if (command.snapshot === now) {
         targetBinding.setValue(editor, block.dsp, block.id, command.key, command.value, 'single');
         finish(editor, block.dsp, block.id, command.key, command.value);
-      } finally {
-        if (away) targetBinding.recallSnapshot(editor, now);
+      } else {
+        const preset = gridPreset();
+        if (preset === null) throw new Error('the loaded preset could not be read');
+        targetBinding.recallSnapshot(editor, command.snapshot);
+        gridJob = {stage: 'landing', from: now, to: command.snapshot, dsp: block.dsp, id: block.id, key: command.key, value: command.value,
+                   preset, editor, at: Date.now()};
+        send({type: 'toneTrace', reason: 'focus-view', stage: 'grid-recall', from: now, to: command.snapshot, key: command.key});
       }
     } else if (command.action === 'endpoint') {
       // An input's source or an output's destination (R7): HX Edit's own value for it, written as its list writes it
@@ -887,7 +976,11 @@ function installFocusView(options, parts) {
   function refresh(window) {
     queued = false;
     if (!on) return;
-    while (writes.length) {
+    if (gridJob) {
+      try { gridStep(); }
+      catch (error) { gridJob = null; changed = true; send({type: 'toneTrace', reason: 'focus-view', stage: 'grid-failed', error: String(error.message)}); }
+    }
+    while (writes.length && !gridJob) {
       const command = writes.shift();
       try {
         if (command.action === 'snapshot') {
@@ -1033,6 +1126,10 @@ function installFocusView(options, parts) {
       }
       const snapshot = targetBinding.peekGlobal(editor, 'global', '@current_snapshot');
       state.snapshot = Number.isInteger(snapshot) ? snapshot : null;
+      // (a grid change under way: the page goes on showing the snapshot that comes back as the one on, so a knob or a
+      // grid cell changed meanwhile is asked for that snapshot, and waits; gridEdit: the one being set)
+      if (gridJob) state.snapshot = gridJob.from;
+      state.gridEdit = gridJob ? {snapshot: gridJob.to, stage: gridJob.stage} : null;
       // HX Edit's own undo position (as tone_view reads it): the index of the last step in its ring of undo records
       // (editor+0x290: how many, 33), not a count, and a preset load leaves it as it was. The Workbench counts the
       // steps made on the loaded preset from its moves (workbenchOwnSteps).
@@ -1168,6 +1265,18 @@ function installFocusView(options, parts) {
     queuedAt = Date.now();
   }
   function set(value) {
+    if (gridJob) {
+      // Turned off (or on again) during a grid change: nothing more is written; the snapshot that was on is asked for
+      // again, on HX Edit's own thread, while it is still the same preset in the same editor.
+      const job = gridJob; gridJob = null;
+      namView.queueSidebarAction(() => {
+        try {
+          if (gridPreset() === job.preset && !job.moved && !editor.isNull() && editor.equals(job.editor) &&
+              targetBinding.peekGlobal(editor, 'global', '@current_snapshot') !== job.from) targetBinding.recallSnapshot(editor, job.from);
+        } catch (_) { /* the editor is gone */ }
+      });
+      send({type: 'toneTrace', reason: 'focus-view', stage: 'grid-dropped', stage_was: job.stage});
+    }
     if (on && value !== true && drag) {
       // Turned off in the middle of a drag: HX Edit is told the drag has ended, on its own thread.
       const open = drag; drag = null; writes.length = 0;
@@ -1202,7 +1311,10 @@ function installFocusView(options, parts) {
       try {
         const name = eventName(args[0]);
         if (name !== 'EditBuffer_ParamChanged') changed = true;
-        if (name === 'EditBuffer_DevicePresetChanged' || name === 'EditBuffer_TargetDeviceChanged') pickKey = null;   // a preset loaded, the same one too
+        if (name === 'EditBuffer_DevicePresetChanged' || name === 'EditBuffer_TargetDeviceChanged') {
+          pickKey = null;                                   // a preset loaded, the same one too
+          if (gridJob) gridJob.moved = name;                // a grid change under way is given up (gridStep)
+        }
       } catch (_) { changed = true; }
     },
     onLeave() { if (on) ask(); },
@@ -1323,5 +1435,5 @@ function installFocusView(options, parts) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { focusStepsGone, focusPreviewSteps, focusPreviewChain, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, focusRefusal, focusStripDue, focusStripTrace, FOCUS_STRIP_CHECK_MS, installFocusView };
+  module.exports = { focusGridStep, focusSameValue, focusStepsGone, focusPreviewSteps, focusPreviewChain, focusViewGuards, focusSnapshot, focusValues, focusChainPoint, focusFirstBlock, focusPaneBounds, focusPresetNames, focusLookStep, focusQueue, focusRoom, focusMeasured, focusCostKey, focusAssign, focusCursor, focusCaptures, focusAddMade, focusRefusal, focusStripDue, focusStripTrace, FOCUS_STRIP_CHECK_MS, installFocusView };
 }
