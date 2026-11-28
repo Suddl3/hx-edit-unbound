@@ -50,6 +50,41 @@ def editor_window():
     return found[0] if found else None
 
 
+LAUNCH_LOCK = r'Local\HXEditUnboundLauncher'
+_launch_lock = None      # this launcher's named mutex, held until the process ends (Windows frees it then)
+
+
+def claim_launch(name=LAUNCH_LOCK):
+    """False when another HX Edit Unbound launcher is already running in this Windows session. Two quick starts of the
+    shortcut both got past the "is HX Edit open?" check before either window existed, and the two launches then shared
+    one HX Edit and stalled its Floor slot check (2026-11-27). A named mutex is taken first thing instead; True when it
+    cannot be told (not Windows, or the mutex could not be made), so a launch is never refused by mistake."""
+    global _launch_lock
+    if os.name != 'nt':
+        return True
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
+    handle = kernel32.CreateMutexW(None, False, name)
+    if not handle:
+        return True
+    if ctypes.get_last_error() == 183:          # ERROR_ALREADY_EXISTS: another launcher holds it
+        kernel32.CloseHandle(wintypes.HANDLE(handle))
+        return False
+    _launch_lock = handle
+    return True
+
+
+def show_running_editor():
+    """Bring the editor of the launch already running forward (when its window exists yet)."""
+    window = editor_window()
+    if window:
+        user32 = ctypes.windll.user32
+        user32.ShowWindow(window, 9)            # SW_RESTORE
+        user32.SetForegroundWindow(window)
+
+
 def message(text, flags):
     # MB_SETFOREGROUND (0x10000): bring the notice forward when this process may.
     return ctypes.windll.user32.MessageBoxW(editor_window(), str(text), TITLE, flags | 0x10000)
@@ -1112,6 +1147,10 @@ def prepared_workspace():
 
 def main():
     global FLOOR_SEEN
+    if not claim_launch():
+        # A second start while one is running or still starting: show that one instead of starting another.
+        show_running_editor()
+        return
     import frida
     from nam_catalog import prepare_copy
     from nam_inventory import HX_NAM_DEVICES, scan_profiles
