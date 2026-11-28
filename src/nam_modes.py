@@ -223,7 +223,8 @@ def choose_firmware(current='plain'):
 def light_name(source, layers):
     """A trained copy's file name: '<name> L16.nam', or for a pedal model '<name> PED.wav' (IR names fit 31)."""
     suffix = f' L{layers}' if layers else ' PED'
-    return source.stem[:IR_NAME_LIMIT - len(suffix)].rstrip(' .') + suffix + ('.nam' if layers else '.wav')
+    from nam_convert import keep_end
+    return keep_end(source.stem, IR_NAME_LIMIT - len(suffix)) + suffix + ('.nam' if layers else '.wav')
 
 
 class PedalJob(nam_light.LightJob):

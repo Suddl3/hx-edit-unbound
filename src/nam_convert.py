@@ -71,6 +71,15 @@ def ascii_name(stem):
     return ' '.join(plain.split()) or 'Preview'
 
 
+def keep_end(stem, limit=IR_NAME_LIMIT):
+    """stem in at most limit characters. A longer one loses its middle ("~"), not its end: captures of one rig often
+    differ only in the last words (the microphone, the last knob)."""
+    if len(stem) <= limit:
+        return stem.rstrip(' .')
+    tail = min(18, limit * 3 // 5)
+    return (stem[:limit - 1 - tail].rstrip(' .-_,') + '~' + stem[-tail:].lstrip(' .,')).rstrip(' .')
+
+
 def stage_tone_import(file, workspace, *, audition=False):
     """Give HX Edit a disposable copy for each upload, including Save to Helix."""
     source = Path(file).resolve(strict=True)
