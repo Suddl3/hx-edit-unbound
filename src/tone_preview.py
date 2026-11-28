@@ -1083,9 +1083,10 @@ class TonePreview:
                 if self.pedal_block:
                     values['model'] = 'HD2_AmpNAMPedal' if capture_version == 'pedal' else 'HD2_AmpNAMLite'
                 if capture_version == 'pedal':
-                    made = self.library.version_path(identity, 'pedal')
-                    if not made.is_file():
+                    if not self.library.version_path(identity, 'pedal').is_file():
                         raise ToneError('This capture has no Pedal version yet. Optimize it first.')
+                    # (a copy in the working folder: HX Edit is given no file from the library's own folder)
+                    made = self.library.export_pedal(identity, tempfile.mkdtemp(prefix='library-', dir=self.workspace))
                     from floor_capture import validate_floor_capture_files
                     validate_floor_capture_files([made], pedal=True)
                     values.update(version='pedal', file=str(made))
