@@ -14,7 +14,7 @@ from threading import Lock
 import base64
 import capture_icons
 from capture_icons import UPLOADED, icon_for, known_icons, pick as pick_icon, picker_groups, small_data_uri
-from nam_convert import IR_NAME_LIMIT
+from nam_convert import IR_NAME_LIMIT, ascii_name, keep_end
 
 
 FOLDER = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'HX Edit NAM' / 'NAM Library'
@@ -89,6 +89,30 @@ def data_gear(data):
     # NAM trainer metadata names -> TONE3000 gear names used by the library.
     return {'amp': 'amp', 'preamp': 'amp', 'amp_cab': 'amp-cab', 'amp_pedal_cab': 'amp-cab',
             'pedal': 'pedal', 'pedal_amp': 'pedal', 'studio': 'outboard'}.get(gear, '')
+
+
+def slot_names(entries):
+    """The User IR name of each kept capture, {identity: name}: its irName. Different captures whose names were cut to the
+    same irName would look alike on the Floor, so those get a name that keeps the end of their own, then " 2", " 3" for
+    names that are the same all the way through (oldest first). Nothing in the catalog changes."""
+    names = {identity: entry['irName'] for identity, entry in entries.items() if isinstance(entry.get('irName'), str)}
+    groups = {}
+    for identity, name in names.items():
+        groups.setdefault(name.casefold(), []).append(identity)
+    taken = {key for key, group in groups.items() if len(group) == 1}
+    for key, group in sorted(groups.items()):
+        if len(group) == 1:
+            continue
+        for identity in sorted(group, key=lambda item: (str(entries[item].get('added') or ''), item)):
+            own = str(entries[identity].get('name') or names[identity])
+            wanted = ascii_name(re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', own))
+            name, number = keep_end(wanted), 2
+            while name.casefold() in taken:
+                tag = f' {number}'
+                name, number = keep_end(wanted, IR_NAME_LIMIT - len(tag)) + tag, number + 1
+            taken.add(name.casefold())
+            names[identity] = name
+    return names
 
 
 class CatalogError(ValueError):
@@ -684,16 +708,17 @@ class Library:
         self._changed()
 
     def export(self, identity, directory, original=False):
-        """Copy a kept capture under its IR name so HX Edit shows a readable slot name. original: its original .nam
-        instead (for training), also when the entry is a kept WAV with one attached."""
-        entry = self.entries()[identity]
+        """Copy a kept capture under its IR name (slot_names) so HX Edit shows a readable slot name. original: its
+        original .nam instead (for training), also when the entry is a kept WAV with one attached."""
+        entries = self.entries()
+        entry = entries[identity]
         source, extension = self._source(identity, entry)
         expected = identity
         if original and extension == '.wav':
             source, extension, expected = self.original_path(identity, entry), '.nam', entry.get('original')
             if source is None:
                 raise ValueError('This capture has no original .nam')
-        name = entry.get('irName')
+        name = slot_names(entries).get(identity)
         if (not isinstance(name, str) or not name or name in ('.', '..') or
                 any(ord(c) < 32 or c in '<>:"/\\|?*' for c in name) or name != name.rstrip(' .')):
             raise ValueError('Local capture export name is not a filename')

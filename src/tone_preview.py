@@ -15,7 +15,7 @@ from urllib.parse import unquote, urlsplit
 import tempfile
 import traceback
 
-from nam_convert import IR_NAME_LIMIT, convert_batch
+from nam_convert import IR_NAME_LIMIT, convert_batch, keep_end
 from nam_library import check_nam, render_library
 import nam_light
 from tone3000 import (API_HOSTS, ORIGIN, ToneError, get_tone, prepare_model, remember_link, select_tone, tone_link,
@@ -1152,7 +1152,7 @@ class TonePreview:
             folder = Path(tempfile.mkdtemp(prefix='light-', dir=self.workspace))
             capture = self.library.export(identity, folder, original=True)
             suffix = f' L{layers}'
-            output = folder / 'out' / (entry['irName'][:IR_NAME_LIMIT - len(suffix)].rstrip(' .') + suffix + '.nam')
+            output = folder / 'out' / (keep_end(capture.stem, IR_NAME_LIMIT - len(suffix)) + suffix + '.nam')
             output.parent.mkdir()
             light = {'running': True, 'id': identity, 'layers': layers, 'step': 0, 'steps': steps,
                      'name': f'{entry["name"]} [{layers} layers]', 'gear': entry.get('gear', ''),

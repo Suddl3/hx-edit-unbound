@@ -33,6 +33,43 @@ class ImportTests(unittest.TestCase):
         self.assertEqual((entry['name'], entry['gear'], entry['source']), ('TS9 Drive 6', 'pedal', 'file'))
         self.assertEqual(Path(self.library.folder, identity + '.nam').read_bytes(), data)    # not converted
 
+    def exported(self, *files):
+        """The slot names HX Edit would be given for captures imported from these file names, in order."""
+        kept = [self.library.add_data(nam(weights=(0.1, i)), file, source='file')[0] for i, file in enumerate(files)]
+        out = Path(self.folder.name, 'out')
+        return [self.library.export(identity, out).stem for identity in kept]
+
+    def test_a_short_name_is_used_as_it_is(self):
+        self.assertEqual(self.exported('TS9 Drive 6.nam', 'TS9 Drive 7.nam'), ['TS9 Drive 6', 'TS9 Drive 7'])
+
+    def test_names_cut_alike_keep_their_endings(self):
+        names = self.exported(*(f'Fuzz Factory V-4 G-6 C-10 D-5 S-{n}.nam' for n in (0, 3, 5, 7, 10)))
+        self.assertEqual(len(set(names)), 5)
+        self.assertTrue(all(len(name) <= 31 for name in names), names)
+        self.assertEqual([name.rsplit('S-', 1)[1] for name in names], ['0', '3', '5', '7', '10'])
+        names = self.exported('Fender Super Reverb_ EQ Flat, Volume 3, AKG 414.nam',
+                              'Fender Super Reverb_ EQ Flat, Volume 3, sm57 and AKG 414.nam',
+                              'Fender Super Reverb_ EQ Flat, Volume 3, sm57.nam')
+        self.assertEqual(len(set(names)), 3, names)
+
+    def test_a_name_alone_in_its_cut_is_still_cut_at_the_end(self):
+        self.assertEqual(self.exported('Marshall 1959BJA SUPER BOWL SETTINGS.nam'), ['Marshall 1959BJA SUPER BOWL SET'])
+
+    def test_the_very_same_name_gets_a_number_and_the_catalog_is_not_changed(self):
+        long = 'A very long capture name that is the same all the way through'
+        names = self.exported('a/Plexi.nam', 'b/plexi.nam', f'a/{long}.nam', f'b/{long}.nam')
+        self.assertEqual(names[:2], ['Plexi', 'plexi 2'] if names[0] == 'Plexi' else ['Plexi 2', 'plexi'])
+        self.assertEqual(len({name.casefold() for name in names}), 4, names)
+        self.assertTrue(all(len(name) <= 31 for name in names), names)
+        self.assertEqual(sorted({entry['irName'] for entry in self.library.entries().values()}),
+                         sorted({'Plexi', 'plexi', long[:31].rstrip()}))
+
+    def test_a_lighter_copy_keeps_the_ending_too(self):
+        from nam_modes import light_name
+        names = {light_name(Path(f'Fuzz Factory V-4~10 D-5 S-{n}.nam'), 0) for n in (0, 3)}
+        self.assertEqual(len(names), 2, names)
+        self.assertTrue(all(len(Path(name).stem) <= 31 for name in names), names)
+
     def test_the_same_capture_twice_stays_one_entry(self):
         first = self.library.add_data(nam(), 'a/Plexi.nam', source='file')
         second = self.library.add_data(nam(), 'b/Plexi copy.nam', source='file')
