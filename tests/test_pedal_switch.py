@@ -34,6 +34,25 @@ class VersionSlotTests(unittest.TestCase):
         made.write_bytes(ir_wav(627))
         self.library.add_version(self.identity, 'pedal', made, error=0.01)
 
+    def test_the_file_for_hx_edit_is_staged_and_has_a_readable_name(self):
+        from nam_convert import stage_tone_import
+        workspace = Path(self.temporary.name, 'workspace')
+        handed = self.library.export_pedal(self.identity, workspace / 'library-1')
+        self.assertEqual(handed.name, 'Klon Gain 6 PED.wav')
+        staged = stage_tone_import(str(handed), workspace)          # as the launcher does for HX Edit
+        self.assertEqual((staged.name, staged.read_bytes()), (handed.name, ir_wav(627)))
+        # the kept file itself is refused: it lies outside the working folder
+        with self.assertRaises(ValueError):
+            stage_tone_import(str(self.library.version_path(self.identity, 'pedal')), workspace)
+
+    def test_a_long_name_still_ends_as_it_did(self):
+        entries = self.library._read(for_write=True)
+        entries[self.identity]['irName'] = 'Fuzz Factory~4 G-6 C-10 D-5 S-0'
+        self.library._write(entries)
+        handed = self.library.export_pedal(self.identity, Path(self.temporary.name, 'out'))
+        self.assertTrue(handed.stem.endswith('D-5 S-0 PED'), handed.stem)
+        self.assertLessEqual(len(handed.stem), 31)
+
     def content(self):
         from floor_inventory import inspect_payload
         return inspect_payload(self.library.version_path(self.identity, 'pedal').read_bytes())['contentId']
@@ -73,12 +92,16 @@ class UseVersionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             made = Path(folder, 'x.pedal.wav')
             made.write_bytes(ir_wav(627))
+            handed = Path(folder, 'Klon PED.wav')
+            handed.write_bytes(ir_wav(627))
             b, library, p = self.preview([f'useVersion:{self.identity}:pedal'], True, made)
+            library.export_pedal.return_value = handed
+            p.workspace = folder
             p.command = Mock(return_value={'loadedSlot': 14})
             with patch('tone_preview.Thread'):
                 p.browse(b, 5, 't3k_pub_test')
         p.command.assert_called_once_with(5, 'load', identity=self.identity, targetVersion=1,
-                                          model='HD2_AmpNAMPedal', version='pedal', file=str(made))
+                                          model='HD2_AmpNAMPedal', version='pedal', file=str(handed))
         p.payload_callback.assert_called_once()              # the slot is then recognized as the Pedal version
         library.mark_pending.assert_not_called()              # not the original's pending slot
         self.assertTrue(any('Pedal version plays in User IR 14' in x.get('text', '') for x in b.sent))

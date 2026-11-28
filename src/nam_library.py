@@ -707,6 +707,23 @@ class Library:
                 self._view.update(selected=None, revision=self._view['revision'] + 1)
         self._changed()
 
+    def export_pedal(self, identity, directory):
+        """Copy a kept Pedal version for HX Edit, as "<IR name> PED.wav": HX Edit names the User IR after the file, and
+        the editor hands it files from its own working folder only. The kept file is named by the capture's hash."""
+        source = self.version_path(identity, 'pedal')
+        entries = self.entries()
+        name = slot_names(entries).get(identity) or str(entries[identity].get('name') or '')
+        tag = ' PED'
+        name = keep_end(ascii_name(re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name)), IR_NAME_LIMIT - len(tag)) + tag
+        folder = Path(directory).resolve()
+        destination = folder / (name + '.wav')
+        if destination.is_symlink() or destination.resolve().parent != folder:
+            raise ValueError('Local capture export path changed')
+        raw = source.read_bytes()
+        folder.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(raw)
+        return destination
+
     def export(self, identity, directory, original=False):
         """Copy a kept capture under its IR name (slot_names) so HX Edit shows a readable slot name. original: its
         original .nam instead (for training), also when the entry is a kept WAV with one attached."""
