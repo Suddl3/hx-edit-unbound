@@ -1,5 +1,11 @@
 # What's new
 
+## November 27: v0.7.5
+
+- **Real gear names**: a new choice in the layout menu (top left) shows amps and effects by the gear they model, for example "Vox AC30 Fawn B" for "A30 Fawn Brt", the same names HX Unbound Floor firmware can show on the unit. Off unless you turn it on; it applies the next time you start the editor and only changes displayed names. Your own custom-names.csv still wins. Thanks savedadodo (#20).
+- **One launch at a time**: starting the editor again while it is running (or still starting) brings the open window forward instead of starting a second launch, which could leave your captures showing as "IR slot n" (#24).
+- For contributors: every PR now runs the test suite on GitHub (#23), and test launches can keep HX Edit's copy in one folder with HX_EDIT_COPY_DIR (#22).
+
 ## November 27: v0.7.4
 
 - **Loading a capture from the library works again.** "Put on the Floor" and "Use on the selected block" on the library page failed with "Could not read the model of the selected block" whatever block was selected; they now load the capture onto the selected NAM block (unsaved until you save the preset).
